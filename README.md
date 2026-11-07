@@ -55,13 +55,14 @@ All maintained application logic is Rust, including the browser's DOM controls a
 
 Download the archive for your platform from [Releases](https://github.com/yungSNAT/ApollinaireASCII/releases/latest): Windows, macOS and Linux on x86-64 and ARM64, with `SHA256SUMS.txt`. Unpack it and put `apollinaire` on your `PATH`.
 
-From v0.3.0, each archive has a signed build provenance attestation. To confirm an archive was built by this repository's release workflow from its release tag, run the command below. v0.3.0 was built before the account was renamed, so its attestation names EquityBot; later releases will name yungSNAT.
+From v0.3.0, each archive has a signed build provenance attestation. To confirm an archive was built by this repository's release workflow from its release tag, run the command below. v0.3.0 was built before the account was renamed, so its attestation names EquityBot, a name this repository no longer holds. The `--source-digest` line pins the commit the v0.3.0 tag points to, so only an archive built from that commit passes. Later releases will name yungSNAT.
 
 ```sh
 gh attestation verify apollinaire-v0.3.0-x86_64-unknown-linux-musl.tar.gz \
   --repo EquityBot/ApollinaireASCII \
   --signer-workflow EquityBot/ApollinaireASCII/.github/workflows/release.yml \
-  --source-ref refs/tags/v0.3.0
+  --source-ref refs/tags/v0.3.0 \
+  --source-digest 16321293c603aba280536ccd6ad041fcaffa5b24
 ```
 
 To build from source instead, install [Rust](https://www.rust-lang.org/tools/install) 1.99 or later, then build the [crates.io release](https://crates.io/crates/apollinaire-ascii):
