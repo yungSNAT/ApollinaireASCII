@@ -13,6 +13,15 @@ categories = ["command-line-utilities", "multimedia::images", "text-processing",
 include = ["/src", "/tests", "!/tests/notices.rs", "/examples", "/LICENSES", "/README.md", "/LICENSE.md", "/THIRD_PARTY_NOTICES.md"]
 keywords = ["ascii", "art", "figlet", "animation", "wasm"]
 
+# `cargo binstall apollinaire-ascii` installs the release archive's binary instead of building it.
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/apollinaire-v{ version }-{ target }.tar.gz"
+bin-dir = "apollinaire-v{ version }-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
+[package.metadata.binstall.overrides.'cfg(target_os = "windows")']
+pkg-url = "{ repo }/releases/download/v{ version }/apollinaire-v{ version }-{ target }.zip"
+pkg-fmt = "zip"
+
 [lib]
 crate-type = ["rlib", "cdylib"]
 
@@ -23,11 +32,13 @@ required-features = ["cli"]
 
 [features]
 default = ["cli"]
-cli = ["dep:clap", "dep:ureq"]
+cli = ["dep:clap", "dep:clap_complete", "dep:clap_mangen", "dep:ureq"]
 web = ["dep:wasm-bindgen", "dep:web-sys", "dep:js-sys", "dep:wasm-bindgen-futures"]
 
 [dependencies]
 clap = { version = "4.6.7", features = ["derive"], optional = true }
+clap_complete = { version = "4.6.11", optional = true }
+clap_mangen = { version = "0.3.3", optional = true }
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp", "bmp", "pnm"] }
 serde = "1"
 serde_json = "1"

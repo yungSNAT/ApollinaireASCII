@@ -31,6 +31,8 @@ apollinaire transform art.txt crop --x 2 --y 1 --width 20 --height 10
 apollinaire transform art.txt border
 apollinaire check movie.json
 apollinaire play movie.json --loops 3
+apollinaire completions zsh > _apollinaire
+apollinaire man | man -l -
 ```
 
 `--output` creates a new file. An existing file causes an error, even when its contents are identical. Without it, exports go to stdout. Errors go to stderr and return a nonzero exit status. `check` reports validated dimensions and timing on stdout.
@@ -52,3 +54,5 @@ An `image` input starting with `https://` is downloaded: at most 16 MiB, within 
 `text` uses figlet's layout rules. `--horizontal` sets how letters join and `--vertical` how lines of lettering join: `default` (the font's own setting), `full` (no overlap), `fitted` (touching) or `smush` (merged by the font's smushing rules, or universally when the font has none). `--wrap N` breaks lines at spaces, or inside a word that is too long, so none exceeds N columns; it matches `figlet -w N+1`, because figlet reserves the terminal's last column. `--width` sets the canvas width that `--align` uses and does not wrap; each line of lettering is aligned separately, as `figlet -c` and `-r` do. `apollinaire list` names the bundled fonts. `--font-file` accepts a plain FIGlet `.flf` or TOIlet `.tlf` file up to 1 MiB whose every glyph is drawn in printable ASCII; files with other bytes in any glyph, and compressed fonts, are refused with the glyph and byte named.
 
 `play` requires a terminal and refuses redirected stdout. It uses ANSI clear/cursor commands solely to update terminal text. It does not put those codes in the project or any text export. It plays the requested number of cycles; the project's loop setting controls the browser and standalone player. Unsupported media and malformed input fail visibly.
+
+`completions SHELL` prints a completion script for `bash`, `zsh`, `fish`, `powershell` or `elvish` on stdout, and `man` prints this command's manual page as roff. Install them where your shell and `man` look, or use the copies in each release archive's `completions/` and `man/` folders. Like `play`, both refuse the export options.
