@@ -155,12 +155,16 @@ fn non_text_elements(html: &str) -> Vec<&'static str> {
     .into_iter()
     .filter(|tag| lower.contains(tag))
     .collect();
-    // Attribute values may be quoted either way or spaced out, as in `type = 'image'`.
-    let compact: String = lower
-        .chars()
-        .filter(|c| !c.is_ascii_whitespace() && *c != '"' && *c != '\'')
-        .collect();
-    if compact.contains("type=image") {
+    // An image input: within each input tag, the type may be quoted either way or spaced out, as
+    // in `type = 'image'`. Text outside input tags is not read as an attribute.
+    let image_input = lower.split("<input").skip(1).any(|rest| {
+        let tag = &rest[..rest.find('>').unwrap_or(rest.len())];
+        tag.chars()
+            .filter(|c| !c.is_ascii_whitespace() && *c != '"' && *c != '\'')
+            .collect::<String>()
+            .contains("type=image")
+    });
+    if image_input {
         found.push("type=image");
     }
     found
@@ -368,5 +372,17 @@ fn the_text_only_check_finds_each_non_text_element() {
         "<p style=\"background:url(x.png)\">",
     ] {
         assert_eq!(non_text_elements(&format!("{page}{tag}")).len(), 1, "{tag}");
+    }
+    // Text that only looks like an image input's attribute is not one.
+    for text in [
+        "<pre>type = \"image\"</pre>",
+        "<script>let kind = 'type=image';</script>",
+        "<input type=text><p>type=image</p>",
+    ] {
+        assert_eq!(
+            non_text_elements(&format!("{page}{text}")),
+            Vec::<&str>::new(),
+            "{text}"
+        );
     }
 }
