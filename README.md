@@ -79,7 +79,7 @@ Releases after v0.3.0 add package-manager routes. Each archive holds shell compl
 - A Scoop manifest: `scoop install https://github.com/yungSNAT/ApollinaireASCII/releases/latest/download/apollinaire.json`.
 - A Homebrew formula, `apollinaire.rb`, for a tap.
 
-`cargo binstall apollinaire-ascii` then installs the release binary rather than building it. Whatever the route, `apollinaire completions bash` (or `zsh`, `fish`, `powershell`) prints a completion script and `apollinaire man` prints the manual page.
+`cargo binstall apollinaire-ascii` then installs the release binary rather than building it. From a release after v0.3.0, or a `--git` install today, `apollinaire completions bash` (or `zsh`, `fish`, `powershell`) prints a completion script and `apollinaire man` prints the manual page.
 
 ```sh
 apollinaire art ghost
