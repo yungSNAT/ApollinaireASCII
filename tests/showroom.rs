@@ -84,7 +84,8 @@ const VARIANTS: &[Variant] = &[
     },
 ];
 
-/// Run the CLI, failing on a nonzero exit or any output byte other than 32 to 126 and LF.
+/// Run the CLI, failing on a nonzero exit, any output byte other than 32 to 126 and LF, or
+/// anything on stderr, where the CLI writes only errors.
 /// Returns stdout and the run's wall-clock milliseconds, process start included.
 fn apollinaire(args: &[&str], stdin: Option<&[u8]>) -> (String, f64) {
     let started = Instant::now();
@@ -111,6 +112,12 @@ fn apollinaire(args: &[&str], stdin: Option<&[u8]>) -> (String, f64) {
         "{command} failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
+    assert!(
+        output.stderr.is_empty(),
+        "{command} wrote {} bytes to stderr: {:?}",
+        output.stderr.len(),
+        String::from_utf8_lossy(&output.stderr)
+    );
     if let Some(byte) = output
         .stdout
         .iter()
@@ -131,7 +138,7 @@ fn escape(text: &str) -> String {
 /// media elements, image inputs, framed pages, script-made elements and CSS images.
 fn non_text_elements(html: &str) -> Vec<&'static str> {
     let lower = html.to_ascii_lowercase();
-    [
+    let mut found: Vec<_> = [
         "<canvas",
         "<svg",
         "<img",
@@ -142,14 +149,21 @@ fn non_text_elements(html: &str) -> Vec<&'static str> {
         "<embed",
         "<iframe",
         "<frame",
-        "type=image",
-        "type=\"image\"",
         "createelement(",
         "url(",
     ]
     .into_iter()
     .filter(|tag| lower.contains(tag))
-    .collect()
+    .collect();
+    // Attribute values may be quoted either way or spaced out, as in `type = 'image'`.
+    let compact: String = lower
+        .chars()
+        .filter(|c| !c.is_ascii_whitespace() && *c != '"' && *c != '\'')
+        .collect();
+    if compact.contains("type=image") {
+        found.push("type=image");
+    }
+    found
 }
 
 struct Shown {
@@ -348,6 +362,8 @@ fn the_text_only_check_finds_each_non_text_element() {
         "<frameset>",
         "<input type=image>",
         "<input type=\"image\">",
+        "<input type='image' src=x>",
+        "<input type = \"Image\">",
         "<script>document.createElement('canvas')</script>",
         "<p style=\"background:url(x.png)\">",
     ] {
