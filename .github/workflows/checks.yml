@@ -128,9 +128,10 @@ jobs:
           rm wasm-bindgen.tar.gz binaryen.tar.gz
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - run: cargo clippy --locked --target wasm32-unknown-unknown --no-default-features --features web --lib --tests -- -D warnings
-      # The runner image ships Chrome with a matching chromedriver.
+      # The runner image ships Chrome with a matching chromedriver. The runner's 20-second limit
+      # covers the whole suite, which now includes timed video conversions.
       - name: Editor tests in headless Chrome
-        run: CHROMEDRIVER="$CHROMEWEBDRIVER/chromedriver" cargo test-editor
+        run: CHROMEDRIVER="$CHROMEWEBDRIVER/chromedriver" WASM_BINDGEN_TEST_TIMEOUT=180 cargo test-editor
       - run: cargo build --locked --release --target wasm32-unknown-unknown --no-default-features --features web
       - run: wasm-bindgen target/wasm32-unknown-unknown/release/apollinaire_ascii.wasm --target web --out-dir web/pkg --out-name apollinaire_ascii
       # -O3 rather than -Os or -Oz: it favours conversion speed over a few more kilobytes.
