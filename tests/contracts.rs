@@ -658,7 +658,8 @@ fn edge_glyphs_follow_direction_on_strong_edges_only() {
         let frame = render_image(image, options).unwrap();
         String::from_utf8(frame.cells()[..9].to_vec()).unwrap()
     };
-    assert_eq!(row(&glyphs, &step), "    ||   ");
+    // Alone, the direction characters overlay the picture's own tones.
+    assert_eq!(row(&glyphs, &step), "    ||@@@");
     assert_eq!(
         row(&edges, &step),
         "    @@   ",
@@ -671,8 +672,14 @@ fn edge_glyphs_follow_direction_on_strong_edges_only() {
     assert_eq!(row(&both, &step), "    ||   ");
     // A faint edge stays a ramp character, the same with the option as without.
     let faint = picture(sides[0].1, 1, 50);
-    assert_eq!(row(&glyphs, &faint), row(&edges, &faint));
-    assert_eq!(row(&glyphs, &faint), "    ::   ");
+    assert_eq!(row(&both, &faint), row(&edges, &faint));
+    assert_eq!(row(&both, &faint), "    ::   ");
+    let plain = RenderOptions {
+        edge_glyphs: false,
+        ..glyphs.clone()
+    };
+    assert_eq!(row(&glyphs, &faint), row(&plain, &faint));
+    assert_eq!(row(&glyphs, &faint), "     ::::");
 }
 fn gif_bytes(count: usize) -> Vec<u8> {
     let frames: Vec<_> = (0..count)

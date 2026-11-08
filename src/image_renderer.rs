@@ -31,9 +31,10 @@ pub struct RenderOptions {
     pub contrast: f64,
     pub background: u8,
     pub dither: bool,
+    /// Shade each cell by edge strength instead of brightness, tracing the picture's outlines.
     pub edges: bool,
-    /// Trace edges as `edges` does, drawing strong ones with `|`, `/`, `-` or `\` along their
-    /// direction instead of a ramp character.
+    /// Draw strong edges with `|`, `/`, `-` or `\` along their direction instead of a ramp
+    /// character: over the picture's tones, or over the traced outlines with `edges`.
     pub edge_glyphs: bool,
 }
 impl Default for RenderOptions {
@@ -121,7 +122,9 @@ pub fn render_image(resource: &DynamicImage, options: &RenderOptions) -> Result<
                     + 2.0 * sample(0, 1)
                     + sample(1, 1);
                 let strength = (gx.hypot(gy) / 4.0).min(1.0);
-                values[y * options.width + x] = strength;
+                if options.edges {
+                    values[y * options.width + x] = strength;
+                }
                 if options.edge_glyphs && strength >= STRONG_EDGE {
                     glyphs[y * options.width + x] = Some(edge_glyph(gx, gy));
                 }
