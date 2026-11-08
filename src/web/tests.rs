@@ -917,9 +917,14 @@ async fn save(id: &str) -> (String, String) {
     (name, text.as_string().unwrap())
 }
 /// Everything a refused or cancelled import must leave alone: the whole project as Save would
-/// write it, and the frame on show.
-async fn project_now() -> (String, String, String) {
-    (save("download-json").await.1, frame_count(), art())
+/// write it, the frame on show and the unsaved-work prompt on leaving.
+async fn project_now() -> (String, String, String, bool) {
+    (
+        save("download-json").await.1,
+        frame_count(),
+        art(),
+        leaving_warns(),
+    )
 }
 /// Whether leaving the page now would raise the browser's unsaved-work prompt.
 fn leaving_warns() -> bool {
@@ -1433,6 +1438,7 @@ async fn refused_and_cancelled_picture_imports_leave_the_project_and_history() {
     drag(&[(0, 0), (1, 0)]);
     let before = project_now().await;
     assert_eq!(before.2, "##  ");
+    assert!(before.3, "the stroke is unsaved, so leaving warns");
 
     choose(
         "media-file",
@@ -1489,6 +1495,7 @@ async fn refused_and_cancelled_video_conversions_leave_the_project_and_history()
     tool("pencil");
     drag(&[(0, 0), (1, 0)]);
     let before = project_now().await;
+    assert!(before.3, "the stroke is unsaved, so leaving warns");
     check("auto-height", true);
     set_value("media-fps", "30");
     set_value("video-start", "0");
@@ -1524,7 +1531,7 @@ async fn refused_and_cancelled_video_conversions_leave_the_project_and_history()
         set_value("width", width);
         choose("video-file", name, video);
         click("video-convert");
-        wait_for(|| !status().starts_with("Reading")).await;
+        wait_up_to(30_000, || !status().starts_with("Reading")).await;
         assert!(status().contains(refusal), "{refusal}: {}", status());
         set_value("width", "4");
         assert_eq!(project_now().await, before, "{refusal}");
@@ -1534,7 +1541,7 @@ async fn refused_and_cancelled_video_conversions_leave_the_project_and_history()
     // Cancel part-way, then wait twice as long as the whole conversion took: nothing arrives.
     choose("video-file", "clip.webm", CLIP);
     click("video-convert");
-    wait_for(|| {
+    wait_up_to(30_000, || {
         element::<HtmlProgressElement>("media-progress").value() >= 2.0
             || !status().starts_with("Reading")
     })
