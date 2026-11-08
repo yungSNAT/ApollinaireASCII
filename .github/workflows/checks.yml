@@ -54,6 +54,10 @@ jobs:
         with:
           tool: cargo-llvm-cov@0.9.1
           fallback: none
+      # The CLI tests parse the completions in each shell and render the manual page with man.
+      - name: Install zsh, fish and man
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends zsh fish man-db
       - run: cargo fmt --all --check
       - run: cargo clippy --locked --all-targets -- -D warnings
       - if: matrix.os != 'ubuntu-latest'
