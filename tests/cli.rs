@@ -317,3 +317,82 @@ fn text_accepts_layout_wrap_and_ascii_toilet_fonts_only() {
     assert!(String::from_utf8_lossy(&refused.stderr).contains("glyph 'H' row 1 has byte 0xe2"));
     std::fs::remove_file(&path).unwrap();
 }
+
+/// Run a checker on a generated file. A missing checker fails on CI, which installs them all,
+/// and is reported and skipped elsewhere.
+#[cfg(unix)]
+fn check_with(program: &str, args: &[&str], env: &[(&str, &str)]) -> Option<(bool, String)> {
+    match Command::new(program)
+        .args(args)
+        .envs(env.iter().copied())
+        .output()
+    {
+        Ok(output) => Some((
+            output.status.success() && output.stderr.is_empty(),
+            format!("{}{}", text(&output.stdout), text(&output.stderr)),
+        )),
+        Err(error) if std::env::var_os("CI").is_none() => {
+            eprintln!("skipped {program}: {error}");
+            None
+        }
+        Err(error) => panic!("{program} is required on CI: {error}"),
+    }
+}
+#[cfg(unix)]
+#[test]
+fn completions_parse_in_each_shell_and_the_manual_renders() {
+    // pwsh -Command appends any later argument to its command text, so the file comes by
+    // environment variable.
+    const PARSE_PS1: &str = "$errors = $null; \
+        [System.Management.Automation.Language.Parser]::ParseFile($env:COMPLETIONS, [ref]$null, [ref]$errors) > $null; \
+        if ($errors) { $errors; exit 1 }";
+    let dir = scratch("completions");
+    for (shell, file, program, check) in [
+        ("bash", "apollinaire.bash", "bash", &["-n", "FILE"][..]),
+        ("zsh", "_apollinaire", "zsh", &["-n", "FILE"][..]),
+        (
+            "fish",
+            "apollinaire.fish",
+            "fish",
+            &["--no-execute", "FILE"][..],
+        ),
+        (
+            "powershell",
+            "apollinaire.ps1",
+            "pwsh",
+            &["-NoProfile", "-NonInteractive", "-Command", PARSE_PS1][..],
+        ),
+    ] {
+        let script = cli(&["completions", shell]);
+        assert!(script.status.success(), "{}", text(&script.stderr));
+        assert!(text(&script.stdout).contains("apollinaire"));
+        let path = dir.join(file);
+        std::fs::write(&path, &script.stdout).unwrap();
+        let path = path.to_str().unwrap();
+        let args: Vec<_> = check
+            .iter()
+            .map(|arg| if *arg == "FILE" { path } else { *arg })
+            .collect();
+        if let Some((parsed, said)) = check_with(program, &args, &[("COMPLETIONS", path)]) {
+            assert!(parsed, "{program} rejects the {shell} completions: {said}");
+        }
+    }
+    let page = cli(&["man"]);
+    assert!(page.status.success(), "{}", text(&page.stderr));
+    let path = dir.join("apollinaire.1");
+    std::fs::write(&path, &page.stdout).unwrap();
+    // `man -l` is man-db's; other systems' man may not read a local file.
+    let env = [("MANPAGER", "cat"), ("MANWIDTH", "80")];
+    if cfg!(target_os = "linux")
+        && let Some((rendered, shown)) = check_with("man", &["-l", path.to_str().unwrap()], &env)
+    {
+        assert!(rendered, "man cannot render the page: {shown}");
+        assert!(
+            shown.contains("SUBCOMMANDS") && shown.contains("completions"),
+            "{shown}"
+        );
+    }
+    let refused = cli(&["man", "--output", dir.join("copy.1").to_str().unwrap()]);
+    assert!(!refused.status.success() && refused.stdout.is_empty());
+    std::fs::remove_dir_all(&dir).unwrap();
+}

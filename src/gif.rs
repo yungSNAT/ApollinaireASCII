@@ -190,10 +190,11 @@ fn rows(height: u32, interlaced: bool) -> Box<dyn Iterator<Item = u32>> {
     }
 }
 
-// Declared here, not inside `tests`, so the path resolves from `src/` on every platform.
+// Declared here, not inside `tests`, so the path resolves from `src/` on every platform. The
+// editor tests build GIFs with it too.
 #[cfg(test)]
 #[path = "../tests/common/mod.rs"]
-mod common;
+pub(crate) mod common;
 
 #[cfg(test)]
 mod tests {

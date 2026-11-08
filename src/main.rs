@@ -4,7 +4,7 @@ use apollinaire_ascii::{
     Animation, Canvas, EffectOptions, Frame, MAX_INPUT_BYTES, RenderOptions, Result, SceneOptions,
     TimedFrame, animation, art, effects, export, lettering,
 };
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use std::{
     fs::File,
     io::{self, IsTerminal, Read, Write},
@@ -213,6 +213,10 @@ enum Command {
     },
     /// Validate an existing text or JSON project.
     Check { input: PathBuf },
+    /// Print a shell completion script, such as `apollinaire completions bash > apollinaire.bash`.
+    Completions { shell: clap_complete::Shell },
+    /// Print this manual page as roff, for `apollinaire man | man -l -`.
+    Man,
 }
 fn main() {
     if let Err(error) = run(Args::parse()) {
@@ -445,13 +449,24 @@ fn run(args: Args) -> Result<()> {
             Animation::new(frames, project.looping())?
         }
         Command::Play { input, loops } => {
-            if args.export.output.is_some()
-                || args.export.format.is_some()
-                || args.export.frame.is_some()
-            {
-                return Err("Play does not accept export options".into());
-            }
+            no_export(&args.export, "Play")?;
             return play(&load(&input, false)?, loops);
+        }
+        Command::Completions { shell } => {
+            no_export(&args.export, "Completions")?;
+            clap_complete::generate(
+                shell,
+                &mut Args::command(),
+                "apollinaire",
+                &mut io::stdout(),
+            );
+            return Ok(());
+        }
+        Command::Man => {
+            no_export(&args.export, "Man")?;
+            return clap_mangen::Man::new(Args::command())
+                .render(&mut io::stdout())
+                .map_err(|e| format!("Output failed: {e}"));
         }
         Command::Check { input } => {
             let project = load(&input, false)?;
@@ -638,6 +653,13 @@ fn load(path: &Path, pad: bool) -> Result<Animation> {
             Frame::from_text(&text)?
         }))
     }
+}
+/// Commands that write their own output refuse the export options rather than ignore them.
+fn no_export(args: &Export, command: &str) -> Result<()> {
+    if args.output.is_some() || args.format.is_some() || args.frame.is_some() {
+        return Err(format!("{command} does not accept export options"));
+    }
+    Ok(())
 }
 fn play(project: &Animation, loops: u32) -> Result<()> {
     let stdout = io::stdout();

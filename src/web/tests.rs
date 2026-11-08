@@ -5,20 +5,26 @@
 //! embedded once and the editor started; tests then drive the page only through DOM events and
 //! controls. Run them with `cargo test-editor` (see `.cargo/config.toml`).
 
-use super::document;
+use super::{document, now};
+use std::cell::RefCell;
 use std::sync::Once;
-use wasm_bindgen::JsCast;
+use wasm_bindgen::{JsCast, prelude::Closure};
+use wasm_bindgen_futures::JsFuture;
 use wasm_bindgen_test::{wasm_bindgen_test, wasm_bindgen_test_configure};
 use web_sys::{
-    ClipboardEvent, ClipboardEventInit, DataTransfer, Element, HtmlElement, HtmlInputElement,
-    HtmlSelectElement, HtmlTextAreaElement, KeyboardEvent, KeyboardEventInit, PointerEvent,
-    PointerEventInit,
+    ClipboardEvent, ClipboardEventInit, DataTransfer, Element, HtmlAnchorElement, HtmlElement,
+    HtmlInputElement, HtmlProgressElement, HtmlSelectElement, HtmlTextAreaElement, KeyboardEvent,
+    KeyboardEventInit, PointerEvent, PointerEventInit,
 };
+
+use crate::gif::common as gif_writer;
 
 wasm_bindgen_test_configure!(run_in_browser);
 
 const PAGE: &str = include_str!("../../web/index.html");
 const STYLE: &str = include_str!("../../web/style.css");
+/// A 3-second, 32 x 24 pixel, 25 fps grey VP8 clip from FFmpeg's `color` source.
+const CLIP: &[u8] = include_bytes!("../../tests/fixtures/video/grey-3s.webm");
 
 fn element<T: JsCast>(id: &str) -> T {
     document()
@@ -814,29 +820,38 @@ fn input_event(id: &str, value: &str) {
         .dispatch_event(&web_sys::Event::new("input").unwrap())
         .unwrap();
 }
-async fn wait_for(mut condition: impl FnMut() -> bool) {
-    for _ in 0..500 {
+async fn sleep(milliseconds: i32) {
+    let tick = js_sys::Promise::new(&mut |resolve, _| {
+        web_sys::window()
+            .unwrap()
+            .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, milliseconds)
+            .unwrap();
+    });
+    JsFuture::from(tick).await.unwrap();
+}
+async fn wait_for(condition: impl FnMut() -> bool) {
+    wait_up_to(5_000, condition).await;
+}
+async fn wait_up_to(milliseconds: i32, mut condition: impl FnMut() -> bool) {
+    for _ in 0..milliseconds / 10 {
         if condition() {
             return;
         }
-        let tick = js_sys::Promise::new(&mut |resolve, _| {
-            web_sys::window()
-                .unwrap()
-                .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 10)
-                .unwrap();
-        });
-        wasm_bindgen_futures::JsFuture::from(tick).await.unwrap();
+        sleep(10).await;
     }
     panic!("Timed out waiting for the editor: {}", status());
 }
-/// Convert a picture with the image control as a user would, then wait for the read to finish.
-async fn convert(contents: &str) {
-    let file =
-        web_sys::File::new_with_str_sequence(&js_sys::Array::of1(&contents.into()), "step.pgm")
-            .unwrap();
+/// Put one file in a file control, as choosing it in the browser's picker would.
+fn choose(id: &str, name: &str, bytes: &[u8]) {
+    let parts = js_sys::Array::of1(&js_sys::Uint8Array::from(bytes));
+    let file = web_sys::File::new_with_u8_array_sequence(&parts, name).unwrap();
     let data = DataTransfer::new().unwrap();
     data.items().add_with_file(&file).unwrap();
-    element::<HtmlInputElement>("media-file").set_files(data.files().as_ref());
+    element::<HtmlInputElement>(id).set_files(data.files().as_ref());
+}
+/// Convert a picture with the image control as a user would, then wait for the read to finish.
+async fn convert(contents: &str) {
+    choose("media-file", "step.pgm", contents.as_bytes());
     click("convert");
     wait_for(|| !status().starts_with("Reading")).await;
     assert!(status().contains("File opened"), "{}", status());
@@ -850,28 +865,77 @@ fn preset(name: &str) {
 }
 /// Choose a file in the Open control as a user would, then wait for the read to finish.
 async fn open(name: &str, contents: &str) -> String {
-    let file =
-        web_sys::File::new_with_str_sequence(&js_sys::Array::of1(&contents.into()), name).unwrap();
-    let data = DataTransfer::new().unwrap();
-    data.items().add_with_file(&file).unwrap();
-    let input = element::<HtmlInputElement>("open-file");
-    input.set_files(data.files().as_ref());
-    input
+    choose("open-file", name, contents.as_bytes());
+    element::<HtmlInputElement>("open-file")
         .dispatch_event(&web_sys::Event::new("change").unwrap())
         .unwrap();
     for _ in 0..500 {
         if !status().starts_with("Reading") {
             return status();
         }
-        let tick = js_sys::Promise::new(&mut |resolve, _| {
-            web_sys::window()
-                .unwrap()
-                .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 10)
-                .unwrap();
-        });
-        wasm_bindgen_futures::JsFuture::from(tick).await.unwrap();
+        sleep(10).await;
     }
     panic!("{name} is still loading: {}", status());
+}
+
+thread_local! {
+    /// Downloads the page asked for, as (file name, object URL), oldest first.
+    static DOWNLOADS: RefCell<Vec<(String, String)>> = const { RefCell::new(Vec::new()) };
+}
+/// Click a Save button and return the file name and text the page offered. The click on the
+/// download link is stopped before the browser acts on it, and its object URL read instead.
+async fn save(id: &str) -> (String, String) {
+    static HOOK: Once = Once::new();
+    HOOK.call_once(|| {
+        let hook = Closure::<dyn FnMut(web_sys::Event)>::new(|event: web_sys::Event| {
+            if let Some(link) = event
+                .target()
+                .and_then(|target| target.dyn_into::<HtmlAnchorElement>().ok())
+                .filter(|link| link.has_attribute("download"))
+            {
+                event.prevent_default();
+                DOWNLOADS.with(|list| list.borrow_mut().push((link.download(), link.href())));
+            }
+        });
+        document()
+            .add_event_listener_with_callback_and_bool("click", hook.as_ref().unchecked_ref(), true)
+            .unwrap();
+        hook.forget();
+    });
+    let earlier = DOWNLOADS.with(|list| list.borrow().len());
+    click(id);
+    let (name, url) = DOWNLOADS
+        .with(|list| list.borrow().get(earlier).cloned())
+        .unwrap_or_else(|| panic!("#{id} offered no download: {}", status()));
+    let response: web_sys::Response =
+        JsFuture::from(web_sys::window().unwrap().fetch_with_str(&url))
+            .await
+            .unwrap()
+            .dyn_into()
+            .unwrap();
+    let text = JsFuture::from(response.text().unwrap()).await.unwrap();
+    (name, text.as_string().unwrap())
+}
+/// Everything a refused or cancelled import must leave alone: the whole project as Save would
+/// write it, the frame on show and the unsaved-work prompt on leaving.
+async fn project_now() -> (String, String, String, bool) {
+    (
+        save("download-json").await.1,
+        frame_count(),
+        art(),
+        leaving_warns(),
+    )
+}
+/// Whether leaving the page now would raise the browser's unsaved-work prompt.
+fn leaving_warns() -> bool {
+    let init = web_sys::EventInit::new();
+    init.set_cancelable(true);
+    let event = web_sys::Event::new_with_event_init_dict("beforeunload", &init).unwrap();
+    web_sys::window().unwrap().dispatch_event(&event).unwrap();
+    event.default_prevented()
+}
+fn enabled(id: &str) -> bool {
+    !element::<Element>(id).has_attribute("disabled")
 }
 
 #[wasm_bindgen_test]
@@ -1363,6 +1427,322 @@ async fn open_pads_text_restores_projects_and_refuses_unicode() {
     assert_eq!(
         (frame_count().as_str(), art().as_str()),
         ("Frame 2 / 2", "cd")
+    );
+}
+
+#[wasm_bindgen_test]
+async fn refused_and_cancelled_picture_imports_leave_the_project_and_history() {
+    const PICTURE: &[u8] = b"P2\n4 1\n255\n0 0 255 255\n";
+    blank(4, 1);
+    tool("pencil");
+    drag(&[(0, 0), (1, 0)]);
+    let before = project_now().await;
+    assert_eq!(before.2, "##  ");
+    assert!(before.3, "the stroke is unsaved, so leaving warns");
+
+    choose(
+        "media-file",
+        "broken.png",
+        b"\x89PNG\r\n\x1a\nnot a picture",
+    );
+    click("convert");
+    wait_for(|| !status().starts_with("Reading")).await;
+    assert!(status().starts_with("Image header"), "{}", status());
+    assert_eq!(project_now().await, before);
+
+    // 62 frames of 512 x 256 cells exceed the 8,000,000 cell project budget.
+    check("auto-height", false);
+    set_value("width", "512");
+    set_value("height", "256");
+    let frames: Vec<_> = (0..62)
+        .map(|_| gif_writer::GifFrame::full(2, 2, vec![0, 1, 1, 0], 10))
+        .collect();
+    let gif = gif_writer::gif(2, 2, Some(&[[255, 255, 255], [0, 0, 0]]), &frames);
+    choose("media-file", "long.gif", &gif);
+    click("convert");
+    wait_for(|| !status().starts_with("Reading")).await;
+    assert!(status().contains("output cell"), "{}", status());
+    check("auto-height", true);
+    set_value("width", "4");
+    assert_eq!(project_now().await, before);
+
+    // Cancel releases the controls at once and the read is discarded when it arrives.
+    choose("media-file", "step.pgm", PICTURE);
+    click("convert");
+    click("media-cancel");
+    assert_eq!(status(), "Cancelled. The artwork is unchanged.");
+    assert!(enabled("convert"));
+    assert!(element::<Element>("media-busy").has_attribute("hidden"));
+    sleep(250).await;
+    assert_eq!(status(), "Cancelled. The artwork is unchanged.");
+    assert_eq!(project_now().await, before);
+
+    // Left alone, the same picture replaces the artwork. Undo then reaches the stroke and the
+    // blank canvas, so none of the refused or cancelled imports left a step.
+    choose("media-file", "step.pgm", PICTURE);
+    click("convert");
+    wait_for(|| !status().starts_with("Reading")).await;
+    assert_eq!(art(), "  @@");
+    click("undo");
+    assert_eq!(project_now().await, before);
+    click("undo");
+    assert_eq!(art(), "    ");
+}
+
+#[wasm_bindgen_test]
+async fn refused_and_cancelled_video_conversions_leave_the_project_and_history() {
+    blank(4, 1);
+    tool("pencil");
+    drag(&[(0, 0), (1, 0)]);
+    let before = project_now().await;
+    assert!(before.3, "the stroke is unsaved, so leaving warns");
+    check("auto-height", true);
+    set_value("media-fps", "30");
+    set_value("video-start", "0");
+    set_value("video-end", "");
+
+    // Left alone, the clip becomes 90 frames; how long that takes bounds the cancel check below.
+    let started = now();
+    choose("video-file", "clip.webm", CLIP);
+    click("video-convert");
+    wait_up_to(30_000, || !status().starts_with("Reading")).await;
+    let whole = now() - started;
+    assert!(
+        status().starts_with("Video converted to 90"),
+        "{}",
+        status()
+    );
+    click("undo");
+    assert_eq!(project_now().await, before);
+
+    for (name, video, end, width, refusal) in [
+        ("broken.webm", &b"not a video"[..], "", "4", "cannot play"),
+        (
+            "clip.webm",
+            CLIP,
+            "4",
+            "4",
+            "within the video's 3.00 seconds",
+        ),
+        // 90 frames of 512 x 192 cells exceed the 8,000,000 cell project budget.
+        ("clip.webm", CLIP, "", "512", "8,000,000 cell"),
+    ] {
+        set_value("video-end", end);
+        set_value("width", width);
+        choose("video-file", name, video);
+        click("video-convert");
+        wait_up_to(30_000, || !status().starts_with("Reading")).await;
+        assert!(status().contains(refusal), "{refusal}: {}", status());
+        set_value("width", "4");
+        assert_eq!(project_now().await, before, "{refusal}");
+    }
+    set_value("video-end", "");
+
+    // Cancel part-way, then wait twice as long as the whole conversion took: nothing arrives.
+    choose("video-file", "clip.webm", CLIP);
+    click("video-convert");
+    wait_up_to(30_000, || {
+        element::<HtmlProgressElement>("media-progress").value() >= 2.0
+            || !status().starts_with("Reading")
+    })
+    .await;
+    assert!(
+        status().starts_with("Reading"),
+        "the conversion finished before it could be cancelled: {}",
+        status()
+    );
+    click("media-cancel");
+    assert_eq!(status(), "Cancelled. The artwork is unchanged.");
+    assert!(enabled("video-convert") && enabled("convert"));
+    assert!(element::<Element>("media-busy").has_attribute("hidden"));
+    sleep(2 * whole as i32 + 100).await;
+    assert_eq!(status(), "Cancelled. The artwork is unchanged.");
+    assert_eq!(project_now().await, before);
+    click("undo");
+    assert_eq!(art(), "    ");
+}
+
+#[wasm_bindgen_test]
+async fn playback_and_saves_keep_unsaved_edits() {
+    blank(3, 1);
+    let still = || super::TimedFrame {
+        frame: super::Frame::from_text("   ").unwrap(),
+        duration_ms: 50,
+    };
+    let project = super::Animation::new(vec![still(), still()], true).unwrap();
+    assert!(
+        open("two.json", &project.to_json())
+            .await
+            .contains("File opened")
+    );
+    tool("pencil");
+    drag(&[(0, 0)]);
+    click("next");
+    cursor_to((2, 0));
+    keys(&[" ", "Enter"]);
+    assert_eq!(art(), "  #");
+
+    // Unapplied frame-editor text holds playback back rather than being lost to it.
+    input_event("editor", "x");
+    click("play");
+    assert!(status().contains("Apply or discard"), "{}", status());
+    assert_eq!(element::<HtmlTextAreaElement>("editor").value(), "x");
+    click("discard");
+
+    // Playback shows each edited frame in turn and leaves them in place when paused.
+    click("play");
+    wait_for(|| art() == "#  ").await;
+    wait_for(|| art() == "  #").await;
+    click("play");
+    seek_frame(1);
+    assert_eq!(art(), "  #");
+
+    // Each save carries both edits: the project with its timing, the frame on show and the player.
+    let (name, json) = save("download-json").await;
+    assert_eq!(name, "artwork.ascii.json");
+    let saved = super::Animation::from_json(&json).unwrap();
+    let frames: Vec<_> = saved
+        .frames()
+        .iter()
+        .map(|entry| (entry.frame.text(), entry.duration_ms))
+        .collect();
+    assert_eq!(frames, [("#  ".to_string(), 50), ("  #".to_string(), 50)]);
+    assert_eq!(
+        save("download-text").await,
+        ("frame.txt".to_string(), "  #\n".to_string())
+    );
+    let (name, player) = save("download-html").await;
+    assert_eq!(name, "artwork.html");
+    assert!(player.contains(&json));
+
+    // A save is only a request, so leaving still warns, and undo still reaches both edits.
+    assert!(leaving_warns());
+    click("undo");
+    click("undo");
+    let reverted = super::Animation::from_json(&save("download-json").await.1).unwrap();
+    assert_eq!(reverted.to_json(), project.to_json());
+}
+
+/// Wait for a file read begun at `started` to finish and return the longest gap between timer
+/// turns since then, the click's own work included: the longest time the page could not respond,
+/// in milliseconds. Nested timers are clamped to about 4 ms, which sets the floor.
+async fn longest_freeze(started: f64) -> f64 {
+    let (mut last, mut longest) = (started, 0.0_f64);
+    while status().starts_with("Reading") {
+        sleep(1).await;
+        let time = now();
+        longest = longest.max(time - last);
+        last = time;
+    }
+    longest
+}
+/// Median and slowest of the runs, in milliseconds.
+fn spread(mut runs: Vec<f64>) -> String {
+    runs.sort_by(f64::total_cmp);
+    format!("{:.0} | {:.0}", runs[runs.len() / 2], runs[runs.len() - 1])
+}
+
+/// Not a check: measures how long the page freezes whilst the editor converts GIFs and opens
+/// projects up to the accepted limits. Run it on demand with
+/// `cargo test-editor --release -- --include-ignored --nocapture conversion_freeze` and record
+/// the table in `docs/VALIDATION.md`.
+#[wasm_bindgen_test]
+#[ignore = "benchmark; run on demand"]
+async fn conversion_freeze() {
+    const RUNS: usize = 3;
+    blank(1, 1);
+    check("auto-height", true);
+    let mut table = vec![
+        "| Input | Size | Median freeze (ms) | Slowest freeze (ms) |".to_string(),
+        "|---|---|--:|--:|".to_string(),
+    ];
+    let palette: Vec<[u8; 3]> = (0..16u8).map(|i| [i * 17; 3]).collect();
+    // The last GIF is within 0.4% of the 64 million decoded pixel budget.
+    for (count, side, columns) in [(60u16, 160u16, 80), (300, 320, 120), (600, 326, 160)] {
+        let frames: Vec<_> = (0..count)
+            .map(|f| {
+                let side = usize::from(side);
+                let indices = (0..side * side)
+                    .map(|i| ((i % side / 8 + i / side / 8 + usize::from(f)) % 16) as u8)
+                    .collect();
+                gif_writer::GifFrame::full(side as u16, side as u16, indices, 4)
+            })
+            .collect();
+        let gif = gif_writer::gif(side, side, Some(&palette), &frames);
+        assert!(gif.len() <= crate::MAX_INPUT_BYTES, "{} bytes", gif.len());
+        set_value("width", &columns.to_string());
+        let mut runs = Vec::new();
+        for _ in 0..RUNS {
+            choose("media-file", "bench.gif", &gif);
+            let started = now();
+            click("convert");
+            runs.push(longest_freeze(started).await);
+            assert!(status().contains("File opened"), "{}", status());
+        }
+        table.push(format!(
+            "| GIF to {columns} columns | {count} frames of {side} x {side} px, {:.1} MiB | {} |",
+            gif.len() as f64 / 1_048_576.0,
+            spread(runs)
+        ));
+    }
+    // The last project is within 0.06% of the 8,000,000 cell budget.
+    let mut largest = String::new();
+    for (count, width, height) in [(60, 80, 24), (600, 160, 80), (61, 512, 256)] {
+        let frames = (0..count)
+            .map(|f| {
+                let text = (0..height)
+                    .map(|y| {
+                        (0..width)
+                            .map(|x| char::from(b'!' + ((x + y + f) % 94) as u8))
+                            .collect::<String>()
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                super::TimedFrame {
+                    frame: super::Frame::from_text(&text).unwrap(),
+                    duration_ms: 100,
+                }
+            })
+            .collect();
+        let json = super::Animation::new(frames, true).unwrap().to_json();
+        let mut runs = Vec::new();
+        for _ in 0..RUNS {
+            choose("open-file", "bench.json", json.as_bytes());
+            let started = now();
+            element::<HtmlInputElement>("open-file")
+                .dispatch_event(&web_sys::Event::new("change").unwrap())
+                .unwrap();
+            runs.push(longest_freeze(started).await);
+            assert!(status().contains("File opened"), "{}", status());
+        }
+        table.push(format!(
+            "| Open project | {count} frames of {width} x {height}, {:.1} MiB | {} |",
+            json.len() as f64 / 1_048_576.0,
+            spread(runs)
+        ));
+        largest = json;
+    }
+    // Saving is synchronous, so the click's own duration is the freeze.
+    save("download-json").await;
+    let runs = (0..RUNS)
+        .map(|_| {
+            let started = now();
+            click("download-json");
+            now() - started
+        })
+        .collect();
+    table.push(format!(
+        "| Save project | the last project, {:.1} MiB | {} |",
+        largest.len() as f64 / 1_048_576.0,
+        spread(runs)
+    ));
+    let navigator = web_sys::window().unwrap().navigator();
+    wasm_bindgen_test::console_log!(
+        "{}, {} logical cores, {}\n{}",
+        js_sys::Date::new_0().to_iso_string(),
+        navigator.hardware_concurrency(),
+        navigator.user_agent().unwrap(),
+        table.join("\n")
     );
 }
 
