@@ -117,9 +117,11 @@ enum Command {
         invert: bool,
         #[arg(long)]
         dither: bool,
+        /// Shade by edge strength instead of brightness, tracing outlines.
         #[arg(long)]
         edges: bool,
-        /// Trace edges, drawing strong ones as | / - \ along their direction.
+        /// Draw strong edges as | / - \ along their direction, over the picture or, with
+        /// --edges, over the traced outlines.
         #[arg(long)]
         edge_glyphs: bool,
         #[arg(long, default_value_t = 1.0)]

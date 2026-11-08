@@ -1354,11 +1354,12 @@ async fn presets_fill_the_conversion_settings_and_reach_the_output() {
     assert!(status().contains("Preset applied"), "{}", status());
     convert(STEP).await;
     assert_eq!(art(), "  || ");
-    // The options stay independent: direction alone traces edges, and edges alone use the ramp.
+    // The options stay independent: direction alone overlays the picture, and edges alone use
+    // the ramp.
     check("edges", false);
     assert_eq!(chosen(), "custom", "a changed setting leaves the preset");
     convert(STEP).await;
-    assert_eq!(art(), "  || ");
+    assert_eq!(art(), "  ||@");
     check("edges", true);
     check("edge-glyphs", false);
     convert(STEP).await;
