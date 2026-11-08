@@ -156,9 +156,24 @@ fn non_text_elements(html: &str) -> Vec<&'static str> {
     .filter(|tag| lower.contains(tag))
     .collect();
     // An image input: within each input tag, the type may be quoted either way or spaced out, as
-    // in `type = 'image'`. Text outside input tags is not read as an attribute.
+    // in `type = 'image'`. The tag ends at the first `>` outside a quoted value, so `title="x > y"`
+    // does not end it early. Text outside input tags is not read as an attribute.
     let image_input = lower.split("<input").skip(1).any(|rest| {
-        let tag = &rest[..rest.find('>').unwrap_or(rest.len())];
+        let mut quote = None;
+        let end = rest.find(|c| match quote {
+            Some(open) => {
+                if c == open {
+                    quote = None;
+                }
+                false
+            }
+            None if c == '"' || c == '\'' => {
+                quote = Some(c);
+                false
+            }
+            None => c == '>',
+        });
+        let tag = &rest[..end.unwrap_or(rest.len())];
         tag.chars()
             .filter(|c| !c.is_ascii_whitespace() && *c != '"' && *c != '\'')
             .collect::<String>()
@@ -368,6 +383,7 @@ fn the_text_only_check_finds_each_non_text_element() {
         "<input type=\"image\">",
         "<input type='image' src=x>",
         "<input type = \"Image\">",
+        "<input title=\"x > y\" type=image>",
         "<script>document.createElement('canvas')</script>",
         "<p style=\"background:url(x.png)\">",
     ] {
