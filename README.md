@@ -23,7 +23,7 @@
 
 Static art, block letters and animated scenes made of real, selectable ASCII characters. The `apollinaire-ascii` Rust library and CLI share their rendering and validation code with the browser editor.
 
-[Open the browser editor](https://yungsnat.github.io/ApollinaireASCII/) · [CLI guide](docs/CLI.md) · [Library example](examples/library.rs) · [API docs](https://docs.rs/apollinaire-ascii) · [crates.io](https://crates.io/crates/apollinaire-ascii) · [Research and provenance](docs/RESEARCH.md)
+[Open the browser editor](https://yungsnat.github.io/ApollinaireASCII/) · [Effect showroom](https://yungsnat.github.io/ApollinaireASCII/showroom/) · [CLI guide](docs/CLI.md) · [Library example](examples/library.rs) · [API docs](https://docs.rs/apollinaire-ascii) · [crates.io](https://crates.io/crates/apollinaire-ascii) · [Research and provenance](docs/RESEARCH.md)
 
 ```text
        .-.
