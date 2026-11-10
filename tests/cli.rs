@@ -82,6 +82,78 @@ fn text(bytes: &[u8]) -> &str {
 }
 
 #[test]
+fn check_and_transform_report_dimensions_and_preserve_frame_content() {
+    let dir = scratch("inspect");
+    let input = dir.join("drawing.txt");
+    std::fs::write(&input, "ab\ncd\n").unwrap();
+    let path = input.to_str().unwrap();
+    let check = cli(&["check", path]);
+    assert!(check.status.success(), "{}", text(&check.stderr));
+    assert!(text(&check.stdout).starts_with("Valid ASCII: 2 x 2, 1 frame(s), "));
+
+    for (operation, expected) in [
+        ("horizontal", "ba\ndc\n"),
+        ("vertical", "cd\nab\n"),
+        ("border", "+--+\n|ab|\n|cd|\n+--+\n"),
+    ] {
+        let result = cli(&["transform", path, operation]);
+        assert!(result.status.success(), "{}", text(&result.stderr));
+        assert_eq!(text(&result.stdout), expected);
+    }
+    let outside = cli(&[
+        "transform",
+        path,
+        "crop",
+        "--x",
+        "2",
+        "--width",
+        "1",
+        "--height",
+        "1",
+    ]);
+    assert!(!outside.status.success());
+    assert!(text(&outside.stderr).contains("Crop"));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn import_and_export_report_incompatible_options_and_bad_inputs() {
+    let dir = scratch("bad-io");
+    let input = dir.join("invalid.txt");
+    let path = input.to_str().unwrap();
+    std::fs::write(&input, [0xff]).unwrap();
+    let bad_utf8 = cli(&["import", path]);
+    assert!(!bad_utf8.status.success());
+    assert!(text(&bad_utf8.stderr).contains("Text input must be UTF-8"));
+
+    let file = std::fs::File::create(&input).unwrap();
+    file.set_len(apollinaire_ascii::MAX_INPUT_BYTES as u64 + 1)
+        .unwrap();
+    drop(file);
+    let too_large = cli(&["import", path]);
+    assert!(!too_large.status.success());
+    assert!(text(&too_large.stderr).contains("Input exceeds 16 MiB"));
+
+    let options = cli(&["completions", "bash", "--format", "json"]);
+    assert!(!options.status.success());
+    assert!(text(&options.stderr).contains("Completions does not accept export options"));
+    let frame = cli(&["art", "cat", "--format", "html", "--frame", "0"]);
+    assert!(!frame.status.success());
+    assert!(text(&frame.stderr).contains("--frame applies only to text output"));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn animation_commands_report_invalid_scene_and_effect_options() {
+    let scene = cli(&["animate", "rain", "--fps", "0"]);
+    assert!(!scene.status.success());
+    assert!(text(&scene.stderr).contains("FPS must be 1..=60"));
+    let effect = cli(&["effect", "scatter", "--art", "cat", "--duration", "0"]);
+    assert!(!effect.status.success());
+    assert!(text(&effect.stderr).contains("duration"));
+}
+
+#[test]
 fn compose_clips_a_transparent_stamp_and_rejects_animations() {
     let dir = scratch("compose");
     let background = dir.join("background.txt");
@@ -376,6 +448,85 @@ fn image_batches_create_one_file_per_input_and_never_overwrite() {
 }
 
 #[test]
+fn image_batches_use_safe_names_and_the_requested_export_format() {
+    let dir = scratch("batch-formats");
+    let input = dir.join("two words.pgm");
+    std::fs::write(&input, b"P2\n2 1\n255\n0 255\n").unwrap();
+    let input = input.to_str().unwrap();
+    for (format, signature) in [("json", "{"), ("html", "<!doctype html>")] {
+        let output = dir.join(format);
+        let result = cli(&[
+            "image",
+            input,
+            "--format",
+            format,
+            "--width",
+            "2",
+            "--output-dir",
+            output.to_str().unwrap(),
+        ]);
+        assert!(result.status.success(), "{}", text(&result.stderr));
+        let contents =
+            std::fs::read_to_string(output.join(format!("two_words.pgm.{format}"))).unwrap();
+        assert!(contents.starts_with(signature));
+    }
+
+    let output = dir.join("conflict");
+    let out_arg = output.to_str().unwrap();
+    let mixed = cli(&["image", input, "--output-dir", out_arg, "--output", input]);
+    assert!(!mixed.status.success());
+    assert!(text(&mixed.stderr).contains("Use either --output or --output-dir"));
+
+    for urls in [
+        [
+            "http://127.0.0.1:1/photo.png?q=1",
+            "http://127.0.0.1:1/photo.png#crop",
+        ],
+        ["http://127.0.0.1:1/", "http://127.0.0.1:1/image"],
+    ] {
+        let collision = cli(&["image", urls[0], urls[1], "--output-dir", out_arg]);
+        assert!(!collision.status.success());
+        assert!(text(&collision.stderr).contains("Several inputs would be named"));
+    }
+    assert!(!output.exists());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn text_cli_applies_full_layout_and_alignment_to_the_requested_width() {
+    use apollinaire_ascii::lettering::{self, Alignment, Layout, Options};
+
+    let width = 24;
+    let sample = "Ab";
+    for (align, alignment) in [("center", Alignment::Center), ("right", Alignment::Right)] {
+        let result = cli(&[
+            "text",
+            sample,
+            "--align",
+            align,
+            "--width",
+            "24",
+            "--horizontal",
+            "full",
+        ]);
+        assert!(result.status.success(), "{}", text(&result.stderr));
+        let mut options = Options {
+            alignment,
+            width: Some(width),
+            horizontal: Layout::Full,
+            ..Default::default()
+        };
+        let expected = lettering::render_with(sample, "standard", None, &options)
+            .unwrap()
+            .text();
+        options.horizontal = Layout::Default;
+        let default = lettering::render_with(sample, "standard", None, &options).unwrap();
+        assert_ne!(expected, default.text());
+        assert_eq!(text(&result.stdout), format!("{expected}\n"));
+    }
+}
+
+#[test]
 fn text_accepts_layout_wrap_and_ascii_toilet_fonts_only() {
     let wrapped = cli(&[
         "text",
@@ -430,6 +581,55 @@ fn check_with(program: &str, args: &[&str], env: &[(&str, &str)]) -> Option<(boo
         Err(error) => panic!("{program} is required on CI: {error}"),
     }
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn playback_draws_each_frame_for_each_requested_loop_in_a_terminal() {
+    use apollinaire_ascii::{Animation, Frame, TimedFrame};
+
+    let Some((success, version)) = check_with("script", &["--version"], &[]) else {
+        return;
+    };
+    if !success || !version.contains("util-linux") {
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "expected util-linux script: {version}"
+        );
+        eprintln!("skipped terminal playback: util-linux script is unavailable");
+        return;
+    }
+    let project = Animation::new(
+        ["first ", "second"]
+            .into_iter()
+            .map(|text| TimedFrame {
+                frame: Frame::from_text(text).unwrap(),
+                duration_ms: 10,
+            })
+            .collect(),
+        true,
+    )
+    .unwrap();
+    let dir = scratch("terminal");
+    let path = dir.join("frames.json");
+    std::fs::write(&path, project.to_json()).unwrap();
+    let env = [
+        ("APOLLINAIRE_TEST_BIN", env!("CARGO_BIN_EXE_apollinaire")),
+        ("APOLLINAIRE_TEST_PROJECT", path.to_str().unwrap()),
+        ("SHELL", "/bin/sh"),
+    ];
+    let run = r#"exec "$APOLLINAIRE_TEST_BIN" play "$APOLLINAIRE_TEST_PROJECT" --loops 2"#;
+    if let Some((success, output)) =
+        check_with("script", &["-q", "-e", "-c", run, "/dev/null"], &env)
+    {
+        assert!(success, "{output:?}");
+        assert_eq!(
+            output.replace("\r\n", "\n"),
+            "\x1b[2J\x1b[H\x1b[Hfirst \x1b[Hsecond\x1b[Hfirst \x1b[Hsecond\n"
+        );
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 #[cfg(unix)]
 #[test]
 fn completions_parse_in_each_shell_and_the_manual_renders() {

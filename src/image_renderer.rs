@@ -211,30 +211,7 @@ pub fn decode_media(bytes: &[u8], options: &RenderOptions) -> Result<Animation> 
         {
             return Err("GIF exceeds frame, output cell or 64 million decoded pixel budget".into());
         }
-        let mut frames = Vec::with_capacity(count);
-        crate::gif::for_each_frame(bytes, |screen, delay_cs| {
-            if frames.len() >= count {
-                return Err("GIF frame count changed during decoding".into());
-            }
-            let delay = if delay_cs == 0 {
-                100
-            } else {
-                u32::from(delay_cs) * 10
-            };
-            if !(10..=60_000).contains(&delay) {
-                return Err("GIF frame delay is outside 10..=60000 ms".into());
-            }
-            let frame = render_image(&DynamicImage::ImageRgba8(screen), options)?;
-            frames.push(TimedFrame {
-                frame,
-                duration_ms: delay,
-            });
-            Ok(())
-        })?;
-        if frames.len() != count {
-            return Err("GIF frame count does not match its container".into());
-        }
-        Animation::new(frames, true)
+        decode_gif_frames(bytes, options, count)
     } else {
         let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
         reader.limits(limits());
@@ -247,6 +224,34 @@ pub fn decode_media(bytes: &[u8], options: &RenderOptions) -> Result<Animation> 
             DynamicImage::from_decoder(decoder).map_err(|e| format!("Image decode: {e}"))?;
         Ok(Animation::still(render_image(&image, options)?))
     }
+}
+
+/// Render the inspected frame count without exceeding the preflight budget.
+fn decode_gif_frames(bytes: &[u8], options: &RenderOptions, count: usize) -> Result<Animation> {
+    let mut frames = Vec::with_capacity(count);
+    crate::gif::for_each_frame(bytes, |screen, delay_cs| {
+        if frames.len() >= count {
+            return Err("GIF frame count changed during decoding".into());
+        }
+        let delay = if delay_cs == 0 {
+            100
+        } else {
+            u32::from(delay_cs) * 10
+        };
+        if !(10..=60_000).contains(&delay) {
+            return Err("GIF frame delay is outside 10..=60000 ms".into());
+        }
+        let frame = render_image(&DynamicImage::ImageRgba8(screen), options)?;
+        frames.push(TimedFrame {
+            frame,
+            duration_ms: delay,
+        });
+        Ok(())
+    })?;
+    if frames.len() != count {
+        return Err("GIF frame count does not match its container".into());
+    }
+    Animation::new(frames, true)
 }
 /// Count GIF image descriptors before allocating decoded frames.
 /// Compressed data is skipped by bounded sub-block lengths.
@@ -322,4 +327,29 @@ fn sub_blocks(bytes: &[u8], cursor: &mut usize) -> Result<()> {
         }
         advance(bytes, cursor, size)?;
     }
+}
+
+#[cfg(test)]
+#[test]
+fn gif_decoder_rejects_a_frame_count_that_disagrees_with_preflight() {
+    use crate::gif::common::{GifFrame, gif};
+
+    let frames = [
+        GifFrame::full(1, 1, vec![0], 2),
+        GifFrame::full(1, 1, vec![1], 7),
+    ];
+    let bytes = gif(1, 1, Some(&[[255, 255, 255], [0, 0, 0]]), &frames);
+    let options = RenderOptions {
+        width: 1,
+        height: Some(1),
+        ..RenderOptions::default()
+    };
+    assert_eq!(
+        decode_gif_frames(&bytes, &options, 1).unwrap_err(),
+        "GIF frame count changed during decoding"
+    );
+    assert_eq!(
+        decode_gif_frames(&bytes, &options, 3).unwrap_err(),
+        "GIF frame count does not match its container"
+    );
 }

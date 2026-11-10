@@ -455,11 +455,10 @@ impl Smusher {
         {
             return c;
         }
-        if self.mode & SM_PAIR != 0 {
-            let pair = [left, right];
-            if [b"[]", b"][", b"{}", b"}{", b"()", b")("].contains(&&pair) {
-                return b'|';
-            }
+        if self.mode & SM_PAIR != 0
+            && [b"[]", b"][", b"{}", b"}{", b"()", b")("].contains(&&[left, right])
+        {
+            return b'|';
         }
         if self.mode & SM_BIGX != 0 {
             match (left, right) {
@@ -682,16 +681,14 @@ impl<'a> Typesetter<'a> {
     /// Prints the line up to its last word break and restarts the line with the rest.
     fn split(&mut self) {
         let input = std::mem::take(&mut self.input);
-        let (end, rest) = match input.iter().rposition(|c| *c == b' ') {
-            Some(space) => (
-                input[..space]
-                    .iter()
-                    .rposition(|c| *c != b' ')
-                    .map_or(0, |i| i + 1),
-                space + 1,
-            ),
-            None => (0, input.len()),
-        };
+        let space = input
+            .iter()
+            .rposition(|c| *c == b' ')
+            .expect("word break mode requires a space");
+        let end = input[..space]
+            .iter()
+            .rposition(|c| *c != b' ')
+            .map_or(0, |i| i + 1);
         for row in &mut self.rows {
             row.clear();
         }
@@ -699,7 +696,7 @@ impl<'a> Typesetter<'a> {
             self.add(c);
         }
         self.print();
-        for &c in &input[rest..] {
+        for &c in &input[space + 1..] {
             self.add(c);
         }
     }

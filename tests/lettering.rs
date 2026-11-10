@@ -158,6 +158,8 @@ fn toilet_fonts_import_only_when_every_glyph_is_printable_ascii() {
     extended.push_str(&"xx@\n".repeat(7));
     extended.push_str("0x2500 BOX DRAWINGS LIGHT HORIZONTAL \u{2500}\n--@\n");
     assert!(lettering::render("Hi", "custom", Some(&extended), Alignment::Left, None).is_ok());
+    let separated = extended.replacen("0x2500 ", "\n0x2500 ", 1);
+    assert!(lettering::render("Hi", "custom", Some(&separated), Alignment::Left, None).is_ok());
     let refuse = |font: &str, needle: &str| {
         let error =
             lettering::render("Hi", "custom", Some(font), Alignment::Left, None).unwrap_err();
@@ -184,4 +186,116 @@ fn toilet_fonts_import_only_when_every_glyph_is_printable_ascii() {
     assert!(lettering::render("ASCII", "custom", Some(&wide), Alignment::Left, None).is_err());
     refuse("PK\u{3}\u{4}tlf2a$ 1 1 4 -1 0", "Compressed fonts");
     refuse("tlf2\u{2500} 1 1 4 -1 0", "header");
+}
+
+#[test]
+fn font_import_rejects_bad_headers_and_oversized_rows() {
+    let oversized = "x".repeat(1024 * 1024 + 1);
+    let font = toilet_font();
+    let wide_row = font.replace("A@\n", &format!("{}@\n", "x".repeat(256)));
+    for (contents, expected) in [
+        (oversized.as_str(), "Font exceeds 1 MiB"),
+        ("flf2a$ 1 1 4 -1", "Font header needs"),
+        ("flf2a$ 1 1 4 -1 1", "Font comment lines are missing"),
+        (wide_row.as_str(), "'A' row 1 exceeds 256 bytes"),
+    ] {
+        let error = lettering::validate_font(contents).unwrap_err();
+        assert!(error.contains(expected), "{error}");
+    }
+    let error = lettering::render("Hi", "missing", None, Alignment::Left, None).unwrap_err();
+    assert!(error.contains("Unknown font missing"));
+}
+
+fn rule_font(header: &str, glyphs: &[(char, &str)]) -> String {
+    let mut font = format!("{header}\n");
+    for byte in 32..=126 {
+        let character = char::from(byte);
+        let row = glyphs
+            .iter()
+            .find(|(key, _)| *key == character)
+            .map_or(" .", |(_, row)| *row);
+        font.push_str(row);
+        font.push_str("@@\n");
+    }
+    font
+}
+
+#[test]
+fn legacy_horizontal_rules_join_facing_figlet_glyphs() {
+    let font = rule_font(
+        "flf2a$ 1 1 4 24 0",
+        &[
+            ('A', "a/"),
+            ('B', "\\b"),
+            ('C', "c\\"),
+            ('D', "/d"),
+            ('E', "e>"),
+            ('F', "<f"),
+            ('G', "g["),
+            ('H', "]h"),
+        ],
+    );
+    for (text, expected) in [
+        ("AB", "a|b"),
+        ("CD", "cYd"),
+        ("EF", "eXf"),
+        ("GH", "g|h"),
+        ("AC", "a/c\\"),
+    ] {
+        let frame = lettering::render(text, "custom", Some(&font), Alignment::Left, None).unwrap();
+        assert_eq!(frame.text(), expected, "{text}");
+    }
+    let pair_only = rule_font("flf2a$ 1 1 4 8 0", &[('A', "a/"), ('B', "\\b")]);
+    let frame = lettering::render("AB", "custom", Some(&pair_only), Alignment::Left, None).unwrap();
+    assert_eq!(frame.text(), "a/\\b");
+}
+
+#[test]
+fn universal_smushing_keeps_visible_strokes_over_hardblanks() {
+    let glyphs = [('A', "a$"), ('B', "xb"), ('C', "c!"), ('D', "$d")];
+    let universal = rule_font("flf2a$ 1 1 4 -1 0 0 128", &glyphs);
+    let hardblank = rule_font("flf2a$ 1 1 4 -1 0 0 160", &glyphs);
+    for (text, font, expected) in [
+        ("AB", &universal, "axb"),
+        ("CD", &universal, "c!d"),
+        ("CB", &universal, "cxb"),
+        ("AD", &hardblank, "a d"),
+    ] {
+        let frame = lettering::render(text, "custom", Some(font), Alignment::Left, None).unwrap();
+        assert_eq!(frame.text(), expected, "{text}");
+    }
+}
+
+#[test]
+fn vertical_line_and_super_smushing_join_overlapping_rows() {
+    let font = rule_font(
+        "flf2a$ 1 1 4 -1 0 0 22528",
+        &[
+            ('A', "-|"),
+            ('B', "_|"),
+            ('C', "||"),
+            ('D', "x|"),
+            (' ', "  "),
+        ],
+    );
+    for (text, expected) in [("A\nB", "=|"), ("C\nC\nC", "||"), ("A\nD\n ", "-|\nx|")] {
+        let frame = lettering::render(text, "custom", Some(&font), Alignment::Left, None).unwrap();
+        assert_eq!(frame.text(), expected, "{text:?}");
+    }
+}
+
+#[test]
+fn wrap_drops_separators_at_automatic_and_explicit_breaks() {
+    let font = rule_font(
+        "flf2a$ 1 1 4 -1 0",
+        &[('A', "aa"), ('B', "bb"), ('C', "cc"), (' ', "  ")],
+    );
+    for (text, wrap) in [("AB \nC", 4), ("AB   C", 6)] {
+        let options = Options {
+            wrap: Some(wrap),
+            ..Options::default()
+        };
+        let frame = lettering::render_with(text, "custom", Some(&font), &options).unwrap();
+        assert_eq!(frame.text(), "aabb\ncc  ", "{text:?}");
+    }
 }
