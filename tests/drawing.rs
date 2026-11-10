@@ -57,6 +57,20 @@ fn text_and_overlays_clip_to_the_canvas_without_wrapping() {
 }
 
 #[test]
+fn oversized_text_is_refused_and_overflowing_overlays_are_clipped() {
+    let mut grid = canvas("ab\ncd");
+    let stamp = Frame::from_text("WX\nYZ").unwrap();
+    grid.overlay(&stamp, i32::MAX, i32::MAX, false).unwrap();
+    let oversized = "A".repeat(apollinaire_ascii::MAX_CELLS + 1);
+    assert!(
+        grid.text(0, 0, &oversized)
+            .unwrap_err()
+            .contains("too long")
+    );
+    assert_eq!(text(grid), "ab\ncd");
+}
+
+#[test]
 fn ellipse_outlines_are_symmetrical_at_odd_and_even_sizes() {
     let mut grid = blank(9, 5);
     grid.ellipse(0, 0, 9, 5, b'#').unwrap();

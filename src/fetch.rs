@@ -125,6 +125,24 @@ mod tests {
         );
     }
     #[test]
+    fn missing_content_type_and_truncated_image_responses_are_refused() {
+        let head = "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n";
+        let url = serve(head, png(), Duration::ZERO);
+        assert!(
+            get(&url, TIMEOUT, true)
+                .unwrap_err()
+                .contains("no content type")
+        );
+
+        let head = "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: 8\r\nConnection: close\r\n\r\n";
+        let url = serve(head, vec![0], Duration::ZERO);
+        assert!(
+            get(&url, TIMEOUT, true)
+                .unwrap_err()
+                .starts_with("Cannot fetch")
+        );
+    }
+    #[test]
     fn oversized_bodies_are_refused_with_or_without_a_length() {
         let head = "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: 99999999\r\nConnection: close\r\n\r\n";
         let url = serve(head, vec![], Duration::ZERO);

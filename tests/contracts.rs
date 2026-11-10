@@ -145,6 +145,23 @@ fn animation_clock_uses_per_frame_durations_and_loop_policy() {
     project.remove_frame(1).unwrap();
     assert!(project.remove_frame(9).is_err());
 }
+
+#[test]
+fn single_frame_edits_preserve_the_project_when_rejected() {
+    let mut project = Animation::still(Frame::from_text("A").unwrap());
+    let original = project.clone();
+    assert!(project.remove_frame(0).is_err());
+    assert!(project.replace_frame(1, timed("B", 10)).is_err());
+    assert!(project.insert_frame(2, timed("B", 10)).is_err());
+    assert!(project.swap_frames(0, 1).is_err());
+    assert_eq!(project, original);
+
+    project.replace_frame(0, timed("B", 25)).unwrap();
+    assert_eq!(project.frames(), &[timed("B", 25)]);
+    assert_eq!(project.duration_ms(), 25);
+    assert_eq!(project.frame_at(u64::MAX), 0);
+}
+
 #[test]
 fn project_validation_enforces_all_budgets() {
     assert!(Animation::new(vec![], true).is_err());
@@ -172,6 +189,72 @@ fn project_validation_enforces_all_budgets() {
     value["unexpected"] = serde_json::json!(true);
     assert!(Animation::from_json(&value.to_string()).is_err());
 }
+
+#[test]
+fn project_json_rejects_invalid_shapes_and_frame_metadata() {
+    for (input, expected) in [
+        ("[]", "an asciiforge version 1 project"),
+        (r#"{"frames":{}}"#, "1 to 600 bounded frames"),
+        (r#"{"frames":[0]}"#, "a frame with text and duration_ms"),
+        (
+            r#"{"frames":[{"text":"A","duration_ms":10,"extra":0}]}"#,
+            "unknown field",
+        ),
+        (
+            r#"{"frames":[{"text":"A","duration_ms":9}]}"#,
+            "Frame duration",
+        ),
+        (
+            r#"{"format":"asciiforge","version":2}"#,
+            "Expected asciiforge project version 1",
+        ),
+        (
+            r#"{"format":"asciiforge","version":1,"width":2,"height":1,"loop":false,"frames":[{"text":"A","duration_ms":10}]}"#,
+            "Frame dimensions do not match",
+        ),
+    ] {
+        let error = Animation::from_json(input).unwrap_err();
+        assert!(error.contains(expected), "{input}: {error}");
+    }
+}
+
+#[test]
+fn project_json_accepts_the_frame_limit_and_rejects_excess_cells() {
+    let limit = Animation::new(vec![timed("A", 10); MAX_FRAMES], true).unwrap();
+    let input = limit.to_json();
+    assert_eq!(Animation::from_json(&input).unwrap(), limit);
+    let mut too_many: serde_json::Value = serde_json::from_str(&input).unwrap();
+    let frames = too_many["frames"].as_array_mut().unwrap();
+    frames.push(frames[0].clone());
+    assert!(
+        Animation::from_json(&too_many.to_string())
+            .unwrap_err()
+            .contains("Too many frames")
+    );
+
+    let big = Frame::blank(512, 256).unwrap().text();
+    let over = serde_json::json!({
+        "format": "asciiforge", "version": 1, "width": 512, "height": 256, "loop": false,
+        "frames": vec![serde_json::json!({"text": big, "duration_ms": 10}); 62],
+    });
+    assert!(
+        Animation::from_json(&over.to_string())
+            .unwrap_err()
+            .contains("8,000,000 cells")
+    );
+}
+
+#[test]
+fn text_and_project_import_enforce_the_raw_input_budget() {
+    let oversized = " ".repeat(apollinaire_ascii::MAX_INPUT_BYTES + 1);
+    assert!(
+        Animation::from_json(&oversized)
+            .unwrap_err()
+            .contains("16 MiB")
+    );
+    assert!(Frame::from_text(&oversized).unwrap_err().contains("16 MiB"));
+}
+
 #[test]
 fn all_original_art_and_effects_are_real_ascii_and_deterministic() {
     for piece in art::CATALOGUE {
@@ -208,6 +291,44 @@ fn all_original_art_and_effects_are_real_ascii_and_deterministic() {
     assert!(animation::generate("ghost", &other).is_err());
     other.fps = 61;
     assert!(animation::generate("ghost", &other).is_err());
+}
+
+#[test]
+fn scenes_reject_invalid_requests_and_accept_empty_text_and_tiny_canvases() {
+    let options = SceneOptions {
+        width: 1,
+        height: 1,
+        frames: 2,
+        text: String::new(),
+        ..SceneOptions::default()
+    };
+    let reveal = animation::generate("reveal", &options).unwrap();
+    assert_eq!(reveal.frames(), &[timed(" ", 50), timed(" ", 50)]);
+    let donut = animation::generate("donut", &options).unwrap();
+    assert_eq!(
+        (donut.width(), donut.height(), donut.frames().len()),
+        (1, 1, 2)
+    );
+    assert!(
+        animation::generate("missing", &options)
+            .unwrap_err()
+            .contains("Unknown scene missing")
+    );
+
+    let mut invalid = options;
+    invalid.text = "A".repeat(513);
+    assert!(
+        animation::generate("reveal", &invalid)
+            .unwrap_err()
+            .contains("512 characters")
+    );
+    invalid.text.clear();
+    invalid.frames = MAX_FRAMES + 1;
+    assert!(
+        animation::generate("donut", &invalid)
+            .unwrap_err()
+            .contains("frame or cell limits")
+    );
 }
 #[test]
 fn catalogue_is_large_unique_tagged_and_searchable() {
@@ -714,6 +835,75 @@ fn animated_gif_import_preserves_frames_delays_and_predecode_limits() {
         );
     }
 }
+
+#[test]
+fn gif_import_checks_the_output_budget_and_accepts_a_local_palette() {
+    let palette = vec![[255, 255, 255], [0, 0, 0]];
+    let mut frame = common::GifFrame::full(2, 1, vec![0, 1], 0);
+    frame.local = Some(palette.clone());
+    let options = RenderOptions {
+        width: 2,
+        height: Some(1),
+        ..RenderOptions::default()
+    };
+    let project = decode_media(&common::gif(2, 1, None, &[frame]), &options).unwrap();
+    assert_eq!(project.frames(), &[timed("@ ", 100)]);
+
+    let slow = common::GifFrame::full(2, 1, vec![0, 1], 6001);
+    let slow_gif = common::gif(2, 1, Some(&palette), &[slow]);
+    assert!(
+        decode_media(&slow_gif, &options)
+            .unwrap_err()
+            .contains("GIF frame delay")
+    );
+
+    let no_frames = common::gif(2, 1, Some(&palette), &[]);
+    assert!(
+        decode_media(&no_frames, &options)
+            .unwrap_err()
+            .contains("GIF exceeds")
+    );
+    let huge_output = RenderOptions {
+        width: 512,
+        height: Some(256),
+        ..options
+    };
+    assert!(
+        decode_media(&gif_bytes(62), &huge_output)
+            .unwrap_err()
+            .contains("GIF exceeds")
+    );
+}
+
+#[test]
+fn image_conversion_rejects_invalid_cell_aspect() {
+    for cell_aspect in [f64::NAN, f64::INFINITY, 0.0, 2.1] {
+        let options = RenderOptions {
+            cell_aspect,
+            ..RenderOptions::default()
+        };
+        assert!(options.validate().unwrap_err().contains("Cell aspect"));
+    }
+}
+
+#[test]
+fn invalid_gif_blocks_and_truncated_pixel_data_are_rejected() {
+    let options = RenderOptions::default();
+    let mut unknown_block = common::gif(1, 1, None, &[]);
+    let trailer = unknown_block.last_mut().unwrap();
+    *trailer = 0;
+    assert!(
+        decode_media(&unknown_block, &options)
+            .unwrap_err()
+            .contains("Invalid GIF block marker")
+    );
+    assert!(
+        decode_media(b"P6\n2 2\n255\n\x00", &options)
+            .unwrap_err()
+            .contains("Image decode")
+    );
+}
+
 #[test]
 fn html_export_cannot_turn_artwork_into_markup_or_script() {
     let text = "</script><img src=x onerror=alert(1)>&\"";

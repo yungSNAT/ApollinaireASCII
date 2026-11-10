@@ -81,13 +81,14 @@ impl Animation {
         } else {
             elapsed_ms.min(total - 1)
         };
-        for (i, frame) in self.frames.iter().enumerate() {
+        let last = self.frames.len() - 1;
+        for (i, frame) in self.frames[..last].iter().enumerate() {
             if remaining < u64::from(frame.duration_ms) {
                 return i;
             }
             remaining -= u64::from(frame.duration_ms);
         }
-        self.frames.len() - 1
+        last
     }
     pub fn replace_frame(&mut self, index: usize, frame: TimedFrame) -> Result<()> {
         if index >= self.frames.len() {
@@ -238,12 +239,22 @@ pub fn generate(scene: &str, options: &SceneOptions) -> Result<Animation> {
     {
         return Err("Animation exceeds frame or cell limits".into());
     }
-    if !SCENES.contains(&scene) {
-        return Err(format!(
-            "Unknown scene {scene}; choose {}",
-            SCENES.join(", ")
-        ));
-    }
+    let draw: fn(&mut Canvas, &SceneOptions, usize, f64, f64) -> Result<()> = match scene {
+        "ghost" => |c, o, _, _, phase| ghost(c, o, phase),
+        "donut" => |c, o, _, t, _| donut(c, o, t),
+        "wave" => |c, o, _, _, phase| field(c, o, phase, false),
+        "starfield" => |c, o, _, t, _| stars(c, o, t),
+        "rain" => |c, o, index, _, _| rain(c, o, index),
+        "fire" => |c, o, _, _, phase| field(c, o, phase, true),
+        "reveal" => |c, o, index, _, _| moving_text(c, o, index, false),
+        "scroll" => |c, o, index, _, _| moving_text(c, o, index, true),
+        _ => {
+            return Err(format!(
+                "Unknown scene {scene}; choose {}",
+                SCENES.join(", ")
+            ));
+        }
+    };
     crate::printable(options.text.as_bytes())?;
     if options.text.len() > 512 {
         return Err("Scene text must be at most 512 characters".into());
@@ -253,15 +264,7 @@ pub fn generate(scene: &str, options: &SceneOptions) -> Result<Animation> {
         let t = index as f64 / options.fps as f64;
         let phase = index as f64 / options.frames as f64 * std::f64::consts::TAU;
         let mut canvas = Canvas::new(options.width, options.height)?;
-        match scene {
-            "ghost" => ghost(&mut canvas, options, phase)?,
-            "donut" => donut(&mut canvas, options, t)?,
-            "wave" | "fire" => field(&mut canvas, options, phase, scene == "fire")?,
-            "starfield" => stars(&mut canvas, options, t)?,
-            "rain" => rain(&mut canvas, options, index)?,
-            "reveal" | "scroll" => moving_text(&mut canvas, options, index, scene == "scroll")?,
-            _ => unreachable!("Scene was validated"),
-        }
+        draw(&mut canvas, options, index, t, phase)?;
         frames.push(TimedFrame {
             frame: canvas.finish(),
             duration_ms: 1000 / options.fps,
@@ -357,11 +360,8 @@ fn field(c: &mut Canvas, o: &SceneOptions, p: f64, fire: bool) -> Result<()> {
                 let line = 0.5 + 0.22 * (nx * 12.0 + p).sin() + 0.12 * (nx * 23.0 - p * 2.0).sin();
                 (1.0 - (ny - line).abs() * o.height as f64 / 3.0).clamp(0.0, 1.0)
             };
-            c.set(
-                x as i32,
-                y as i32,
-                ramp[(value * (ramp.len() - 1) as f64) as usize],
-            )?;
+            let glyph = ramp[(value * (ramp.len() - 1) as f64) as usize];
+            c.set(x as i32, y as i32, glyph)?;
         }
     }
     Ok(())
@@ -379,17 +379,14 @@ fn stars(c: &mut Canvas, o: &SceneOptions, t: f64) -> Result<()> {
             (random(o.seed, i * 3 + 1) + t * (0.08 + random(o.seed, i * 3 + 2) * 0.15)).fract();
         let x = o.width as f64 / 2.0 + angle.cos() * distance * o.width as f64 * 0.65;
         let y = o.height as f64 / 2.0 + angle.sin() * distance * o.height as f64 * 0.65;
-        c.set(
-            x as i32,
-            y as i32,
-            if distance > 0.75 {
-                b'+'
-            } else if distance > 0.4 {
-                b'*'
-            } else {
-                b'.'
-            },
-        )?;
+        let glyph = if distance > 0.75 {
+            b'+'
+        } else if distance > 0.4 {
+            b'*'
+        } else {
+            b'.'
+        };
+        c.set(x as i32, y as i32, glyph)?;
     }
     Ok(())
 }

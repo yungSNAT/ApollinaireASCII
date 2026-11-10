@@ -364,10 +364,10 @@ fn run(args: Args) -> Result<()> {
             seed,
             source_frame,
         } => {
-            let project = match (art, input) {
-                (Some(name), _) => Animation::still(art::template(&name)?),
-                (None, Some(path)) => load(&path, true)?,
-                (None, None) => unreachable!("clap requires an input or --art"),
+            let project = if let Some(name) = art {
+                Animation::still(art::template(&name)?)
+            } else {
+                load(&input.ok_or("Provide an input or --art")?, true)?
             };
             let source = &project
                 .frames()
@@ -682,4 +682,27 @@ fn play(project: &Animation, loops: u32) -> Result<()> {
         }
     }
     writeln!(output).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+#[test]
+fn effect_dispatch_reports_a_missing_source() {
+    let args = Args {
+        command: Command::Effect {
+            effect: effects::EFFECTS[0].into(),
+            input: None,
+            art: None,
+            reverse: false,
+            duration: 2000,
+            fps: 20,
+            seed: 42,
+            source_frame: 0,
+        },
+        export: Export {
+            output: None,
+            format: None,
+            frame: None,
+        },
+    };
+    assert_eq!(run(args).unwrap_err(), "Provide an input or --art");
 }
