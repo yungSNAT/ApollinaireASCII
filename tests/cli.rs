@@ -80,6 +80,95 @@ fn scratch(name: &str) -> std::path::PathBuf {
 fn text(bytes: &[u8]) -> &str {
     std::str::from_utf8(bytes).unwrap()
 }
+
+#[test]
+fn compose_clips_a_transparent_stamp_and_rejects_animations() {
+    let dir = scratch("compose");
+    let background = dir.join("background.txt");
+    let stamp = dir.join("stamp.txt");
+    std::fs::write(&background, "abc\ndef").unwrap();
+    std::fs::write(&stamp, " XZ").unwrap();
+    let output = cli(&[
+        "compose",
+        background.to_str().unwrap(),
+        stamp.to_str().unwrap(),
+        "--x",
+        "1",
+        "--y",
+        "1",
+        "--transparent-spaces",
+    ]);
+    assert!(output.status.success(), "{}", text(&output.stderr));
+    assert_eq!(text(&output.stdout), "abc\ndeX\n");
+
+    let animation = cli(&["animate", "wave", "--frames", "2"]);
+    assert!(animation.status.success(), "{}", text(&animation.stderr));
+    let project = dir.join("animation.json");
+    std::fs::write(&project, animation.stdout).unwrap();
+    let refused = cli(&[
+        "compose",
+        background.to_str().unwrap(),
+        project.to_str().unwrap(),
+    ]);
+    assert!(!refused.status.success());
+    assert!(text(&refused.stderr).contains("Compose needs 2 static frames"));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn transform_crops_every_frame_and_preserves_timing_and_looping() {
+    use apollinaire_ascii::{Animation, Frame, TimedFrame};
+
+    let dir = scratch("transform");
+    let original = Animation::new(
+        vec![
+            TimedFrame {
+                frame: Frame::from_text("abcd\nefgh\nijkl").unwrap(),
+                duration_ms: 90,
+            },
+            TimedFrame {
+                frame: Frame::from_text("mnop\nqrst\nuvwx").unwrap(),
+                duration_ms: 150,
+            },
+        ],
+        false,
+    )
+    .unwrap();
+    let path = dir.join("animation.json");
+    std::fs::write(&path, original.to_json()).unwrap();
+
+    let cropped = cli(&[
+        "transform",
+        path.to_str().unwrap(),
+        "crop",
+        "--x",
+        "1",
+        "--y",
+        "1",
+        "--width",
+        "2",
+        "--height",
+        "2",
+    ]);
+    assert!(cropped.status.success(), "{}", text(&cropped.stderr));
+    let cropped = Animation::from_json(text(&cropped.stdout)).unwrap();
+    assert!(!cropped.looping());
+    let frames: Vec<_> = cropped
+        .frames()
+        .iter()
+        .map(|f| (f.duration_ms, f.frame.text()))
+        .collect();
+    assert_eq!(
+        frames,
+        [(90, String::from("fg\njk")), (150, String::from("rs\nvw"))]
+    );
+
+    let incomplete = cli(&["transform", path.to_str().unwrap(), "crop", "--width", "2"]);
+    assert!(!incomplete.status.success());
+    assert!(text(&incomplete.stderr).contains("Crop needs --height"));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 #[test]
 fn list_searches_tags_and_effects_animate_files_and_stdin() {
     let birds = cli(&["list", "--tag", "bird"]);

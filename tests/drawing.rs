@@ -26,11 +26,34 @@ fn bounds_normalise_corners_in_any_order() {
 #[test]
 fn get_reads_cells_and_reports_outside_as_none() {
     let grid = canvas("ab\ncd");
+    assert_eq!((grid.width(), grid.height()), (2, 2));
     assert_eq!(grid.get(1, 1), Some(b'd'));
     assert_eq!(
         (grid.get(-1, 0), grid.get(2, 0), grid.get(0, 2)),
         (None, None, None)
     );
+}
+
+#[test]
+fn rectangle_draws_a_clipped_outline_and_rejects_coordinate_overflow() {
+    let mut grid = blank(4, 3);
+    grid.rectangle(-1, 0, 4, 3, b'#').unwrap();
+    assert!(grid.rectangle(i32::MAX, 0, 2, 1, b'!').is_err());
+    assert!(grid.rectangle(0, i32::MAX, 1, 2, b'!').is_err());
+    assert_eq!(text(grid), "### \n  # \n### ");
+}
+
+#[test]
+fn text_and_overlays_clip_to_the_canvas_without_wrapping() {
+    let mut grid = canvas("abcd\nefgh");
+    grid.text(-1, 0, "Croft").unwrap();
+    grid.text(i32::MAX, 0, "XY").unwrap();
+    assert!(grid.text(0, 0, "é").is_err());
+
+    let stamp = Frame::from_text(" X").unwrap();
+    grid.overlay(&stamp, 0, 1, true).unwrap();
+    grid.overlay(&stamp, 2, 1, false).unwrap();
+    assert_eq!(text(grid), "roft\neX X");
 }
 
 #[test]
