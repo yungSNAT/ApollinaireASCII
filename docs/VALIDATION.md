@@ -111,6 +111,17 @@ The last GIF is within 0.4% of the 64 million decoded pixel budget and at the 60
 
 **Worker: no, not now.** The largest accepted input held the page for under 0.85 seconds, below the 1-second limit for keeping a user's flow of thought ([Nielsen Norman Group](https://www.nngroup.com/articles/response-times-3-important-limits/)), and opening or saving the largest project took under 40 ms. A device about 20% slower would pass 1 second on the largest GIF, so the decision should be revisited if a measurement on slower hardware does.
 
+## CLI conversion speed
+
+On 13 November 2026 `.github/scripts/conversion-speed.sh` timed the CLI against 2 command-line converters that can print plain ASCII: [ascii-image-converter](https://github.com/TheZoraiz/ascii-image-converter) v1.13.1 (its Linux amd64 release binary) and [chafa](https://hpjansson.org/chafa/) 1.18.3 (its static Linux build, with `--symbols ascii --colors none`). Each converted 2 ImageMagick 7.1.2-35 plasma fractals to 200 columns; each time is the fastest of 5 runs, including process start. apollinaire 0.4.0, built with `cargo install --locked apollinaire-ascii` and Rust 1.100.0, wrote each result to a new file; the others wrote to `/dev/null`. The machine ran Linux 7.3.3 on an AMD Ryzen 7 4800H, limited to 4 CPUs and shared with other jobs (load average about 5), so the times are indicative.
+
+| Picture | apollinaire | apollinaire `--dither` | ascii-image-converter | chafa |
+|---|--:|--:|--:|--:|
+| 4000 x 3000 JPEG, 3.3 MB | 136 ms | 132 ms | 320 ms | 147 ms |
+| 1920 x 1080 PNG, 10.7 MB | 63 ms | 67 ms | 172 ms | 132 ms |
+
+An earlier run that day, with the same commands, gave the same order: 132, 132, 346 and 143 ms for the JPEG, and 58, 60, 168 and 124 ms for the PNG. All 3 outputs held only printable ASCII. chafa came closest, within 11 ms on the JPEG. A 61 MB PNG of the same kind was refused, because the CLI accepts at most 16 MiB of input; the other 2 converted it. The fractals differ slightly between runs despite the fixed seed. To rerun, pass the 3 programs' paths: `bash .github/scripts/conversion-speed.sh <apollinaire> <ascii-image-converter> <chafa>`; ImageMagick 7 draws the pictures.
+
 ## Deliberate limits
 
 The Rust code contains no video decoder: the browser decodes video, so supported formats vary by browser, and the CLI has no video or camera input. Only the CLI fetches media over the network, from `https://` image URLs. There is no ANSI-colour artwork mode, raster/vector artwork exporter or Unicode-art mode. GIF is the animated image import format; other image inputs use the image library's still-image decoding. Oversize inputs are refused. Browser work is synchronous Rust after the bounded file read, so the largest valid conversions hold the UI thread for up to about a second (see Conversion responsiveness). Resource limits bound accepted files and projects, not the browser process's total memory.
