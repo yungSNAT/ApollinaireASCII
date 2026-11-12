@@ -88,6 +88,7 @@ enum Command {
         /// Plain FIGlet .flf or TOIlet .tlf font drawn in printable ASCII.
         #[arg(long)]
         font_file: Option<PathBuf>,
+        /// Align each line of lettering within --width.
         #[arg(long, value_enum, default_value = "left")]
         align: Align,
         /// Canvas width for alignment.
