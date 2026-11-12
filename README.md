@@ -73,13 +73,13 @@ cargo install --locked apollinaire-ascii
 
 For unreleased changes on `master`, use `cargo install --locked --git https://github.com/yungSNAT/ApollinaireASCII apollinaire-ascii`.
 
-Releases after v0.3.0 add package-manager routes. Each archive holds shell completions in `completions/` and a manual page in `man/`, and the release attaches:
+From v0.4.0, each archive holds shell completions in `completions/` and a manual page in `man/`, and the release attaches:
 
 - `apollinaire_<version>_amd64.deb` and `_arm64.deb`, which install the command, manual page and bash, zsh and fish completions: `sudo apt install ./apollinaire_<version>_amd64.deb`.
 - A Scoop manifest: `scoop install https://github.com/yungSNAT/ApollinaireASCII/releases/latest/download/apollinaire.json`.
 - A Homebrew formula, `apollinaire.rb`, for a tap.
 
-`cargo binstall apollinaire-ascii` then installs the release binary rather than building it. From a release after v0.3.0, or a `--git` install today, `apollinaire completions bash` (or `zsh`, `fish`, `powershell`) prints a completion script and `apollinaire man` prints the manual page.
+`cargo binstall apollinaire-ascii` then installs the release binary rather than building it. From v0.4.0, or a `--git` install, `apollinaire completions bash` (or `zsh`, `fish`, `powershell`) prints a completion script and `apollinaire man` prints the manual page.
 
 ```sh
 apollinaire art ghost
