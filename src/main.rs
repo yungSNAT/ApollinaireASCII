@@ -229,6 +229,7 @@ fn main() {
 fn run(args: Args) -> Result<()> {
     let project = match args.command {
         Command::List { tag: Some(tag) } => {
+            no_export(&args.export, "List")?;
             let mut found = false;
             for piece in art::search(&tag) {
                 found = true;
@@ -246,6 +247,7 @@ fn run(args: Args) -> Result<()> {
             };
         }
         Command::List { tag: None } => {
+            no_export(&args.export, "List")?;
             println!("Art ({} pieces):", art::CATALOGUE.len());
             for category in art::CATEGORIES {
                 let names: Vec<_> = art::search("")
@@ -471,6 +473,7 @@ fn run(args: Args) -> Result<()> {
                 .map_err(|e| format!("Output failed: {e}"));
         }
         Command::Check { input } => {
+            no_export(&args.export, "Check")?;
             let project = load(&input, false)?;
             println!(
                 "Valid ASCII: {} x {}, {} frame(s), {} ms",
