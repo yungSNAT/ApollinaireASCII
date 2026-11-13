@@ -39,6 +39,10 @@ pub const MAX_CELLS: usize = MAX_WIDTH * MAX_HEIGHT;
 pub const MAX_FRAMES: usize = 600;
 pub const MAX_PROJECT_CELLS: usize = 8_000_000;
 pub const MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
+/// Largest image or GIF that [`decode_media`] and the CLI's `image` files and stdin accept.
+/// It matches the image decoder's 128 MiB allocation limit, so a conversion's peak memory
+/// stays near twice this; docs/VALIDATION.md records the measurements.
+pub const MAX_MEDIA_BYTES: usize = 128 * 1024 * 1024;
 
 pub(crate) fn printable(bytes: &[u8]) -> Result<()> {
     if let Some((index, byte)) = bytes
