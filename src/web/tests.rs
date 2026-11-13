@@ -219,6 +219,22 @@ fn generate_draws_the_chosen_border_style() {
 }
 
 #[wasm_bindgen_test]
+fn border_style_is_disabled_whilst_the_border_is_off() {
+    blank(2, 1);
+    let style = element::<HtmlSelectElement>("border-style");
+    assert!(style.disabled(), "enabled without a border");
+    check("border", true);
+    assert!(!style.disabled(), "disabled with a border");
+    style.set_value("rounded");
+    check("border", false);
+    assert!(style.disabled(), "enabled after the border was turned off");
+    assert_eq!(style.value(), "rounded");
+    check("border", true);
+    click("generate");
+    assert_eq!(art(), rows(&[".--.", "|  |", "'--'"]));
+}
+
+#[wasm_bindgen_test]
 fn pencil_draws_by_pointer_and_keyboard() {
     blank(8, 4);
     tool("pencil");

@@ -815,4 +815,21 @@ fn every_argument_has_help() {
     let mut missing = Vec::new();
     walk(&Args::command(), "apollinaire", &mut missing);
     assert!(missing.is_empty(), "Arguments without help: {missing:?}");
+
+    let incomplete = clap::Command::new("croft-manor")
+        .arg(clap::Arg::new("missing").long("missing"))
+        .arg(clap::Arg::new("empty").long("empty").help(""))
+        .subcommand(
+            clap::Command::new("library")
+                .arg(clap::Arg::new("whitespace").long("whitespace").help(" \t ")),
+        );
+    walk(&incomplete, "croft-manor", &mut missing);
+    assert_eq!(
+        missing,
+        [
+            "croft-manor missing",
+            "croft-manor empty",
+            "croft-manor library whitespace",
+        ]
+    );
 }
