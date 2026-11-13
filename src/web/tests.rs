@@ -632,6 +632,40 @@ fn type_writes_rows_by_pointer_keyboard_and_stamp() {
     cursor_to((7, 0));
     keys(&["x", "y"]);
     assert_eq!(art(), rows(&["  Hi   x", "  yo a  ", "     ok!"]));
+    // Moving the cursor or starting the next row takes typing again.
+    keys(&["ArrowLeft", "w"]);
+    assert_eq!(art(), rows(&["  Hi  wx", "  yo a  ", "     ok!"]));
+    cursor_to((6, 1));
+    keys(&["b", "c", "Enter", "d"]);
+    assert_eq!(art(), rows(&["  Hi  wx", "  yo abc", "     od!"]));
+}
+
+#[wasm_bindgen_test]
+async fn a_full_row_does_not_stop_typing_on_the_frame_playback_moves_to() {
+    blank(1, 1);
+    let project = super::Animation::new(
+        ["ab", "cd"]
+            .iter()
+            .map(|text| super::TimedFrame {
+                frame: super::Frame::from_text(text).unwrap(),
+                duration_ms: 10,
+            })
+            .collect(),
+        false,
+    )
+    .unwrap();
+    open("playback-typing.json", &project.to_json()).await;
+    tool("type");
+    cursor_to((1, 0));
+    keys(&["x"]);
+    assert_eq!(art(), "ax");
+    click("play");
+    wait_for(|| {
+        art() == "cd" && element::<Element>("play").text_content().as_deref() == Some("Play")
+    })
+    .await;
+    keys(&["y"]);
+    assert_eq!(art(), "cy");
 }
 
 #[wasm_bindgen_test]

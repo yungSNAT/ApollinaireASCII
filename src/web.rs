@@ -935,6 +935,9 @@ fn tick() -> Result<()> {
             app.pause();
         }
         if index != app.selected || stopped {
+            if index != app.selected {
+                app.reset_drawing();
+            }
             app.selected = index;
             app.display(true)?;
         }
