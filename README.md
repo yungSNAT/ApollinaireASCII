@@ -55,7 +55,16 @@ All maintained application logic is Rust, including the browser's DOM controls a
 
 Download the archive for your platform from [Releases](https://github.com/yungSNAT/ApollinaireASCII/releases/latest): Windows, macOS and Linux on x86-64 and ARM64, with `SHA256SUMS.txt`. Unpack it and put `apollinaire` on your `PATH`.
 
-From v0.3.0, each archive has a signed build provenance attestation. To confirm an archive was built by this repository's release workflow from its release tag, run the command below. v0.3.0 was built before the account was renamed, so its attestation names EquityBot, a name this repository no longer holds. The `--source-digest` line pins the commit the v0.3.0 tag points to, so only an archive built from that commit passes. Later releases will name yungSNAT.
+From v0.3.0, each archive has a signed build provenance attestation. To confirm an archive was built by this repository's release workflow from its release tag, run:
+
+```sh
+gh attestation verify apollinaire-v0.4.0-x86_64-unknown-linux-musl.tar.gz \
+  --repo yungSNAT/ApollinaireASCII \
+  --signer-workflow yungSNAT/ApollinaireASCII/.github/workflows/release.yml \
+  --source-ref refs/tags/v0.4.0
+```
+
+v0.3.0 was built before the account was renamed, so its attestation names EquityBot, a name this repository no longer holds. The `--source-digest` line pins the commit the v0.3.0 tag points to, so only an archive built from that commit passes:
 
 ```sh
 gh attestation verify apollinaire-v0.3.0-x86_64-unknown-linux-musl.tar.gz \
@@ -102,7 +111,7 @@ The library has no browser or CLI dependency when default features are disabled:
 
 ```toml
 [dependencies]
-apollinaire-ascii = { version = "0.3", default-features = false }
+apollinaire-ascii = { version = "0.4", default-features = false }
 ```
 
 ```rust
@@ -156,8 +165,16 @@ ApollinaireASCII keeps every output to printable ASCII and shares one Rust core 
 - Image conversion alone: [artem](https://github.com/FineFindus/artem) (Rust) or [ascii-image-converter](https://github.com/TheZoraiz/ascii-image-converter) (Go).
 - Terminal animation and effects in Python: [asciimatics](https://github.com/peterbrittain/asciimatics) or [terminaltexteffects](https://github.com/ChrisBuilds/terminaltexteffects).
 - Video playback in a terminal through FFmpeg: [tplay](https://github.com/maxcurzi/tplay).
+- Layers, keyframes, colour, and image or video export in a browser editor: [Ascii-Motion](https://github.com/CameronFoxly/Ascii-Motion) (2.2.9, README read 13 November 2026).
+- Ready-made animated pieces to drop into a page: [ascii.rest](https://ascii.rest/) or [ascii-magic-art](https://www.npmjs.com/package/ascii-magic-art) (1.1.0, 734 pieces by its npm description, read 13 November 2026).
 
 ## Development
+
+The history includes RASCII's 2022 build output, so a full clone downloads about 149 MiB. A blobless clone fetches old files only when you need them:
+
+```sh
+git clone --filter=blob:none https://github.com/yungSNAT/ApollinaireASCII.git
+```
 
 ```sh
 cargo fmt --all --check
