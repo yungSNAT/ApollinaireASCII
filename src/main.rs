@@ -93,6 +93,7 @@ enum Command {
     },
     /// Original static ASCII templates.
     Art {
+        /// Catalogue piece; `apollinaire list` names them.
         name: String,
         /// Draw a border around the piece: `--border` alone for `+-|`, or `--border=<STYLE>`.
         #[arg(
@@ -107,12 +108,15 @@ enum Command {
     },
     /// ASCII block letters, including punctuation and multiline text.
     Text {
+        /// Text to letter in printable ASCII; a line feed starts a new line of lettering.
         text: String,
+        /// Bundled font or style; `apollinaire list` names them.
         #[arg(long, default_value = "standard")]
         font: String,
         /// Plain FIGlet .flf or TOIlet .tlf font drawn in printable ASCII.
         #[arg(long)]
         font_file: Option<PathBuf>,
+        /// Align each line of lettering within --width.
         #[arg(long, value_enum, default_value = "left")]
         align: Align,
         /// Canvas width for alignment.
@@ -136,14 +140,21 @@ enum Command {
         /// Create one new file per input in this directory, named after the input.
         #[arg(long)]
         output_dir: Option<PathBuf>,
+        /// Columns of text, 1 to 512.
         #[arg(short, long, default_value_t = 80)]
         width: usize,
+        /// Rows of text, 1 to 256. Without it, rows follow the image's shape and --cell-aspect.
         #[arg(long)]
         height: Option<usize>,
+        /// A named ramp (standard, fine, simple, binary) or a literal sequence ordered from light
+        /// to dense.
         #[arg(long, default_value = "standard")]
         ramp: String,
+        /// Swap light and dense, for light text on a dark background.
         #[arg(long)]
         invert: bool,
+        /// Spread each cell's rounding error to its neighbours (Floyd-Steinberg) for smoother
+        /// shading.
         #[arg(long)]
         dither: bool,
         /// Shade by edge strength instead of brightness, tracing outlines.
@@ -153,34 +164,47 @@ enum Command {
         /// --edges, over the traced outlines.
         #[arg(long)]
         edge_glyphs: bool,
+        /// Gamma correction, 0.1 to 5.0.
         #[arg(long, default_value_t = 1.0)]
         gamma: f64,
+        /// Contrast around mid-grey, 0.1 to 5.0.
         #[arg(long, default_value_t = 1.0)]
         contrast: f64,
+        /// Width of a character cell divided by its height, 0.1 to 2.0; sets the rows when
+        /// --height is not given.
         #[arg(long, default_value_t = 0.5)]
         cell_aspect: f64,
+        /// Greyscale value from 0 to 255 that transparent pixels are composited onto.
         #[arg(long, default_value_t = 0)]
         background: u8,
     },
     /// Deterministic procedural ASCII scenes, exported as timed JSON.
     Animate {
+        /// Scene; `apollinaire list` names them.
         #[arg(default_value = "ghost")]
         scene: String,
+        /// Columns, 1 to 512.
         #[arg(long, default_value_t = 72)]
         width: usize,
+        /// Rows, 1 to 256.
         #[arg(long, default_value_t = 24)]
         height: usize,
+        /// Number of frames, 1 to 600, within 8,000,000 cells in total.
         #[arg(long, default_value_t = 80)]
         frames: usize,
+        /// Frames per second, 1 to 60.
         #[arg(long, default_value_t = 20)]
         fps: u32,
+        /// The same seed always gives the same frames.
         #[arg(long, default_value_t = 42)]
         seed: u32,
+        /// Printable ASCII text for the reveal and scroll scenes, at most 512 characters.
         #[arg(long, default_value = "HELLO, FRIEND")]
         text: String,
     },
     /// Animate text art or lettering with a deterministic effect, exported as timed JSON.
     Effect {
+        /// Effect to apply.
         #[arg(value_parser = clap::builder::PossibleValuesParser::new(effects::EFFECTS))]
         effect: String,
         /// A .txt or .json file, or `-` for stdin. Ragged text rows are padded.
@@ -207,32 +231,45 @@ enum Command {
     },
     /// Load .txt or an ApollinaireASCII .json project. Text CRLF is normalised to LF.
     Import {
+        /// A .txt or .json file, or `-` for stdin.
         input: PathBuf,
+        /// Pad ragged text rows with spaces instead of refusing them.
         #[arg(long)]
         pad: bool,
     },
     /// Overlay one static text frame onto another.
     Compose {
+        /// Static .txt or .json frame to draw onto.
         background: PathBuf,
+        /// Static .txt or .json frame to draw over it.
         overlay: PathBuf,
+        /// Column of the overlay's left edge; parts outside the background are clipped.
         #[arg(long, default_value_t = 0)]
         x: i32,
+        /// Row of the overlay's top edge; parts outside the background are clipped.
         #[arg(long, default_value_t = 0)]
         y: i32,
+        /// Let the background show through the overlay's spaces.
         #[arg(long)]
         transparent_spaces: bool,
     },
     /// Transform every frame in a project.
     Transform {
+        /// A .txt or .json project, or `-` for stdin.
         input: PathBuf,
+        /// Flip horizontally or vertically, add a border (see `--style`), or crop.
         #[arg(value_enum)]
         operation: Transform,
+        /// Crop: zero-based column of the left edge.
         #[arg(long, default_value_t = 0)]
         x: usize,
+        /// Crop: zero-based row of the top edge.
         #[arg(long, default_value_t = 0)]
         y: usize,
+        /// Crop: columns to keep; required for crop.
         #[arg(long)]
         width: Option<usize>,
+        /// Crop: rows to keep; required for crop.
         #[arg(long)]
         height: Option<usize>,
         /// Border style for the `border` operation; plain `+-|` by default.
@@ -241,14 +278,22 @@ enum Command {
     },
     /// Play a project in a terminal. Escape codes are playback transport only.
     Play {
+        /// A .txt or .json project, or `-` for stdin.
         input: PathBuf,
+        /// Cycles to play, 1 to 1000.
         #[arg(long,default_value_t=1,value_parser=clap::value_parser!(u32).range(1..=1000))]
         loops: u32,
     },
     /// Validate an existing text or JSON project.
-    Check { input: PathBuf },
+    Check {
+        /// A .txt or .json project, or `-` for stdin.
+        input: PathBuf,
+    },
     /// Print a shell completion script, such as `apollinaire completions bash > apollinaire.bash`.
-    Completions { shell: clap_complete::Shell },
+    Completions {
+        /// Shell to complete for.
+        shell: clap_complete::Shell,
+    },
     /// Print this manual page as roff, for `apollinaire man | man -l -`.
     Man,
 }
@@ -261,6 +306,7 @@ fn main() {
 fn run(args: Args) -> Result<()> {
     let project = match args.command {
         Command::List { tag: Some(tag) } => {
+            no_export(&args.export, "List")?;
             let mut found = false;
             for piece in art::search(&tag) {
                 found = true;
@@ -278,6 +324,7 @@ fn run(args: Args) -> Result<()> {
             };
         }
         Command::List { tag: None } => {
+            no_export(&args.export, "List")?;
             println!("Art ({} pieces):", art::CATALOGUE.len());
             for category in art::CATEGORIES {
                 let names: Vec<_> = art::search("")
@@ -512,6 +559,7 @@ fn run(args: Args) -> Result<()> {
                 .map_err(|e| format!("Output failed: {e}"));
         }
         Command::Check { input } => {
+            no_export(&args.export, "Check")?;
             let project = load(&input, false)?;
             println!(
                 "Valid ASCII: {} x {}, {} frame(s), {} ms",
@@ -746,4 +794,25 @@ fn effect_dispatch_reports_a_missing_source() {
         },
     };
     assert_eq!(run(args).unwrap_err(), "Provide an input or --art");
+}
+
+#[cfg(test)]
+#[test]
+fn every_argument_has_help() {
+    fn walk(command: &clap::Command, path: &str, missing: &mut Vec<String>) {
+        for arg in command.get_arguments() {
+            if arg
+                .get_help()
+                .is_none_or(|help| help.to_string().trim().is_empty())
+            {
+                missing.push(format!("{path} {}", arg.get_id()));
+            }
+        }
+        for sub in command.get_subcommands() {
+            walk(sub, &format!("{path} {}", sub.get_name()), missing);
+        }
+    }
+    let mut missing = Vec::new();
+    walk(&Args::command(), "apollinaire", &mut missing);
+    assert!(missing.is_empty(), "Arguments without help: {missing:?}");
 }

@@ -167,6 +167,24 @@ fn import_and_export_report_incompatible_options_and_bad_inputs() {
     let frame = cli(&["art", "cat", "--format", "html", "--frame", "0"]);
     assert!(!frame.status.success());
     assert!(text(&frame.stderr).contains("--frame applies only to text output"));
+
+    let listed = dir.join("list.txt");
+    for args in [
+        vec!["list", "--output", listed.to_str().unwrap()],
+        vec!["list", "--tag", "bird", "--format", "json"],
+    ] {
+        let list = cli(&args);
+        assert!(!list.status.success(), "{args:?}");
+        assert!(text(&list.stderr).contains("List does not accept export options"));
+        assert!(list.stdout.is_empty());
+    }
+    assert!(!listed.exists());
+    let drawing = dir.join("drawing.txt");
+    std::fs::write(&drawing, "ab\n").unwrap();
+    let check = cli(&["check", drawing.to_str().unwrap(), "--frame", "0"]);
+    assert!(!check.status.success());
+    assert!(text(&check.stderr).contains("Check does not accept export options"));
+    assert!(check.stdout.is_empty());
     std::fs::remove_dir_all(dir).unwrap();
 }
 
