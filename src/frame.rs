@@ -147,6 +147,7 @@ impl Frame {
     pub fn border(&self) -> Result<Self> {
         self.border_with(BorderStyle::Plain)
     }
+    /// Surround the frame with a border in `style`, 2 columns wider and 2 rows taller.
     pub fn border_with(&self, style: BorderStyle) -> Result<Self> {
         let [top_left, top_right, bottom_left, bottom_right, across, side] = match style {
             BorderStyle::Plain => *b"++++-|",
