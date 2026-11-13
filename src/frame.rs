@@ -164,8 +164,10 @@ impl Frame {
     }
 }
 
-/// Border styles for [`Frame::border_with`], all in printable ASCII.
+/// Border styles for [`Frame::border_with`], all in printable ASCII. Later releases may add
+/// styles, so a `match` outside this crate needs a wildcard arm.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum BorderStyle {
     /// `+` corners, `-` across and `|` sides.
     #[default]

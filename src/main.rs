@@ -98,6 +98,7 @@ enum Command {
         #[arg(
             long,
             value_enum,
+            value_name = "STYLE",
             num_args = 0..=1,
             require_equals = true,
             default_missing_value = "plain"
