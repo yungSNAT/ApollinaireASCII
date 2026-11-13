@@ -119,7 +119,7 @@ jobs:
           retention-days: 7
 
   publish:
-    needs: binaries
+    needs: [binaries, crate-check]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
