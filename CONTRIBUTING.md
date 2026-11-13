@@ -8,6 +8,14 @@ Artwork stays printable ASCII: bytes 32 to 126, rows separated by line feeds, sh
 
 Code, fonts and artwork from other projects need a licence that permits redistribution under MIT. Record their source and licence in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and, for anything bundled into the browser editor, `web/THIRD_PARTY_NOTICES.txt`. Original art is welcome.
 
+## Clone
+
+The history includes RASCII's 2022 build output, so clone without old file contents and let Git fetch them when needed:
+
+```bash
+git clone --filter=blob:none https://github.com/yungSNAT/ApollinaireASCII.git
+```
+
 ## Checks
 
 Run these before opening a pull request:
