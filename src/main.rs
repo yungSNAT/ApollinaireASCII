@@ -135,7 +135,7 @@ enum Command {
     /// Draw a speech bubble around a message, optionally above art.
     Say {
         /// Printable ASCII message, read from stdin when omitted. Each line feed starts a new
-        /// line; runs of spaces become one.
+        /// line; runs of spaces become one and spaces at either end of a line are dropped.
         message: Option<String>,
         /// Wrap the message, at spaces where possible, to at most this many columns, 1 to 508.
         #[arg(long, default_value_t = 40)]

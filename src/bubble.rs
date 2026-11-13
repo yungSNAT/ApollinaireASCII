@@ -14,7 +14,9 @@
 //! # Ok::<(), String>(())
 //! ```
 
-use crate::{BorderStyle, Canvas, Frame, MAX_HEIGHT, MAX_WIDTH, Result, printable};
+use crate::{
+    BorderStyle, Canvas, Frame, MAX_HEIGHT, MAX_INPUT_BYTES, MAX_WIDTH, Result, printable,
+};
 
 /// The widest wrap: the border and a space each side take 4 of the canvas's columns.
 const MAX_BUBBLE_WIDTH: usize = MAX_WIDTH - 4;
@@ -24,19 +26,23 @@ const MAX_BUBBLE_ROWS: usize = MAX_HEIGHT - 4;
 /// Wrap `message` to at most `width` columns and draw it in a `style` border with a 2-row
 /// tail below, then `art` under the tail when given.
 ///
-/// The message must be printable ASCII apart from line feeds; CRLF counts as LF and final line
-/// feeds are dropped. Each line feed starts a new line. Within a line, runs of spaces collapse
-/// to one, lines break at spaces, and a word longer than `width` is split across lines.
+/// The message must be printable ASCII apart from line feeds, at most 16 MiB; CRLF counts as LF
+/// and final line feeds are dropped. Each line feed starts a new line. Within a line, runs of
+/// spaces collapse to one and spaces at either end are dropped; lines break at spaces, and a
+/// word longer than `width` is split across lines.
 pub fn say(message: &str, width: usize, style: BorderStyle, art: Option<&Frame>) -> Result<Frame> {
     if !(1..=MAX_BUBBLE_WIDTH).contains(&width) {
         return Err(format!(
             "Bubble width must be 1 to {MAX_BUBBLE_WIDTH} columns"
         ));
     }
+    if message.len() > MAX_INPUT_BYTES {
+        return Err("Message exceeds the 16 MiB input limit".into());
+    }
+    // Same-length stand-ins for the line breaks keep the error's byte offset the message's own.
+    printable(message.replace("\r\n", "  ").replace('\n', " ").as_bytes())?;
     let message = message.replace("\r\n", "\n");
     let message = message.trim_end_matches('\n');
-    // Byte offsets stay those of the message, so the error names the offending byte.
-    printable(message.replace('\n', " ").as_bytes())?;
     if message.trim().is_empty() {
         return Err("The message is empty".into());
     }

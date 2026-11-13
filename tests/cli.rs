@@ -873,6 +873,31 @@ fn say_refuses_empty_messages_and_characters_outside_printable_ascii() {
         &cli(&["say", "one\ttwo"]),
         "Only printable ASCII is allowed: byte 3 is 0x09",
     );
+    // The offset counts both bytes of a CRLF; a lone CR is refused.
+    refused(
+        &cli(&["say", "ok\r\n\t"]),
+        "Only printable ASCII is allowed: byte 4 is 0x09",
+    );
+    refused(
+        &cli(&["say", "a\rb"]),
+        "Only printable ASCII is allowed: byte 1 is 0x0d",
+    );
+    refused(
+        &cli_stdin(
+            &["say"],
+            &vec![b'x'; apollinaire_ascii::MAX_INPUT_BYTES + 1],
+        ),
+        "Input exceeds 16 MiB",
+    );
+}
+
+#[test]
+fn say_drops_spaces_at_the_ends_of_a_line() {
+    let said = cli(&["say", "  a   b  "]);
+    assert_eq!(
+        text(&said.stdout),
+        "+-----+\n| a b |\n+-----+\n  \\    \n   \\   \n"
+    );
 }
 
 #[test]
@@ -933,6 +958,16 @@ fn say_refuses_missing_animated_or_conflicting_art() {
     refused(
         &cli(&["say", "Hi", "--art-file", movie.to_str().unwrap()]),
         "--art-file needs a static frame",
+    );
+    // 3 bubble rows and 2 tail rows leave 251 rows for the art.
+    let tallest = dir.join("tallest.txt");
+    std::fs::write(&tallest, "x\n".repeat(251)).unwrap();
+    let fits = cli(&["say", "Hi", "--art-file", tallest.to_str().unwrap()]);
+    assert_eq!(
+        text(&fits.stdout).lines().count(),
+        256,
+        "{}",
+        text(&fits.stderr)
     );
     let tall = dir.join("tall.txt");
     std::fs::write(&tall, "x\n".repeat(252)).unwrap();

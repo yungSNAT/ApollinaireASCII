@@ -927,3 +927,18 @@ fn html_export_cannot_turn_artwork_into_markup_or_script() {
     assert!(html.contains("art.textContent"));
     assert_eq!(html.matches("</script>").count(), 2);
 }
+
+#[test]
+fn speech_bubbles_bound_the_message_before_wrapping_it() {
+    use apollinaire_ascii::bubble::say;
+    let limit = apollinaire_ascii::MAX_INPUT_BYTES;
+    assert_eq!(
+        say(&"x".repeat(limit + 1), 40, BorderStyle::Plain, None).unwrap_err(),
+        "Message exceeds the 16 MiB input limit"
+    );
+    // A 16 MiB word at width 1 stops at the first row the bubble cannot hold.
+    assert_eq!(
+        say(&"x".repeat(limit), 1, BorderStyle::Plain, None).unwrap_err(),
+        "The message wraps to more than 252 rows"
+    );
+}
