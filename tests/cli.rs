@@ -21,6 +21,19 @@ fn native_commands_emit_real_text_and_validate_input() {
             .all(|b| *b == b'\n' || (32..=126).contains(b))
     );
     assert!(!art.stdout.contains(&27));
+    // `--border` alone, before or after the name, keeps the plain style.
+    let plain = cli(&["art", "ghost", "--border=plain"]);
+    assert!(plain.stdout.starts_with(b"+-"), "{}", text(&plain.stderr));
+    for args in [["art", "ghost", "--border"], ["art", "--border", "ghost"]] {
+        assert_eq!(cli(&args).stdout, plain.stdout, "{args:?}");
+    }
+    let rounded = cli(&["art", "ghost", "--border=rounded"]);
+    assert!(
+        rounded.stdout.starts_with(b".-"),
+        "{}",
+        text(&rounded.stderr)
+    );
+    assert!(!cli(&["art", "ghost", "--border=wavy"]).status.success());
     let text = cli(&["text", "Hello", "--font", "small"]);
     assert!(text.status.success());
     let unicode = cli(&["text", "👻"]);
@@ -100,6 +113,19 @@ fn check_and_transform_report_dimensions_and_preserve_frame_content() {
         assert!(result.status.success(), "{}", text(&result.stderr));
         assert_eq!(text(&result.stdout), expected);
     }
+    for (style, expected) in [
+        ("plain", "+--+\n|ab|\n|cd|\n+--+\n"),
+        ("rounded", ".--.\n|ab|\n|cd|\n'--'\n"),
+        ("dotted", "....\n:ab:\n:cd:\n:..:\n"),
+        ("heavy", "#==#\n#ab#\n#cd#\n#==#\n"),
+    ] {
+        let result = cli(&["transform", path, "border", "--style", style]);
+        assert!(result.status.success(), "{}", text(&result.stderr));
+        assert_eq!(text(&result.stdout), expected);
+    }
+    let flip = cli(&["transform", path, "horizontal", "--style", "heavy"]);
+    assert!(!flip.status.success());
+    assert!(text(&flip.stderr).contains("Only the border operation takes --style"));
     let outside = cli(&[
         "transform",
         path,

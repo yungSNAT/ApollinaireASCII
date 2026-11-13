@@ -1,8 +1,8 @@
 mod fetch;
 
 use apollinaire_ascii::{
-    Animation, Canvas, EffectOptions, Frame, MAX_INPUT_BYTES, RenderOptions, Result, SceneOptions,
-    TimedFrame, animation, art, effects, export, lettering,
+    Animation, BorderStyle, Canvas, EffectOptions, Frame, MAX_INPUT_BYTES, RenderOptions, Result,
+    SceneOptions, TimedFrame, animation, art, effects, export, lettering,
 };
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use std::{
@@ -56,6 +56,27 @@ enum Layout {
     Smush,
 }
 #[derive(Clone, Copy, ValueEnum)]
+enum Border {
+    /// +-|
+    Plain,
+    /// .-'|
+    Rounded,
+    /// .:
+    Dotted,
+    /// #=
+    Heavy,
+}
+impl From<Border> for BorderStyle {
+    fn from(border: Border) -> Self {
+        match border {
+            Border::Plain => Self::Plain,
+            Border::Rounded => Self::Rounded,
+            Border::Dotted => Self::Dotted,
+            Border::Heavy => Self::Heavy,
+        }
+    }
+}
+#[derive(Clone, Copy, ValueEnum)]
 enum Transform {
     Horizontal,
     Vertical,
@@ -73,8 +94,15 @@ enum Command {
     /// Original static ASCII templates.
     Art {
         name: String,
-        #[arg(long)]
-        border: bool,
+        /// Draw a border around the piece: `--border` alone for `+-|`, or `--border=<STYLE>`.
+        #[arg(
+            long,
+            value_enum,
+            num_args = 0..=1,
+            require_equals = true,
+            default_missing_value = "plain"
+        )]
+        border: Option<Border>,
     },
     /// ASCII block letters, including punctuation and multiline text.
     Text {
@@ -206,6 +234,9 @@ enum Command {
         width: Option<usize>,
         #[arg(long)]
         height: Option<usize>,
+        /// Border style for the `border` operation; plain `+-|` by default.
+        #[arg(long, value_enum)]
+        style: Option<Border>,
     },
     /// Play a project in a terminal. Escape codes are playback transport only.
     Play {
@@ -269,7 +300,10 @@ fn run(args: Args) -> Result<()> {
         }
         Command::Art { name, border } => {
             let frame = art::template(&name)?;
-            Animation::still(if border { frame.border()? } else { frame })
+            Animation::still(match border {
+                Some(style) => frame.border_with(style.into())?,
+                None => frame,
+            })
         }
         Command::Text {
             text,
@@ -428,14 +462,20 @@ fn run(args: Args) -> Result<()> {
             y,
             width,
             height,
+            style,
         } => {
+            if style.is_some() && !matches!(operation, Transform::Border) {
+                return Err("Only the border operation takes --style".into());
+            }
             let project = load(&input, false)?;
             let mut frames = Vec::with_capacity(project.frames().len());
             for entry in project.frames() {
                 let frame = match operation {
                     Transform::Horizontal => entry.frame.flip_horizontal(),
                     Transform::Vertical => entry.frame.flip_vertical(),
-                    Transform::Border => entry.frame.border()?,
+                    Transform::Border => entry
+                        .frame
+                        .border_with(style.unwrap_or(Border::Plain).into())?,
                     Transform::Crop => entry.frame.crop(
                         x,
                         y,

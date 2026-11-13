@@ -6,6 +6,7 @@
 apollinaire list
 apollinaire list --tag sea
 apollinaire art cat --border --output cat.txt
+apollinaire art rocket --border=rounded
 apollinaire effect typewriter cat.txt --duration 3000 --fps 30 --output cat.json
 apollinaire art rocket | apollinaire effect burn - --seed 7 --format html --output rocket.html
 apollinaire effect wave movie.json --source-frame 4 --output wave.json
@@ -30,6 +31,7 @@ apollinaire compose background.txt cat.txt --x 4 --y 2 --transparent-spaces
 apollinaire transform movie.json horizontal --output flipped.json
 apollinaire transform art.txt crop --x 2 --y 1 --width 20 --height 10
 apollinaire transform art.txt border
+apollinaire transform art.txt border --style dotted
 apollinaire check movie.json
 apollinaire play movie.json --loops 3
 apollinaire completions zsh > _apollinaire
@@ -37,6 +39,8 @@ apollinaire man | man -l -
 ```
 
 `--output` creates a new file. An existing file causes an error, even when its contents are identical. Without it, exports go to stdout. Errors go to stderr and return a nonzero exit status. `check` reports validated dimensions and timing on stdout.
+
+Borders come in 4 styles: `plain` (`+-|`, the default), `rounded` (`.-'|`), `dotted` (`.:`) and `heavy` (`#=`). `art` takes one as `--border=<style>` (with the `=`, so `--border` alone still works before the piece's name), and `transform ... border` as `--style <style>`.
 
 `--format text|json|html` overrides extension/default inference. `.json` and `.html` output extensions select those formats; otherwise a still defaults to text and an animation to JSON. Animated text export requires an explicit zero-based `--frame`. `--frame` is valid only with text export.
 
