@@ -34,6 +34,7 @@ fn native_commands_emit_real_text_and_validate_input() {
         text(&rounded.stderr)
     );
     assert!(!cli(&["art", "ghost", "--border=wavy"]).status.success());
+    assert!(text(&cli(&["art", "--help"]).stdout).contains("--border[=<STYLE>]"));
     let text = cli(&["text", "Hello", "--font", "small"]);
     assert!(text.status.success());
     let unicode = cli(&["text", "👻"]);
