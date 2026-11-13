@@ -11,6 +11,7 @@
 
 pub mod animation;
 pub mod art;
+pub mod bubble;
 pub mod canvas;
 pub mod diagram;
 pub mod effects;

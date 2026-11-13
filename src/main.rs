@@ -2,7 +2,7 @@ mod fetch;
 
 use apollinaire_ascii::{
     Animation, BorderStyle, Canvas, EffectOptions, Frame, MAX_INPUT_BYTES, RenderOptions, Result,
-    SceneOptions, TimedFrame, animation, art, effects, export, lettering,
+    SceneOptions, TimedFrame, animation, art, bubble, effects, export, lettering,
 };
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use std::{
@@ -131,6 +131,25 @@ enum Command {
         /// How lines join: the font's default, full height, fitted or smushed.
         #[arg(long, value_enum, default_value = "default")]
         vertical: Layout,
+    },
+    /// Draw a speech bubble around a message, optionally above art.
+    Say {
+        /// Printable ASCII message, read from stdin when omitted. Each line feed starts a new
+        /// line; runs of spaces become one.
+        message: Option<String>,
+        /// Wrap the message, at spaces where possible, to at most this many columns, 1 to 508.
+        #[arg(long, default_value_t = 40)]
+        width: usize,
+        /// Border style of the bubble.
+        #[arg(long, value_enum, default_value = "plain")]
+        style: Border,
+        /// Catalogue piece to draw below the bubble; `apollinaire list` names them.
+        #[arg(long, conflicts_with = "art_file")]
+        art: Option<String>,
+        /// Static .txt or .json frame to draw below the bubble, or `-` for stdin when the
+        /// message is an argument. Ragged text rows are padded.
+        #[arg(long)]
+        art_file: Option<PathBuf>,
     },
     /// Convert images or animated GIFs to text, from files or https:// URLs.
     Image {
@@ -386,6 +405,38 @@ fn run(args: Args) -> Result<()> {
                 &font,
                 custom.as_deref(),
                 &options,
+            )?)
+        }
+        Command::Say {
+            message,
+            width,
+            style,
+            art,
+            art_file,
+        } => {
+            let speaker = match (art, art_file) {
+                (Some(name), _) => Some(art::template(&name)?),
+                (None, Some(path)) => {
+                    if message.is_none() && path == Path::new("-") {
+                        return Err("The message and --art-file cannot both come from stdin".into());
+                    }
+                    let project = load(&path, true)?;
+                    if project.frames().len() != 1 {
+                        return Err("--art-file needs a static frame".into());
+                    }
+                    Some(project.frames()[0].frame.clone())
+                }
+                (None, None) => None,
+            };
+            let message = match message {
+                Some(message) => message,
+                None => read_text(Path::new("-"))?,
+            };
+            Animation::still(bubble::say(
+                &message,
+                width,
+                style.into(),
+                speaker.as_ref(),
             )?)
         }
         Command::Image {

@@ -769,3 +769,189 @@ fn completions_parse_in_each_shell_and_the_manual_renders() {
     assert!(!refused.status.success() && refused.stdout.is_empty());
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+fn cli_stdin(args: &[&str], input: &[u8]) -> std::process::Output {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_apollinaire"))
+        .args(args)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(input).unwrap();
+    child.wait_with_output().unwrap()
+}
+/// The command fails, prints nothing on stdout and names `reason` on stderr.
+fn refused(output: &std::process::Output, reason: &str) {
+    assert!(!output.status.success(), "{}", text(&output.stdout));
+    assert!(output.stdout.is_empty());
+    assert!(
+        text(&output.stderr).contains(reason),
+        "{}",
+        text(&output.stderr)
+    );
+}
+
+#[test]
+fn say_draws_each_border_style_with_a_tail() {
+    let tail = "  \\            \n   \\           \n";
+    for (style, top, side, bottom) in [
+        ("plain", "+-------------+", '|', "+-------------+"),
+        ("rounded", ".-------------.", '|', "'-------------'"),
+        ("dotted", "...............", ':', ":.............:"),
+        ("heavy", "#=============#", '#', "#=============#"),
+    ] {
+        let said = cli(&["say", "Hello there", "--style", style]);
+        assert!(said.status.success(), "{}", text(&said.stderr));
+        assert_eq!(
+            text(&said.stdout),
+            format!("{top}\n{side} Hello there {side}\n{bottom}\n{tail}"),
+            "{style}"
+        );
+    }
+    assert_eq!(
+        cli(&["say", "Hello there"]).stdout,
+        cli(&["say", "Hello there", "--style", "plain"]).stdout
+    );
+    assert!(
+        !cli(&["say", "Hello there", "--style", "wavy"])
+            .status
+            .success()
+    );
+    let project = cli(&["say", "Hello there", "--format", "json"]);
+    let project = apollinaire_ascii::Animation::from_json(text(&project.stdout)).unwrap();
+    assert_eq!((project.width(), project.height()), (15, 5));
+}
+
+#[test]
+fn say_wraps_at_spaces_and_splits_words_longer_than_the_width() {
+    let said = cli(&["say", "a  supercalifragilistic word", "--width", "8"]);
+    assert_eq!(
+        text(&said.stdout),
+        "+----------+\n| a        |\n| supercal |\n| ifragili |\n| stic     |\n| word     |\n\
+         +----------+\n  \\         \n   \\        \n"
+    );
+    let lines = cli(&["say", "one\n\ntwo"]);
+    assert_eq!(
+        text(&lines.stdout),
+        "+-----+\n| one |\n|     |\n| two |\n+-----+\n  \\    \n   \\   \n"
+    );
+    let widest = "x".repeat(508);
+    let said = cli(&["say", &widest, "--width", "508"]);
+    assert!(said.status.success(), "{}", text(&said.stderr));
+    assert_eq!(text(&said.stdout).lines().next().unwrap().len(), 512);
+    for width in ["0", "509"] {
+        refused(
+            &cli(&["say", "hi", "--width", width]),
+            "Bubble width must be 1 to 508 columns",
+        );
+    }
+    let fits = cli(&["say", &"x\n".repeat(252)]);
+    assert_eq!(text(&fits.stdout).lines().count(), 256);
+    refused(
+        &cli(&["say", &"x\n".repeat(253)]),
+        "The message wraps to more than 252 rows",
+    );
+}
+
+#[test]
+fn say_refuses_empty_messages_and_characters_outside_printable_ascii() {
+    for message in ["", "   ", "\n\n"] {
+        refused(&cli(&["say", message]), "The message is empty");
+    }
+    refused(&cli_stdin(&["say"], b""), "The message is empty");
+    // Wide and combining characters, like tabs, are not printable ASCII.
+    refused(
+        &cli(&["say", "\u{4f60}\u{597d}"]),
+        "Only printable ASCII is allowed: byte 0 is 0xe4",
+    );
+    refused(
+        &cli(&["say", "cafe\u{301}"]),
+        "Only printable ASCII is allowed: byte 4 is 0xcc",
+    );
+    refused(
+        &cli(&["say", "one\ttwo"]),
+        "Only printable ASCII is allowed: byte 3 is 0x09",
+    );
+}
+
+#[test]
+fn say_reads_the_message_or_the_art_from_stdin() {
+    let said = cli_stdin(&["say"], b"Hi from\r\nstdin\r\n");
+    assert!(said.status.success(), "{}", text(&said.stderr));
+    assert_eq!(
+        text(&said.stdout),
+        "+---------+\n| Hi from |\n| stdin   |\n+---------+\n  \\        \n   \\       \n"
+    );
+    let dir = scratch("say");
+    let art = dir.join("cat.txt");
+    std::fs::write(&art, " /\\_/\\\n( o.o )\n > ^ <\n").unwrap();
+    let expected = "+----+ \n| Hi | \n+----+ \n  \\    \n   \\   \n /\\_/\\ \n( o.o )\n > ^ < \n";
+    let from_file = cli(&["say", "Hi", "--art-file", art.to_str().unwrap()]);
+    assert_eq!(
+        text(&from_file.stdout),
+        expected,
+        "{}",
+        text(&from_file.stderr)
+    );
+    let art_from_stdin = cli_stdin(
+        &["say", "Hi", "--art-file", "-"],
+        &std::fs::read(&art).unwrap(),
+    );
+    assert_eq!(text(&art_from_stdin.stdout), expected);
+    let message_from_stdin = cli_stdin(&["say", "--art-file", art.to_str().unwrap()], b"Hi");
+    assert_eq!(text(&message_from_stdin.stdout), expected);
+
+    let catalogue = cli(&["say", "Hi", "--art", "cat"]);
+    let frame = apollinaire_ascii::Frame::from_text(text(&catalogue.stdout)).unwrap();
+    let cat = apollinaire_ascii::art::template("cat").unwrap();
+    assert_eq!(frame.crop(0, 5, cat.width(), cat.height()).unwrap(), cat);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn say_refuses_missing_animated_or_conflicting_art() {
+    let dir = scratch("say-art");
+    let missing = dir.join("missing.txt");
+    refused(
+        &cli(&["say", "Hi", "--art-file", missing.to_str().unwrap()]),
+        "Cannot read",
+    );
+    refused(
+        &cli_stdin(&["say", "--art-file", "-"], b"Hi"),
+        "The message and --art-file cannot both come from stdin",
+    );
+    let movie = dir.join("movie.json");
+    let animate = [
+        "animate", "wave", "--frames", "2", "--width", "4", "--height", "2", "--output",
+    ];
+    assert!(
+        cli(&[&animate[..], &[movie.to_str().unwrap()]].concat())
+            .status
+            .success()
+    );
+    refused(
+        &cli(&["say", "Hi", "--art-file", movie.to_str().unwrap()]),
+        "--art-file needs a static frame",
+    );
+    let tall = dir.join("tall.txt");
+    std::fs::write(&tall, "x\n".repeat(252)).unwrap();
+    refused(
+        &cli(&["say", "Hi", "--art-file", tall.to_str().unwrap()]),
+        "Dimensions must be",
+    );
+    refused(
+        &cli(&["say", "Hi", "--art", "no-such-piece"]),
+        "Unknown artwork",
+    );
+    let both = cli(&[
+        "say",
+        "Hi",
+        "--art",
+        "cat",
+        "--art-file",
+        tall.to_str().unwrap(),
+    ]);
+    refused(&both, "cannot be used with");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
