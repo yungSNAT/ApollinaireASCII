@@ -6,6 +6,8 @@
   <meta name="description" content="Make static ASCII art, block letters and animated ASCII. Edit and export real, selectable text.">
   <title>ApollinaireASCII | Art made of characters</title>
   <link rel="stylesheet" href="./style.css">
+  <link rel="modulepreload" href="./pkg/apollinaire_ascii.js">
+  <link rel="preload" href="./pkg/apollinaire_ascii_bg.wasm" as="fetch" crossorigin>
 </head>
 <body>
   <a class="skip" href="#workspace">Skip to artwork</a>
@@ -174,7 +176,7 @@
     import init from './pkg/apollinaire_ascii.js';
     init({module_or_path: './pkg/apollinaire_ascii_bg.wasm'}).catch((error) => {
       const status = document.getElementById('status');
-      status.textContent = 'The editor could not load. Reload the page or use the CLI. ' + String(error);
+      status.textContent = 'Error: The editor could not load. Reload the page or use the CLI. ' + String(error);
       status.dataset.kind = 'error';
     });
   </script>

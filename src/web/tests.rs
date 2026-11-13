@@ -1465,7 +1465,7 @@ async fn refused_and_cancelled_picture_imports_leave_the_project_and_history() {
     );
     click("convert");
     wait_for(|| !status().starts_with("Reading")).await;
-    assert!(status().starts_with("Image header"), "{}", status());
+    assert!(status().starts_with("Error: Image header"), "{}", status());
     assert_eq!(project_now().await, before);
 
     // 62 frames of 512 x 256 cells exceed the 8,000,000 cell project budget.
@@ -1867,4 +1867,32 @@ fn artwork_search_filters_the_catalogue() {
             .starts_with("No artwork matches")
     );
     input_event("art-search", "");
+}
+
+#[wasm_bindgen_test]
+fn errors_say_so_name_the_field_by_its_label_and_stay_in_view() {
+    blank(4, 1);
+    element::<HtmlSelectElement>("mode").set_value("scene");
+    set_value("frames", "");
+    click("generate");
+    assert_eq!(status(), "Error: Frames must be a whole number, 0 or more");
+    let region = element::<Element>("status");
+    assert_eq!(region.get_attribute("data-kind").as_deref(), Some("error"));
+    assert_eq!(region.get_attribute("role").as_deref(), Some("status"));
+    assert_eq!(region.get_attribute("aria-live").as_deref(), Some("polite"));
+    let style = web_sys::window()
+        .unwrap()
+        .get_computed_style(&region)
+        .unwrap()
+        .unwrap();
+    assert_eq!(style.get_property_value("position").unwrap(), "sticky");
+    set_value("frames", "80");
+
+    choose("font-file", "large.flf", &vec![b'a'; 1024 * 1024 + 1]);
+    element::<HtmlInputElement>("font-file")
+        .dispatch_event(&web_sys::Event::new("change").unwrap())
+        .unwrap();
+    assert_eq!(status(), "Error: File exceeds the 1 MiB input limit");
+    blank(4, 1);
+    assert_eq!(region.get_attribute("data-kind").as_deref(), Some("info"));
 }

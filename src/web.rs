@@ -68,17 +68,26 @@ fn select(id: &str) -> Result<String> {
 fn text(id: &str) -> Result<String> {
     Ok(node::<HtmlTextAreaElement>(id)?.value())
 }
+/// The text of a control's `<label>`, so messages name the field the user sees.
+fn label(id: &str) -> String {
+    document()
+        .query_selector(&format!("label[for=\"{id}\"]"))
+        .ok()
+        .flatten()
+        .and_then(|label| label.text_content())
+        .map_or_else(|| id.to_string(), |text| text.trim().to_string())
+}
 fn number(id: &str) -> Result<usize> {
     input(id)?
         .value()
         .parse()
-        .map_err(|_| format!("{id} must be a non-negative integer"))
+        .map_err(|_| format!("{} must be a whole number, 0 or more", label(id)))
 }
 fn decimal(id: &str) -> Result<f64> {
     input(id)?
         .value()
         .parse()
-        .map_err(|_| format!("{id} must be a number"))
+        .map_err(|_| format!("{} must be a number", label(id)))
 }
 fn checked(id: &str) -> Result<bool> {
     Ok(input(id)?.checked())
@@ -93,7 +102,12 @@ fn state<T>(f: impl FnOnce(&mut App) -> Result<T>) -> Result<T> {
 }
 fn status(message: &str, error: bool) {
     if let Ok(element) = node::<Element>("status") {
-        element.set_text_content(Some(message));
+        let message = if error {
+            format!("Error: {message}")
+        } else {
+            message.to_string()
+        };
+        element.set_text_content(Some(&message));
         let _ = element.set_attribute("data-kind", if error { "error" } else { "info" });
     }
 }
@@ -945,7 +959,10 @@ fn begin_file(id: &'static str) {
             MAX_INPUT_BYTES
         };
         if file.size() > limit as f64 {
-            return Err(format!("File exceeds the {} KiB input limit", limit / 1024));
+            return Err(format!(
+                "File exceeds the {} MiB input limit",
+                limit / (1024 * 1024)
+            ));
         }
         let options = if id == "media-file" {
             Some(render_options()?)
