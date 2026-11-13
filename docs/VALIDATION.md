@@ -123,6 +123,23 @@ On 13 November 2026 `.github/scripts/conversion-speed.sh` timed the CLI against 
 
 chafa came closest, within 17 ms on the JPEG. The CLI refused the large PNG with 'Input exceeds 16 MiB', its input limit; the other 2 converted it. The script also checked one output of each conversion: none held a byte outside line feeds and printable ASCII. The fractals differ slightly between runs despite the fixed seed. To rerun, pass the 3 programs' paths: `bash .github/scripts/conversion-speed.sh <apollinaire> <ascii-image-converter> <chafa>`; ImageMagick 7 draws the pictures.
 
+## Speech bubbles against cowsay
+
+On 14 November 2026 a release build of `apollinaire say` (Rust 1.99.1) and [cowsay](https://github.com/cowsay-org/cowsay) 3.8.4 (its source release, run with Perl 5.44.0 in a UTF-8 locale) were given the same messages at each program's default width of 40. Each time is the fastest and the median of 20 runs, including process start, on the same shared Linux machine as the conversion timings (load average about 7), so the times are indicative.
+
+| Message | `say` fastest (median) | cowsay fastest (median) |
+|---|--:|--:|
+| `Hello there` | 1.4 ms (2.0 ms) | 14.1 ms (17.5 ms) |
+| `Hello there` with `--art cat` | 1.4 ms (1.6 ms) | 16.3 ms (17.3 ms), with its cow |
+| A 147-character sentence | 1.5 ms (2.3 ms) | 14.5 ms (17.9 ms) |
+| `Hello from stdin` on stdin | 1.4 ms (1.4 ms) | 17.1 ms (19.9 ms) |
+
+Both wrapped the sentence into the same 4 lines. The outputs differ where the programs' rules differ:
+
+- `cowsay -W 10` kept a long word to 9 columns a line; `say --width 10` keeps it to 10.
+- For `你好`, and for `café` written with a combining accent, cowsay exited 0 but sized its bubble by bytes, so the border came out 2 columns wider than the text line. `say` refuses both, naming the first byte outside printable ASCII.
+- cowsay turned a tab into spaces and drew an empty bubble for empty stdin; `say` refuses both.
+
 ## Deliberate limits
 
 The Rust code contains no video decoder: the browser decodes video, so supported formats vary by browser, and the CLI has no video or camera input. Only the CLI fetches media over the network, from `https://` image URLs. There is no ANSI-colour artwork mode, raster/vector artwork exporter or Unicode-art mode. GIF is the animated image import format; other image inputs use the image library's still-image decoding. Oversize inputs are refused. Browser work is synchronous Rust after the bounded file read, so the largest valid conversions hold the UI thread for up to about a second (see Conversion responsiveness). Resource limits bound accepted files and projects, not the browser process's total memory.

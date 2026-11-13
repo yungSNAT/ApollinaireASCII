@@ -39,7 +39,7 @@ Every frame contains bytes 32 through 126. Line feeds separate rows when saved a
 
 | Area | Included |
 | --- | --- |
-| Static art | 89 original pieces in 7 categories (animals, nature, objects, characters, borders and dividers, emoticons, banners), searchable by name or tag; blank canvases, character editing, borders in 4 styles, crops, flips and clipped composition |
+| Static art | 89 original pieces in 7 categories (animals, nature, objects, characters, borders and dividers, emoticons, banners), searchable by name or tag; blank canvases, character editing, borders in 4 styles, crops, flips, clipped composition and speech bubbles above any art (`apollinaire say`) |
 | Lettering | 21 FIGlet and TOIlet fonts plus filled block and outline styles; font-default, full-width, fitted and smushed layout for letters and lines; word wrap; multiline text; alignment; validated ASCII-only `.flf` and `.tlf` import |
 | Animation | Ghost, rotating donut, wave, starfield, rain, fire, text reveal and scrolling text; deterministic seeds |
 | Text effects | Reveal, typewriter, decrypt, scatter, wipes in 4 directions, rain, wave and burn, applied to any art or lettering, forwards or in reverse; set duration, FPS and seed |
@@ -95,6 +95,7 @@ apollinaire art ghost
 apollinaire list --tag bird
 apollinaire text "RUST" --font block
 apollinaire text "Hello there, friend" --font slant --wrap 40 --horizontal fitted
+apollinaire say "Hello there" --art cat --style rounded
 apollinaire animate ghost --output ghost.json
 apollinaire text "HELLO" --font block | apollinaire effect decrypt - --output hello.json
 apollinaire play ghost.json
