@@ -56,4 +56,4 @@ An `image` input starting with `https://` is downloaded: at most 16 MiB, within 
 
 `play` requires a terminal and refuses redirected stdout. It uses ANSI clear/cursor commands solely to update terminal text. It does not put those codes in the project or any text export. It plays the requested number of cycles; the project's loop setting controls the browser and standalone player. Unsupported media and malformed input fail visibly.
 
-`completions SHELL` prints a completion script for `bash`, `zsh`, `fish`, `powershell` or `elvish` on stdout, and `man` prints this command's manual page as roff. Install them where your shell and `man` look, or use the copies in each release archive's `completions/` and `man/` folders. Like `play`, both refuse the export options.
+`completions SHELL` prints a completion script for `bash`, `zsh`, `fish`, `powershell` or `elvish` on stdout, and `man` prints this command's manual page as roff. Install them where your shell and `man` look, or use the copies in each release archive's `completions/` and `man/` folders. Like `play`, `list` and `check`, both refuse the export options, which only apply to commands that export artwork.
