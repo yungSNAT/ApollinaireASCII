@@ -353,7 +353,9 @@ pub fn start() -> std::result::Result<(), JsValue> {
     ] {
         listen(id, "click", move |_| report(action(id)))?;
     }
-    listen("mode", "change", move |_| report(fields()))?;
+    for id in ["mode", "border"] {
+        listen(id, "change", move |_| report(fields()))?;
+    }
     for id in ["range-first", "range-last", "range-duration"] {
         listen(id, "focus", |_| {
             report(state(|app| {
@@ -530,6 +532,8 @@ fn fields() -> Result<()> {
                 .map_err(|_| "Cannot hide settings")?;
         }
     }
+    // The style applies only to a border; disabling it keeps its value and leaves the Tab order.
+    node::<HtmlSelectElement>("border-style")?.set_disabled(!checked("border")?);
     Ok(())
 }
 fn generate(app: &mut App) -> Result<()> {
