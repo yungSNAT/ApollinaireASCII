@@ -58,10 +58,10 @@ Download the archive for your platform from [Releases](https://github.com/yungSN
 From v0.3.0, each archive has a signed build provenance attestation. To confirm an archive was built by this repository's release workflow from its release tag, run:
 
 ```sh
-gh attestation verify apollinaire-v0.4.0-x86_64-unknown-linux-musl.tar.gz \
+gh attestation verify apollinaire-v0.4.1-x86_64-unknown-linux-musl.tar.gz \
   --repo yungSNAT/ApollinaireASCII \
   --signer-workflow yungSNAT/ApollinaireASCII/.github/workflows/release.yml \
-  --source-ref refs/tags/v0.4.0
+  --source-ref refs/tags/v0.4.1
 ```
 
 v0.3.0 was built before the account was renamed, so its attestation names EquityBot, a name this repository no longer holds. The `--source-digest` line pins the commit the v0.3.0 tag points to, so only an archive built from that commit passes:
