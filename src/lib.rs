@@ -28,7 +28,7 @@ mod web;
 pub use animation::{Animation, SceneOptions, TimedFrame};
 pub use canvas::Canvas;
 pub use effects::EffectOptions;
-pub use frame::Frame;
+pub use frame::{BorderStyle, Frame};
 pub use image_renderer::{RenderOptions, decode_media, render_image};
 
 pub type Result<T> = std::result::Result<T, String>;

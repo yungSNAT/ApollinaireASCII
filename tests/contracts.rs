@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MIT
 
 use apollinaire_ascii::{
-    Animation, Canvas, EffectOptions, Frame, MAX_FRAMES, RenderOptions, SceneOptions, TimedFrame,
-    animation, art, decode_media, effects, export, lettering, render_image,
+    Animation, BorderStyle, Canvas, EffectOptions, Frame, MAX_FRAMES, RenderOptions, SceneOptions,
+    TimedFrame, animation, art, decode_media, effects, export, lettering, render_image,
 };
 use image::{DynamicImage, Rgba, RgbaImage};
 use lettering::Alignment;
@@ -78,6 +78,18 @@ fn frame_transforms_and_clipped_composition() {
     assert_eq!(frame.crop(1, 0, 2, 2).unwrap().text(), "bc\nef");
     assert!(frame.crop(usize::MAX, 0, 1, 1).is_err());
     assert_eq!(frame.border().unwrap().text(), "+---+\n|abc|\n|def|\n+---+");
+    for (style, expected) in [
+        (BorderStyle::Plain, "+---+\n|abc|\n|def|\n+---+"),
+        (BorderStyle::Rounded, ".---.\n|abc|\n|def|\n'---'"),
+        (BorderStyle::Dotted, ".....\n:abc:\n:def:\n:...:"),
+        (BorderStyle::Heavy, "#===#\n#abc#\n#def#\n#===#"),
+    ] {
+        assert_eq!(
+            frame.border_with(style).unwrap().text(),
+            expected,
+            "{style:?}"
+        );
+    }
     let mut canvas = Canvas::from_frame(&frame);
     canvas
         .overlay(&Frame::from_text(" X").unwrap(), 0, 0, true)

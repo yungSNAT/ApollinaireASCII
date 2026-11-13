@@ -21,6 +21,20 @@ fn native_commands_emit_real_text_and_validate_input() {
             .all(|b| *b == b'\n' || (32..=126).contains(b))
     );
     assert!(!art.stdout.contains(&27));
+    // `--border` alone, before or after the name, keeps the plain style.
+    let plain = cli(&["art", "ghost", "--border=plain"]);
+    assert!(plain.stdout.starts_with(b"+-"), "{}", text(&plain.stderr));
+    for args in [["art", "ghost", "--border"], ["art", "--border", "ghost"]] {
+        assert_eq!(cli(&args).stdout, plain.stdout, "{args:?}");
+    }
+    let rounded = cli(&["art", "ghost", "--border=rounded"]);
+    assert!(
+        rounded.stdout.starts_with(b".-"),
+        "{}",
+        text(&rounded.stderr)
+    );
+    assert!(!cli(&["art", "ghost", "--border=wavy"]).status.success());
+    assert!(text(&cli(&["art", "--help"]).stdout).contains("--border[=<STYLE>]"));
     let text = cli(&["text", "Hello", "--font", "small"]);
     assert!(text.status.success());
     let unicode = cli(&["text", "👻"]);
@@ -82,6 +96,42 @@ fn text(bytes: &[u8]) -> &str {
 }
 
 #[test]
+fn bare_border_works_beside_the_global_export_options() {
+    let dir = scratch("border-export");
+    let out = |name: &str| dir.join(name).to_str().unwrap().to_owned();
+    let expected = out("expected.json");
+    let made = cli(&[
+        "art",
+        "ghost",
+        "--border=plain",
+        "--format",
+        "json",
+        "--output",
+        &expected,
+    ]);
+    assert!(made.status.success(), "{}", text(&made.stderr));
+    let expected = std::fs::read_to_string(&expected).unwrap();
+    assert!(expected.contains("+-"));
+    for (index, order) in ["name first", "flag first", "exports first"]
+        .into_iter()
+        .enumerate()
+    {
+        let path = out(&format!("{index}.json"));
+        let exports = ["--format", "json", "--output", path.as_str()];
+        let args: Vec<&str> = match order {
+            "name first" => [&["art", "ghost", "--border"][..], &exports].concat(),
+            "flag first" => [&["art", "--border", "ghost"][..], &exports].concat(),
+            _ => [&exports[..], &["art", "--border", "ghost"]].concat(),
+        };
+        let result = cli(&args);
+        assert!(result.status.success(), "{order}: {}", text(&result.stderr));
+        assert!(result.stdout.is_empty(), "{order}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), expected, "{order}");
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn check_and_transform_report_dimensions_and_preserve_frame_content() {
     let dir = scratch("inspect");
     let input = dir.join("drawing.txt");
@@ -100,6 +150,19 @@ fn check_and_transform_report_dimensions_and_preserve_frame_content() {
         assert!(result.status.success(), "{}", text(&result.stderr));
         assert_eq!(text(&result.stdout), expected);
     }
+    for (style, expected) in [
+        ("plain", "+--+\n|ab|\n|cd|\n+--+\n"),
+        ("rounded", ".--.\n|ab|\n|cd|\n'--'\n"),
+        ("dotted", "....\n:ab:\n:cd:\n:..:\n"),
+        ("heavy", "#==#\n#ab#\n#cd#\n#==#\n"),
+    ] {
+        let result = cli(&["transform", path, "border", "--style", style]);
+        assert!(result.status.success(), "{}", text(&result.stderr));
+        assert_eq!(text(&result.stdout), expected);
+    }
+    let flip = cli(&["transform", path, "horizontal", "--style", "heavy"]);
+    assert!(!flip.status.success());
+    assert!(text(&flip.stderr).contains("Only the border operation takes --style"));
     let outside = cli(&[
         "transform",
         path,

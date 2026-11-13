@@ -143,11 +143,40 @@ impl Frame {
             .collect();
         Self::new(width, height, cells)
     }
+    /// Surround the frame with a plain `+-|` border.
     pub fn border(&self) -> Result<Self> {
+        self.border_with(BorderStyle::Plain)
+    }
+    /// Surround the frame with a border in `style`, 2 columns wider and 2 rows taller.
+    pub fn border_with(&self, style: BorderStyle) -> Result<Self> {
+        let [top_left, top_right, bottom_left, bottom_right, across, side] = match style {
+            BorderStyle::Plain => *b"++++-|",
+            BorderStyle::Rounded => *b"..''-|",
+            BorderStyle::Dotted => *b"..::.:",
+            BorderStyle::Heavy => *b"####=#",
+        }
+        .map(char::from);
         dimensions(self.width + 2, self.height + 2)?;
-        let mut rows = vec![format!("+{}+", "-".repeat(self.width))];
-        rows.extend(self.text().split('\n').map(|r| format!("|{r}|")));
-        rows.push(format!("+{}+", "-".repeat(self.width)));
+        let line = across.to_string().repeat(self.width);
+        let mut rows = vec![format!("{top_left}{line}{top_right}")];
+        rows.extend(self.text().split('\n').map(|r| format!("{side}{r}{side}")));
+        rows.push(format!("{bottom_left}{line}{bottom_right}"));
         Self::from_text(&rows.join("\n"))
     }
+}
+
+/// Border styles for [`Frame::border_with`], all in printable ASCII. Later releases may add
+/// styles, so a `match` outside this crate needs a wildcard arm.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum BorderStyle {
+    /// `+` corners, `-` across and `|` sides.
+    #[default]
+    Plain,
+    /// `.` top corners, `'` bottom corners, `-` across and `|` sides.
+    Rounded,
+    /// `.` top corners and across, `:` sides and bottom corners.
+    Dotted,
+    /// `#` corners and sides, `=` across.
+    Heavy,
 }

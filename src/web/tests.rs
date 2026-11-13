@@ -114,6 +114,7 @@ fn blank(width: usize, height: usize) {
     check("stamp-transparent", true);
     check("constrain", false);
     check("border", false);
+    element::<HtmlSelectElement>("border-style").set_value("plain");
     set_value("brush", "#");
     set_value("stamp", "");
     element::<HtmlSelectElement>("mode").set_value("blank");
@@ -199,6 +200,22 @@ fn clipboard(kind: &str, text: &str) -> String {
     let event = ClipboardEvent::new_with_event_init_dict(kind, &init).unwrap();
     element::<Element>("art").dispatch_event(&event).unwrap();
     data.get_data("text/plain").unwrap()
+}
+
+#[wasm_bindgen_test]
+fn generate_draws_the_chosen_border_style() {
+    blank(2, 1);
+    check("border", true);
+    for (style, expected) in [
+        ("plain", ["+--+", "|  |", "+--+"]),
+        ("rounded", [".--.", "|  |", "'--'"]),
+        ("dotted", ["....", ":  :", ":..:"]),
+        ("heavy", ["#==#", "#  #", "#==#"]),
+    ] {
+        element::<HtmlSelectElement>("border-style").set_value(style);
+        click("generate");
+        assert_eq!(art(), rows(&expected), "{style}");
+    }
 }
 
 #[wasm_bindgen_test]

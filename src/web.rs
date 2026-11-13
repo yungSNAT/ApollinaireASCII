@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: MIT
 
 use crate::{
-    Animation, Canvas, EffectOptions, Frame, MAX_INPUT_BYTES, RenderOptions, Result, SceneOptions,
-    TimedFrame, animation, art, decode_media, effects, export, image_renderer::RAMPS, lettering,
+    Animation, BorderStyle, Canvas, EffectOptions, Frame, MAX_INPUT_BYTES, RenderOptions, Result,
+    SceneOptions, TimedFrame, animation, art, decode_media, effects, export, image_renderer::RAMPS,
+    lettering,
 };
 use js_sys::{Array, Uint8Array};
 use std::cell::RefCell;
@@ -599,13 +600,19 @@ fn generate(app: &mut App) -> Result<()> {
         _ => return Err("Choose a valid artwork source".into()),
     };
     if checked("border")? {
+        let style = match select("border-style")?.as_str() {
+            "rounded" => BorderStyle::Rounded,
+            "dotted" => BorderStyle::Dotted,
+            "heavy" => BorderStyle::Heavy,
+            _ => BorderStyle::Plain,
+        };
         project = Animation::new(
             project
                 .frames()
                 .iter()
                 .map(|f| {
                     Ok(TimedFrame {
-                        frame: f.frame.border()?,
+                        frame: f.frame.border_with(style)?,
                         duration_ms: f.duration_ms,
                     })
                 })
