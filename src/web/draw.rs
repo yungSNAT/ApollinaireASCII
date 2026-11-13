@@ -103,6 +103,8 @@ pub(super) struct Drawing {
     /// Consecutive typed characters share one undo step.
     typing: bool,
     type_column: i32,
+    /// The cursor is on the last column, which holds the character just typed.
+    row_full: bool,
 }
 
 fn brush() -> Result<u8> {
@@ -172,6 +174,7 @@ impl App {
         let drawing = &mut self.drawing;
         drawing.stroke = None;
         drawing.typing = false;
+        drawing.row_full = false;
         drawing.cursor = (
             drawing.cursor.0.min(columns - 1),
             drawing.cursor.1.min(rows - 1),
@@ -329,6 +332,7 @@ impl App {
         }
         self.pause();
         self.drawing.typing = false;
+        self.drawing.row_full = false;
         self.drawing.cursor = point;
         let base = self.frame().clone();
         let lifted = match self.drawing.tool {
@@ -483,17 +487,29 @@ impl App {
         let (columns, rows) = (self.project.width() as i32, self.project.height() as i32);
         let (x, y) = self.drawing.cursor;
         let mut canvas = Canvas::from_frame(self.frame());
-        self.drawing.cursor = match key {
-            "Enter" => (self.drawing.type_column, (y + 1).min(rows - 1)),
+        let (cursor, full) = match key {
+            "Enter" => ((self.drawing.type_column, (y + 1).min(rows - 1)), false),
             "Backspace" => {
-                canvas.set((x - 1).max(0), y, b' ')?;
-                ((x - 1).max(0), y)
+                // A full row's last character is under the cursor, not before it.
+                let x = if self.drawing.row_full {
+                    x
+                } else {
+                    (x - 1).max(0)
+                };
+                canvas.set(x, y, b' ')?;
+                ((x, y), false)
+            }
+            _ if self.drawing.row_full => {
+                status("The row is full. Press Enter for the next row.", false);
+                return Ok(());
             }
             _ => {
                 canvas.text(x, y, key)?;
-                ((x + 1).min(columns - 1), y)
+                (((x + 1).min(columns - 1), y), x == columns - 1)
             }
         };
+        self.drawing.cursor = cursor;
+        self.drawing.row_full = full;
         let frame = canvas.finish();
         if frame == *self.frame() {
             return Ok(());
@@ -511,8 +527,10 @@ impl App {
             self.recovery.changed();
             self.display(true)?;
         } else {
+            // Committing a frame resets the typing state.
             self.update_frame(frame, self.duration())?;
             self.drawing.typing = true;
+            self.drawing.row_full = full;
         }
         Ok(())
     }
@@ -653,6 +671,7 @@ fn key(event: Event) -> Result<()> {
                 app.drawing.cursor = point;
                 app.drawing.type_column = point.0;
                 app.drawing.typing = false;
+                app.drawing.row_full = false;
             }
         } else if key == "Escape" {
             app.cancel();

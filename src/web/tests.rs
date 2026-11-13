@@ -620,6 +620,18 @@ fn type_writes_rows_by_pointer_keyboard_and_stamp() {
     set_value("stamp", "ok!");
     click("stamp-text");
     assert_eq!(art(), rows(&["  Hi    ", "  yo    ", "     ok!"]));
+    // At the right edge typing stops instead of overwriting the last cell, and Backspace
+    // erases the character just typed.
+    cursor_to((5, 1));
+    keys(&["a", "b", "c", "d"]);
+    assert_eq!(art(), rows(&["  Hi    ", "  yo abc", "     ok!"]));
+    assert!(status().contains("row is full"), "{}", status());
+    keys(&["Backspace", "Backspace"]);
+    assert_eq!(art(), rows(&["  Hi    ", "  yo a  ", "     ok!"]));
+    // The same holds when the first key of a run lands on the last column.
+    cursor_to((7, 0));
+    keys(&["x", "y"]);
+    assert_eq!(art(), rows(&["  Hi   x", "  yo a  ", "     ok!"]));
 }
 
 #[wasm_bindgen_test]
