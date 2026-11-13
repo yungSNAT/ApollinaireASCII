@@ -20,7 +20,8 @@ All fields are required and no additional or duplicate fields are accepted. JSON
 | Frame duration | 10 to 60,000 ms |
 | Project duration | One hour |
 | Effect duration | 100 to 60,000 ms at 1 to 60 FPS |
-| File input | 16 MiB |
+| Text and project file input, and browser file input | 16 MiB |
+| CLI `image` file or stdin input | 128 MiB, the image decoder's allocation limit |
 | CLI URL input | `https://` only, 16 MiB, 30 seconds, 5 redirects, `image/` content type |
 | Media dimensions | 4,096 per side, 16,777,216 pixels |
 | Image decoder allocation limit | 128 MiB |

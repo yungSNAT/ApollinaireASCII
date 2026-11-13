@@ -574,6 +574,36 @@ fn image_batches_use_safe_names_and_the_requested_export_format() {
 }
 
 #[test]
+fn image_files_and_stdin_take_up_to_128_mib_whilst_text_stops_at_16() {
+    let dir = scratch("media-limit");
+    // A 2400 x 2400 PPM: 502,801 bytes over the 16 MiB text limit.
+    let mut ppm = b"P6\n2400 2400\n255\n".to_vec();
+    ppm.resize(ppm.len() + 2400 * 2400 * 3, 200);
+    assert!(ppm.len() > apollinaire_ascii::MAX_INPUT_BYTES);
+    let picture = dir.join("large.ppm");
+    std::fs::write(&picture, &ppm).unwrap();
+    let path = picture.to_str().unwrap();
+    let converted = cli(&["image", path, "--width", "4"]);
+    assert!(converted.status.success(), "{}", text(&converted.stderr));
+    assert_eq!(text(&converted.stdout).lines().count(), 2);
+    let piped = cli_stdin(&["image", "-", "--width", "4"], &ppm);
+    assert!(piped.status.success(), "{}", text(&piped.stderr));
+    assert_eq!(piped.stdout, converted.stdout);
+    refused(&cli(&["import", path]), "Input exceeds 16 MiB");
+
+    let huge = dir.join("huge.png");
+    std::fs::File::create(&huge)
+        .unwrap()
+        .set_len(apollinaire_ascii::MAX_MEDIA_BYTES as u64 + 1)
+        .unwrap();
+    refused(
+        &cli(&["image", huge.to_str().unwrap()]),
+        "Input exceeds 128 MiB",
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn text_cli_applies_full_layout_and_alignment_to_the_requested_width() {
     use apollinaire_ascii::lettering::{self, Alignment, Layout, Options};
 

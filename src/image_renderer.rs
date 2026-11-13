@@ -2,7 +2,7 @@
 //! The resize, weighted luminance and ramp-index approach is retained.
 //! ASCII validation, alpha compositing, bounds, dithering and GIF import are new.
 use crate::{
-    Animation, Frame, MAX_FRAMES, MAX_INPUT_BYTES, MAX_PROJECT_CELLS, Result, TimedFrame,
+    Animation, Frame, MAX_FRAMES, MAX_MEDIA_BYTES, MAX_PROJECT_CELLS, Result, TimedFrame,
     dimensions, printable,
 };
 use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader, Limits};
@@ -193,8 +193,8 @@ fn limits() -> Limits {
 /// GIFs become timed text frames. Zero GIF delays use 100 ms.
 pub fn decode_media(bytes: &[u8], options: &RenderOptions) -> Result<Animation> {
     options.validate()?;
-    if bytes.is_empty() || bytes.len() > MAX_INPUT_BYTES {
-        return Err("Media must be 1 byte to 16 MiB".into());
+    if bytes.is_empty() || bytes.len() > MAX_MEDIA_BYTES {
+        return Err("Media must be 1 byte to 128 MiB".into());
     }
     let format = image::guess_format(bytes).map_err(|e| format!("Unrecognised image: {e}"))?;
     if format == ImageFormat::Gif {

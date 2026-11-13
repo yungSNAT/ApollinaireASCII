@@ -121,7 +121,20 @@ On 13 November 2026 `.github/scripts/conversion-speed.sh` timed the CLI against 
 | 1920 x 1080 PNG, 10.2 MiB | 56 ms | 57 ms | 169 ms | 129 ms |
 | 4000 x 3000 PNG, 58.6 MiB | refused | refused | 901 ms | 646 ms |
 
-chafa came closest, within 17 ms on the JPEG. The CLI refused the large PNG with 'Input exceeds 16 MiB', its input limit; the other 2 converted it. The script also checked one output of each conversion: none held a byte outside line feeds and printable ASCII. The fractals differ slightly between runs despite the fixed seed. To rerun, pass the 3 programs' paths: `bash .github/scripts/conversion-speed.sh <apollinaire> <ascii-image-converter> <chafa>`; ImageMagick 7 draws the pictures.
+chafa came closest, within 17 ms on the JPEG. The CLI refused the large PNG with 'Input exceeds 16 MiB', its input limit then; the other 2 converted it, and Image input limit below covers the change that followed. The script also checked one output of each conversion: none held a byte outside line feeds and printable ASCII. The fractals differ slightly between runs despite the fixed seed. To rerun, pass the 3 programs' paths: `bash .github/scripts/conversion-speed.sh <apollinaire> <ascii-image-converter> <chafa>`; ImageMagick 7 draws the pictures.
+
+## Image input limit
+
+The 16 MiB input limit arrived with the first build on 1 November 2026 as one budget for every input, with no recorded reason or measurement; the decoded image was already held to 4096 x 4096 pixels and a 128 MiB allocation. On 14 November 2026 release builds (Rust 1.99.1) converted large pictures to 200 columns on the same machine (load average 3 to 7). Each time is the fastest of 5 runs and each memory figure the highest peak resident set size of those runs, including process start.
+
+| Picture | apollinaire | ascii-image-converter | chafa |
+|---|--:|--:|--:|
+| 4000 x 3000 16-bit RGB PNG, 59.1 MiB, like the one refused above | 336 ms, 139 MiB | 886 ms, 126 MiB | 655 ms, 203 MiB |
+| 4096 x 4096 16-bit RGBA noise PNG, 87.2 MiB | 680 ms, 228 MiB | 1,413 ms, 167 MiB | 1,033 ms, 350 MiB |
+| 4096 x 4000 16-bit RGBA noise PNG, uncompressed, 125.1 MiB | 444 ms, 263 MiB | 633 ms, 163 MiB | 561 ms, 381 MiB |
+| 4 frames of 4096 x 3900 8-bit noise GIF, 63.8 MiB | 1,244 ms, 222 MiB | not run | not compared |
+
+Peak memory was 2.1 to 3.5 times the file's size, 263 MiB at most, and every output was printable ASCII; the highest ratio was the GIF's. So `image` files and stdin now take up to 128 MiB, matching the decoder's allocation limit; text and project inputs, URL downloads and the browser editor keep 16 MiB. The 125.1 MiB PNG on stdin took 596 ms and 263 MiB. A 128 MiB + 1 byte file is refused with 'Input exceeds 128 MiB' after reading it, in 183 ms and 132 MiB. ascii-image-converter plays a GIF in a loop, so it was not given one; chafa printed only 2 bytes for the GIF with `--animate off`, so that row has no comparison. The other programs' figures for the first 2 pictures come from an earlier run that day, in which a build of master with the limit lifted took 343 ms and 139 MiB, and 650 ms and 228 MiB.
 
 ## Speech bubbles against cowsay
 

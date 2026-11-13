@@ -1,8 +1,9 @@
 mod fetch;
 
 use apollinaire_ascii::{
-    Animation, BorderStyle, Canvas, EffectOptions, Frame, MAX_INPUT_BYTES, RenderOptions, Result,
-    SceneOptions, TimedFrame, animation, art, bubble, effects, export, lettering,
+    Animation, BorderStyle, Canvas, EffectOptions, Frame, MAX_INPUT_BYTES, MAX_MEDIA_BYTES,
+    RenderOptions, Result, SceneOptions, TimedFrame, animation, art, bubble, effects, export,
+    lettering,
 };
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use std::{
@@ -153,7 +154,8 @@ enum Command {
     },
     /// Convert images or animated GIFs to text, from files or https:// URLs.
     Image {
-        /// Image files, `-` for stdin, or https:// URLs. Several inputs need --output-dir.
+        /// Image files or `-` for stdin, up to 128 MiB each, or https:// URLs, up to 16 MiB.
+        /// Several inputs need --output-dir.
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
         /// Create one new file per input in this directory, named after the input.
@@ -475,7 +477,7 @@ fn run(args: Args) -> Result<()> {
             let convert = |input: &Path| {
                 let bytes = match input.to_str().filter(|s| fetch::is_url(s)) {
                     Some(url) => fetch::image(url)?,
-                    None => read_bounded(input)?,
+                    None => read_bounded(input, MAX_MEDIA_BYTES)?,
                 };
                 apollinaire_ascii::decode_media(&bytes, &options)
             };
@@ -759,7 +761,8 @@ fn output_name(input: &Path) -> String {
         clean
     }
 }
-fn read_bounded(path: &Path) -> Result<Vec<u8>> {
+/// Read a file, or stdin for `-`, refusing more than `limit` bytes.
+fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
     let reader: Box<dyn Read> = if path == Path::new("-") {
         Box::new(io::stdin())
@@ -767,16 +770,16 @@ fn read_bounded(path: &Path) -> Result<Vec<u8>> {
         Box::new(File::open(path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?)
     };
     reader
-        .take(MAX_INPUT_BYTES as u64 + 1)
+        .take(limit as u64 + 1)
         .read_to_end(&mut bytes)
         .map_err(|e| format!("Read failed: {e}"))?;
-    if bytes.len() > MAX_INPUT_BYTES {
-        return Err("Input exceeds 16 MiB".into());
+    if bytes.len() > limit {
+        return Err(format!("Input exceeds {} MiB", limit / (1024 * 1024)));
     }
     Ok(bytes)
 }
 fn read_text(path: &Path) -> Result<String> {
-    String::from_utf8(read_bounded(path)?)
+    String::from_utf8(read_bounded(path, MAX_INPUT_BYTES)?)
         .map_err(|_| "Text input must be UTF-8 containing printable ASCII".into())
 }
 fn load(path: &Path, pad: bool) -> Result<Animation> {

@@ -751,6 +751,18 @@ fn every_image_mode_obeys_ascii_and_rejects_invalid_options() {
     assert!(decode_media(b"P6\n5000 1\n255\n", &RenderOptions::default()).is_err());
 }
 #[test]
+fn media_may_exceed_the_text_limit_up_to_128_mib() {
+    let mut ppm = b"P6\n2400 2400\n255\n".to_vec();
+    ppm.resize(ppm.len() + 2400 * 2400 * 3, 200);
+    assert!(ppm.len() > apollinaire_ascii::MAX_INPUT_BYTES);
+    assert!(decode_media(&ppm, &RenderOptions::default()).is_ok());
+    let oversized = vec![0; apollinaire_ascii::MAX_MEDIA_BYTES + 1];
+    assert_eq!(
+        decode_media(&oversized, &RenderOptions::default()).unwrap_err(),
+        "Media must be 1 byte to 128 MiB"
+    );
+}
+#[test]
 fn edge_glyphs_follow_direction_on_strong_edges_only() {
     // Which side of a line through the middle each pixel lies on, the line running along `glyph`.
     type Side = fn(i32, i32) -> i32;
