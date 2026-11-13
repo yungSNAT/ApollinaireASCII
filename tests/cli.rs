@@ -586,10 +586,9 @@ fn image_files_and_stdin_take_up_to_128_mib_whilst_text_stops_at_16() {
     let converted = cli(&["image", path, "--width", "4"]);
     assert!(converted.status.success(), "{}", text(&converted.stderr));
     assert_eq!(text(&converted.stdout).lines().count(), 2);
-    assert_eq!(
-        cli_stdin(&["image", "-", "--width", "4"], &ppm).stdout,
-        converted.stdout
-    );
+    let piped = cli_stdin(&["image", "-", "--width", "4"], &ppm);
+    assert!(piped.status.success(), "{}", text(&piped.stderr));
+    assert_eq!(piped.stdout, converted.stdout);
     refused(&cli(&["import", path]), "Input exceeds 16 MiB");
 
     let huge = dir.join("huge.png");
