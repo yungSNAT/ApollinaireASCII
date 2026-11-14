@@ -180,7 +180,7 @@ for name, keys in [("closed-terminal-with-sighup-ignored-ends-editing", []),
         time.sleep(0.3)
     os.close(fd)
     code = wait_exit(pid)
-    case(name, code != "hung", f"code={code}")
+    case(name, code == 1, f"code={code}")
 
 # Output fails after the editor has started: input and output are separate terminals, the input
 # one controlling the editor's session, and the output terminal goes away. The editor must exit
@@ -193,7 +193,17 @@ proc = subprocess.Popen([binary, "edit", txt], stdin=in_slave, stdout=out_slave,
                         preexec_fn=lambda: fcntl.ioctl(0, termios.TIOCSCTTY, 0))
 os.close(out_slave)
 time.sleep(1.5)
-canonical = lambda: bool(termios.tcgetattr(in_slave)[3] & termios.ICANON)
+# macOS revokes the parent's descriptor when the session leader exits, so open the device anew.
+in_name = os.ttyname(in_slave)
+
+
+def canonical():
+    fd = os.open(in_name, os.O_RDWR | os.O_NOCTTY)
+    try:
+        return bool(termios.tcgetattr(fd)[3] & termios.ICANON)
+    finally:
+        os.close(fd)
+
 raw_while_running = not canonical()
 os.close(out_master)
 os.write(in_master, b"x")
