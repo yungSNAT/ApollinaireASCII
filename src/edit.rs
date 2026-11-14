@@ -569,23 +569,6 @@ impl Drop for Screen {
     }
 }
 
-/// The next event within `timeout`, or `None`. crossterm reports input that has closed (a
-/// terminal gone without a hangup signal) as no event at all, so a wait that ends without one
-/// checks the input is still a terminal rather than waiting for ever.
-fn next_event(timeout: Duration) -> io::Result<Option<Event>> {
-    if event::poll(timeout)? {
-        return event::read().map(Some);
-    }
-    if io::stdin().is_terminal() {
-        Ok(None)
-    } else {
-        Err(io::Error::new(
-            io::ErrorKind::UnexpectedEof,
-            "the input closed",
-        ))
-    }
-}
-
 pub fn run(path: PathBuf, project: Animation) -> Result<()> {
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         return Err("Editing needs a terminal for input and output".into());
@@ -597,12 +580,7 @@ pub fn run(path: PathBuf, project: Animation) -> Result<()> {
     loop {
         let (columns, rows) = terminal::size().map_err(failed)?;
         editor.draw(&mut out, columns, rows).map_err(failed)?;
-        let event = loop {
-            if let Some(event) = next_event(Duration::from_secs(1)).map_err(failed)? {
-                break event;
-            }
-        };
-        match editor.handle(event) {
+        match editor.handle(event::read().map_err(failed)?) {
             Flow::Continue => {}
             Flow::Quit => return Ok(()),
             Flow::Play => {
@@ -618,12 +596,13 @@ pub fn run(path: PathBuf, project: Animation) -> Result<()> {
                         + Duration::from_millis(u64::from(editor.current().duration_ms));
                     loop {
                         let left = until.saturating_duration_since(Instant::now());
-                        match next_event(left).map_err(failed)? {
-                            None => break,
-                            Some(Event::Key(key)) if key.kind != KeyEventKind::Release => {
-                                break 'playing;
-                            }
-                            Some(_) => {}
+                        if left.is_zero() || !event::poll(left).map_err(failed)? {
+                            break;
+                        }
+                        if let Event::Key(key) = event::read().map_err(failed)?
+                            && key.kind != KeyEventKind::Release
+                        {
+                            break 'playing;
                         }
                     }
                 }
