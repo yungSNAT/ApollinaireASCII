@@ -193,9 +193,13 @@ fn import_and_export_report_incompatible_options_and_bad_inputs() {
     file.set_len(apollinaire_ascii::MAX_INPUT_BYTES as u64 + 1)
         .unwrap();
     drop(file);
-    let too_large = cli(&["import", path]);
-    assert!(!too_large.status.success());
-    assert!(text(&too_large.stderr).contains("Input exceeds 16 MiB"));
+    refused(
+        &cli(&["import", path]),
+        &format!(
+            "{path} exceeds the 16 MiB input limit ({} bytes)",
+            apollinaire_ascii::MAX_INPUT_BYTES + 1
+        ),
+    );
 
     let options = cli(&["completions", "bash", "--format", "json"]);
     assert!(!options.status.success());
@@ -589,16 +593,27 @@ fn image_files_and_stdin_take_up_to_128_mib_whilst_text_stops_at_16() {
     let piped = cli_stdin(&["image", "-", "--width", "4"], &ppm);
     assert!(piped.status.success(), "{}", text(&piped.stderr));
     assert_eq!(piped.stdout, converted.stdout);
-    refused(&cli(&["import", path]), "Input exceeds 16 MiB");
+    // A file's size is checked before it is read, so the refusal can give it.
+    refused(
+        &cli(&["import", path]),
+        &format!(
+            "{path} exceeds the 16 MiB input limit ({} bytes)",
+            ppm.len()
+        ),
+    );
 
     let huge = dir.join("huge.png");
     std::fs::File::create(&huge)
         .unwrap()
         .set_len(apollinaire_ascii::MAX_MEDIA_BYTES as u64 + 1)
         .unwrap();
+    let huge = huge.to_str().unwrap();
     refused(
-        &cli(&["image", huge.to_str().unwrap()]),
-        "Input exceeds 128 MiB",
+        &cli(&["image", huge]),
+        &format!(
+            "{huge} exceeds the 128 MiB input limit ({} bytes)",
+            apollinaire_ascii::MAX_MEDIA_BYTES + 1
+        ),
     );
     std::fs::remove_dir_all(dir).unwrap();
 }
@@ -917,7 +932,7 @@ fn say_refuses_empty_messages_and_characters_outside_printable_ascii() {
             &["say"],
             &vec![b'x'; apollinaire_ascii::MAX_INPUT_BYTES + 1],
         ),
-        "Input exceeds 16 MiB",
+        "Standard input exceeds the 16 MiB input limit",
     );
 }
 
