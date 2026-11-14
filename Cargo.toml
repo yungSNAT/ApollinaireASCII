@@ -39,7 +39,7 @@ web = ["dep:wasm-bindgen", "dep:web-sys", "dep:js-sys", "dep:wasm-bindgen-future
 clap = { version = "4.6.7", features = ["derive"], optional = true }
 clap_complete = { version = "4.6.11", optional = true }
 clap_mangen = { version = "0.3.3", optional = true }
-crossterm = { version = "0.29.0", optional = true }
+crossterm = { version = "0.29.0", default-features = false, features = ["events", "windows"], optional = true }
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp", "bmp", "pnm"] }
 serde = "1"
 serde_json = "1"
