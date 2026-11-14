@@ -770,7 +770,8 @@ fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>> {
     } else {
         path.display().to_string()
     };
-    let exceeds = format!("{name} exceeds the {} MiB input limit", limit / (1024 * 1024));
+    let mib = limit / (1024 * 1024);
+    let exceeds = format!("{name} exceeds the {mib} MiB input limit");
     let reader: Box<dyn Read> = if stdin {
         Box::new(io::stdin())
     } else {
