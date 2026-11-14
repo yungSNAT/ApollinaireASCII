@@ -615,6 +615,7 @@ fn run(args: Args) -> Result<()> {
         } => {
             no_export(&args.export, "Edit")?;
             edit::check_path(&file)?;
+            edit::check_link(&file)?;
             let exists = file
                 .try_exists()
                 .map_err(|e| format!("Cannot read {}: {e}", file.display()))?;

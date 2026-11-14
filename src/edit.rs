@@ -20,7 +20,7 @@ use std::{
     fs::File,
     io::{self, IsTerminal, Write},
     path::{Path, PathBuf},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 /// The same bounds as the browser editor's history.
@@ -122,7 +122,8 @@ impl Editor {
     }
 
     /// Apply one change to the current frame. A change that leaves the frame as it was adds no
-    /// undo step and does not mark the project modified.
+    /// undo step, does not mark the project modified and starts no run, so the next real change
+    /// gets its own step.
     fn draw_with(&mut self, run: Option<Run>, f: impl FnOnce(&mut Canvas) -> Result<()>) {
         let mut canvas = Canvas::from_frame(&self.current().frame);
         if let Err(error) = f(&mut canvas) {
@@ -131,7 +132,6 @@ impl Editor {
         }
         let frame = canvas.finish();
         if frame == self.current().frame {
-            self.joining = run;
             return;
         }
         let mut project = self.project.clone();
@@ -163,6 +163,8 @@ impl Editor {
         }
         self.frame = frame;
         self.modified = true;
+        // A change made after the unsaved-changes warning needs a new warning.
+        self.quit_warned = false;
     }
 
     fn limit_history(&mut self) {
@@ -238,7 +240,9 @@ impl Editor {
     }
 
     fn key(&mut self, key: KeyEvent) -> Flow {
-        let control = key.modifiers.contains(KeyModifiers::CONTROL);
+        // Windows reports AltGr as Ctrl+Alt, so that pair types its character.
+        let control = key.modifiers.contains(KeyModifiers::CONTROL)
+            && !key.modifiers.contains(KeyModifiers::ALT);
         if control || !matches!(key.code, KeyCode::Char(_)) || self.choosing_brush {
             self.joining = None;
         }
@@ -438,8 +442,14 @@ impl Editor {
             self.cursor.1 + 1,
             self.brush as char,
         );
-        // File names and error text need not be ASCII, so they are cut by character.
-        let fit = |text: &str| text.chars().take(columns).collect::<String>();
+        // File names and error text need not be ASCII, so they are cut by character, and a
+        // control character in them is shown as `?` rather than sent to the terminal.
+        let fit = |text: &str| {
+            text.chars()
+                .take(columns)
+                .map(|c| if c.is_control() { '?' } else { c })
+                .collect::<String>()
+        };
         queue!(
             out,
             MoveTo(0, view_rows as u16),
@@ -478,16 +488,23 @@ fn is_printable(c: char) -> bool {
     (' '..='~').contains(&c)
 }
 
+/// Refuse a symbolic link whose target is missing, which a save would replace with a file.
+pub fn check_link(path: &Path) -> Result<()> {
+    let link = std::fs::symlink_metadata(path).is_ok_and(|m| m.is_symlink());
+    if link && !path.exists() {
+        return Err(format!("{} is a link to a missing file", path.display()));
+    }
+    Ok(())
+}
+
 /// Write `content` to a new file beside the file `path` names, following a symbolic link, then
 /// rename it over that file, so a failed write or rename leaves the original as it was. An
-/// existing file's permissions carry over.
+/// existing file's permission bits carry over; its ACLs, extended attributes and owner do not.
 fn replace_file(path: &Path, content: &str) -> Result<()> {
+    check_link(path).map_err(|e| format!("Cannot save: {e}"))?;
     let target = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let name = target
-        .file_name()
-        .ok_or("The file to save has no name")?
-        .to_string_lossy();
-    let temporary = target.with_file_name(format!(".{name}.{}.apollinaire", std::process::id()));
+    // A short name, so a file name near the length limit still has room beside it.
+    let temporary = target.with_file_name(format!(".apollinaire-{}.tmp", std::process::id()));
     let permissions = std::fs::metadata(&target).map(|m| m.permissions()).ok();
     let written = File::options()
         .write(true)
@@ -547,13 +564,24 @@ pub fn run(path: PathBuf, project: Animation) -> Result<()> {
             Flow::Play => {
                 let shown = editor.frame;
                 editor.message = "Playing; any key stops".into();
-                for index in shown..editor.project.frames().len() {
+                // Loop through the frames until a key is pressed; mouse and resize events only
+                // redraw, and each frame keeps its full duration.
+                'playing: for index in (0..editor.project.frames().len()).cycle().skip(shown) {
                     editor.frame = index;
+                    let (columns, rows) = terminal::size().map_err(failed)?;
                     editor.draw(&mut out, columns, rows).map_err(failed)?;
-                    let wait = Duration::from_millis(u64::from(editor.current().duration_ms));
-                    if event::poll(wait).map_err(failed)? {
-                        event::read().map_err(failed)?;
-                        break;
+                    let until = Instant::now()
+                        + Duration::from_millis(u64::from(editor.current().duration_ms));
+                    loop {
+                        let left = until.saturating_duration_since(Instant::now());
+                        if left.is_zero() || !event::poll(left).map_err(failed)? {
+                            break;
+                        }
+                        if let Event::Key(key) = event::read().map_err(failed)?
+                            && key.kind != KeyEventKind::Release
+                        {
+                            break 'playing;
+                        }
                     }
                 }
                 editor.frame = shown;
