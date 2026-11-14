@@ -407,7 +407,7 @@ fn an_edit_that_changes_nothing_does_not_join_the_next_edit_to_the_last_step() {
     assert_eq!(shown(&editor), "x ");
 
     // The same for a mouse stroke that starts on a cell already holding the brush.
-    let mut stroke = editor("#  ");
+    let mut stroke = opened("art.json", "#  ");
     stroke.handle(press(KeyCode::End));
     typed(&mut stroke, "z");
     stroke.handle(mouse(MouseEventKind::Down(MouseButton::Left), 0, 0));
