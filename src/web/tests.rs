@@ -641,6 +641,25 @@ fn type_writes_rows_by_pointer_keyboard_and_stamp() {
 }
 
 #[wasm_bindgen_test]
+fn enter_on_the_bottom_row_keeps_typing_where_it_was() {
+    blank(4, 2);
+    tool("type");
+    cursor_to((0, 1));
+    keys(&["a", "b", "Enter", "c"]);
+    assert_eq!(art(), rows(&["    ", "abc "]));
+    assert!(status().contains("no row below"), "{}", status());
+    // A full bottom row stops typing without pointing to Enter.
+    keys(&["d", "e", "Enter", "f"]);
+    assert_eq!(art(), rows(&["    ", "abcd"]));
+    keys(&["g"]);
+    assert!(
+        status().contains("row is full") && !status().contains("Enter"),
+        "{}",
+        status()
+    );
+}
+
+#[wasm_bindgen_test]
 async fn a_full_row_does_not_stop_typing_on_the_frame_playback_moves_to() {
     blank(1, 1);
     let project = super::Animation::new(

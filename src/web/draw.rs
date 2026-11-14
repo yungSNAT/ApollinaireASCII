@@ -488,7 +488,12 @@ impl App {
         let (x, y) = self.drawing.cursor;
         let mut canvas = Canvas::from_frame(self.frame());
         let (cursor, full) = match key {
-            "Enter" => ((self.drawing.type_column, (y + 1).min(rows - 1)), false),
+            // Returning to the row's start would overwrite what was just typed.
+            "Enter" if y == rows - 1 => {
+                status("There is no row below this one.", false);
+                return Ok(());
+            }
+            "Enter" => ((self.drawing.type_column, y + 1), false),
             "Backspace" => {
                 // A full row's last character is under the cursor, not before it.
                 let x = if self.drawing.row_full {
@@ -500,7 +505,12 @@ impl App {
                 ((x, y), false)
             }
             _ if self.drawing.row_full => {
-                status("The row is full. Press Enter for the next row.", false);
+                let message = if y < rows - 1 {
+                    "The row is full. Press Enter for the next row."
+                } else {
+                    "The row is full."
+                };
+                status(message, false);
                 return Ok(());
             }
             _ => {
