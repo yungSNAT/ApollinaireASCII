@@ -727,7 +727,7 @@ async fn area_selects_moves_copies_pastes_and_clears() {
         matches!(
             status().as_str(),
             "Area copied as ASCII text."
-                | "Copy was blocked. Select the artwork and copy it with your keyboard."
+                | "Error: Copy was blocked. Select the artwork and copy it with your keyboard."
         )
     })
     .await;
