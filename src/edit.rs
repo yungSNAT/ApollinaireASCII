@@ -502,26 +502,48 @@ pub fn check_link(path: &Path) -> Result<()> {
 /// existing file's permission bits carry over; its ACLs, extended attributes and owner do not.
 fn replace_file(path: &Path, content: &str) -> Result<()> {
     check_link(path).map_err(|e| format!("Cannot save: {e}"))?;
-    let target = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    // A short name, so a file name near the length limit still has room beside it.
-    let temporary = target.with_file_name(format!(".apollinaire-{}.tmp", std::process::id()));
+    let failed = |e: io::Error| format!("Cannot save {}: {e}", path.display());
+    let target = match std::fs::canonicalize(path) {
+        Ok(target) => target,
+        // Only a path that names nothing yet is used as it is; a link is never replaced.
+        Err(e)
+            if e.kind() == io::ErrorKind::NotFound && std::fs::symlink_metadata(path).is_err() =>
+        {
+            path.to_path_buf()
+        }
+        Err(e) => return Err(failed(e)),
+    };
     let permissions = std::fs::metadata(&target).map(|m| m.permissions()).ok();
-    let written = File::options()
-        .write(true)
-        .create_new(true)
-        .open(&temporary)
-        .and_then(|mut file| {
-            file.write_all(content.as_bytes())?;
-            if let Some(permissions) = permissions {
-                file.set_permissions(permissions)?;
-            }
-            file.sync_all()
+    // A short name, so a file name near the length limit still has room beside it; the next
+    // name is tried when one is taken, and only a file this save created is ever removed.
+    let id = std::process::id();
+    let (file, temporary) = (0..100)
+        .map(|n| match n {
+            0 => target.with_file_name(format!(".apollinaire-{id}.tmp")),
+            n => target.with_file_name(format!(".apollinaire-{id}-{n}.tmp")),
         })
-        .and_then(|()| std::fs::rename(&temporary, &target));
-    written.map_err(|e| {
-        let _ = std::fs::remove_file(&temporary);
-        format!("Cannot save {}: {e}", path.display())
-    })
+        .find_map(
+            |name| match File::options().write(true).create_new(true).open(&name) {
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => None,
+                opened => Some(opened.map(|file| (file, name))),
+            },
+        )
+        .unwrap_or_else(|| Err(io::ErrorKind::AlreadyExists.into()))
+        .map_err(failed)?;
+    // The file is closed before the rename, which Windows needs.
+    let write = |mut file: File| {
+        file.write_all(content.as_bytes())?;
+        if let Some(permissions) = permissions {
+            file.set_permissions(permissions)?;
+        }
+        file.sync_all()
+    };
+    write(file)
+        .and_then(|()| std::fs::rename(&temporary, &target))
+        .map_err(|e| {
+            let _ = std::fs::remove_file(&temporary);
+            failed(e)
+        })
 }
 
 /// Raw mode, the alternate screen and mouse capture, undone on drop whatever ends the session.
