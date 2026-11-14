@@ -1086,3 +1086,21 @@ fn edit_checks_its_file_and_options_before_needing_a_terminal() {
     assert_eq!(std::fs::read_to_string(&existing).unwrap(), "old\n");
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[cfg(unix)]
+#[test]
+fn edit_refuses_a_link_to_a_missing_file() {
+    let dir = scratch("edit-link");
+    let link = dir.join("link.txt");
+    std::os::unix::fs::symlink(dir.join("missing.txt"), &link).unwrap();
+    let output = cli(&["edit", link.to_str().unwrap()]);
+    assert!(!output.status.success());
+    assert_eq!(
+        text(&output.stderr),
+        format!(
+            "apollinaire: {} is a link to a missing file\n",
+            link.display()
+        )
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}

@@ -394,3 +394,92 @@ fn only_text_and_json_paths_are_edited() {
         );
     }
 }
+
+#[test]
+fn an_edit_that_changes_nothing_does_not_join_the_next_edit_to_the_last_step() {
+    let mut editor = editor("a ");
+    typed(&mut editor, "x");
+    editor.handle(press(KeyCode::Home));
+    // Typing the character already there changes nothing.
+    typed(&mut editor, "xy");
+    assert_eq!(shown(&editor), "xy");
+    editor.handle(ctrl('z'));
+    assert_eq!(shown(&editor), "x ");
+
+    // The same for a mouse stroke that starts on a cell already holding the brush.
+    let mut stroke = editor("#  ");
+    stroke.handle(press(KeyCode::End));
+    typed(&mut stroke, "z");
+    stroke.handle(mouse(MouseEventKind::Down(MouseButton::Left), 0, 0));
+    stroke.handle(mouse(MouseEventKind::Drag(MouseButton::Left), 1, 0));
+    assert_eq!(shown(&stroke), "##z");
+    stroke.handle(ctrl('z'));
+    assert_eq!(shown(&stroke), "# z");
+    stroke.handle(ctrl('y'));
+    assert_eq!(shown(&stroke), "##z");
+}
+
+#[test]
+fn drawing_after_a_quit_warning_needs_a_new_warning() {
+    let mut editor = editor("   ");
+    typed(&mut editor, "a");
+    assert_eq!(editor.handle(ctrl('q')), Flow::Continue);
+    editor.handle(mouse(MouseEventKind::Down(MouseButton::Left), 2, 0));
+    assert_eq!(editor.handle(ctrl('q')), Flow::Continue);
+    assert!(editor.message.starts_with("Unsaved changes"));
+}
+
+#[test]
+fn altgr_characters_are_typed_not_taken_as_commands() {
+    // Windows reports AltGr as Ctrl+Alt, which several layouts need for @, [, \ and ~.
+    let mut editor = editor("   ");
+    for c in ['@', '~', 'q'] {
+        editor.handle(Event::Key(KeyEvent::new(
+            KeyCode::Char(c),
+            KeyModifiers::CONTROL | KeyModifiers::ALT,
+        )));
+    }
+    assert_eq!(shown(&editor), "@~q");
+}
+
+#[test]
+fn control_characters_in_names_and_messages_are_not_sent_to_the_terminal() {
+    let mut editor = opened("a\u{1b}[31mb.json", "x");
+    editor.message = "Cannot save \u{1b}]0;title\u{7}".into();
+    let mut screen = Vec::new();
+    editor.draw(&mut screen, 80, 24).unwrap();
+    let screen = String::from_utf8(screen).unwrap();
+    assert!(screen.contains("a?[31mb.json"), "{screen:?}");
+    assert!(screen.contains("Cannot save ?]0;title?"), "{screen:?}");
+    assert!(!screen.contains('\u{7}'));
+}
+
+#[test]
+fn a_file_name_near_the_length_limit_still_saves() {
+    let dir = scratch("long");
+    let path = dir.join(format!("{}.txt", "a".repeat(240)));
+    let mut editor = Editor::new(
+        path.clone(),
+        Animation::still(Frame::from_text("b").unwrap()),
+    );
+    editor.save().unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "b\n");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn a_link_to_a_missing_file_is_not_replaced() {
+    let dir = scratch("dangling");
+    let link = dir.join("link.txt");
+    std::os::unix::fs::symlink(dir.join("missing.txt"), &link).unwrap();
+    let mut editor = Editor::new(
+        link.clone(),
+        Animation::still(Frame::from_text("b").unwrap()),
+    );
+    let error = editor.save().unwrap_err();
+    assert!(error.contains("a link to a missing file"), "{error}");
+    assert!(std::fs::symlink_metadata(&link).unwrap().is_symlink());
+    assert_eq!(names(&dir), ["link.txt"]);
+    std::fs::remove_dir_all(dir).unwrap();
+}
