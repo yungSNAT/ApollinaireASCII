@@ -507,7 +507,9 @@ fn replace_file(path: &Path, content: &str) -> Result<()> {
         Ok(target) => target,
         // Only a path that names nothing yet is used as it is; a link is never replaced.
         Err(e)
-            if e.kind() == io::ErrorKind::NotFound && std::fs::symlink_metadata(path).is_err() =>
+            if e.kind() == io::ErrorKind::NotFound
+                && std::fs::symlink_metadata(path)
+                    .is_err_and(|e| e.kind() == io::ErrorKind::NotFound) =>
         {
             path.to_path_buf()
         }
@@ -569,10 +571,35 @@ impl Drop for Screen {
     }
 }
 
+/// crossterm 0.29 reads a closed input terminal for ever at full CPU, so on Unix the editor
+/// ends through the hangup signal instead: its input must be the terminal that controls its
+/// session, which signals the editor when it closes, and the signal ends the editor even when
+/// it was set to be ignored (as `nohup` does).
+#[cfg(unix)]
+fn end_on_hangup() -> Result<()> {
+    use std::sync::{Arc, atomic::AtomicBool};
+    let controlling = matches!(
+        (rustix::termios::tcgetsid(io::stdin()), rustix::process::getsid(None)),
+        (Ok(terminal), Ok(own)) if terminal == own
+    );
+    if !controlling {
+        return Err("Editing needs input from the terminal that controls this session".into());
+    }
+    signal_hook::flag::register_conditional_shutdown(
+        signal_hook::consts::SIGHUP,
+        1,
+        Arc::new(AtomicBool::new(true)),
+    )
+    .map(drop)
+    .map_err(|e| format!("Cannot use the terminal: {e}"))
+}
+
 pub fn run(path: PathBuf, project: Animation) -> Result<()> {
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         return Err("Editing needs a terminal for input and output".into());
     }
+    #[cfg(unix)]
+    end_on_hangup()?;
     let mut editor = Editor::new(path, project);
     let _screen = Screen::enter()?;
     let failed = |e: io::Error| format!("Terminal failed: {e}");

@@ -30,7 +30,7 @@ ApollinaireASCII replaced `figlet-rs` 1.0.0 with its own FIGlet renderer on 1 No
 
 ## CLI terminal input
 
-`crossterm` 0.29.0 reads key, mouse and resize events and switches the terminal to raw mode and the alternate screen for `apollinaire edit`. It is optional and enabled only by the `cli` feature, with its default features off except `events` and `windows`, so it adds no derive macros. The library built with `default-features = false` and the browser build do not compile it. Its 19 transitive packages, added to Cargo.lock on 15 November 2026, have not been through an Aikido or `cargo audit` scan; OSV-Scanner checks Cargo.lock on every pull request and push to master that changes it.
+`crossterm` 0.29.0 reads key, mouse and resize events and switches the terminal to raw mode and the alternate screen for `apollinaire edit`. It is optional and enabled only by the `cli` feature, with its default features off except `events` and `windows`, so it adds no derive macros. On Unix the editor also uses 2 of crossterm's own dependencies directly, `rustix` (to check its input is the terminal that controls its session) and `signal-hook` (to end on a hangup even when the signal is ignored), as crossterm 0.29.0 keeps reading a closed input. The library built with `default-features = false` and the browser build do not compile it. Its 19 transitive packages, added to Cargo.lock on 15 November 2026, have not been through an Aikido or `cargo audit` scan; OSV-Scanner checks Cargo.lock on every pull request and push to master that changes it.
 
 ## Source scan
 

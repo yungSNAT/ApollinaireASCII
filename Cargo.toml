@@ -32,7 +32,7 @@ required-features = ["cli"]
 
 [features]
 default = ["cli"]
-cli = ["dep:clap", "dep:clap_complete", "dep:clap_mangen", "dep:crossterm", "dep:ureq"]
+cli = ["dep:clap", "dep:clap_complete", "dep:clap_mangen", "dep:crossterm", "dep:rustix", "dep:signal-hook", "dep:ureq"]
 web = ["dep:wasm-bindgen", "dep:web-sys", "dep:js-sys", "dep:wasm-bindgen-futures"]
 
 [dependencies]
@@ -45,6 +45,11 @@ serde = "1"
 serde_json = "1"
 ureq = { version = "3.5.0", default-features = false, features = ["rustls"], optional = true }
 weezl = "0.2.1"
+
+# crossterm's own Unix dependencies, for the editor's controlling-terminal check and hangup handling.
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1.6", default-features = false, features = ["std", "termios", "process"], optional = true }
+signal-hook = { version = "0.3.18", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = { version = "=0.2.130", optional = true }
