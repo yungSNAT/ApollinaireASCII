@@ -1,3 +1,4 @@
+mod edit;
 mod fetch;
 
 use apollinaire_ascii::{
@@ -305,6 +306,18 @@ enum Command {
         #[arg(long,default_value_t=1,value_parser=clap::value_parser!(u32).range(1..=1000))]
         loops: u32,
     },
+    /// Draw and animate in the terminal: keyboard and mouse, frames, undo; F1 lists the keys.
+    Edit {
+        /// The .txt or .json file to edit and save. A file that does not exist is created on the
+        /// first save (Ctrl+S); a .txt file holds one frame.
+        file: PathBuf,
+        /// Columns of a new file, 1 to 512.
+        #[arg(long)]
+        width: Option<usize>,
+        /// Rows of a new file, 1 to 256.
+        #[arg(long)]
+        height: Option<usize>,
+    },
     /// Validate an existing text or JSON project.
     Check {
         /// A .txt or .json project, or `-` for stdin.
@@ -594,6 +607,26 @@ fn run(args: Args) -> Result<()> {
         Command::Play { input, loops } => {
             no_export(&args.export, "Play")?;
             return play(&load(&input, false)?, loops);
+        }
+        Command::Edit {
+            file,
+            width,
+            height,
+        } => {
+            no_export(&args.export, "Edit")?;
+            edit::check_path(&file)?;
+            let exists = file
+                .try_exists()
+                .map_err(|e| format!("Cannot read {}: {e}", file.display()))?;
+            let project = if exists {
+                if width.is_some() || height.is_some() {
+                    return Err("--width and --height apply only to a new file".into());
+                }
+                load(&file, true)?
+            } else {
+                Animation::still(Frame::blank(width.unwrap_or(72), height.unwrap_or(24))?)
+            };
+            return edit::run(file, project);
         }
         Command::Completions { shell } => {
             no_export(&args.export, "Completions")?;

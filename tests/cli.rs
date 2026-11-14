@@ -1035,3 +1035,41 @@ fn say_refuses_missing_animated_or_conflicting_art() {
     refused(&both, "cannot be used with");
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn edit_checks_its_file_and_options_before_needing_a_terminal() {
+    let dir = scratch("edit");
+    let new = dir.join("new.txt");
+    let existing = dir.join("old.txt");
+    std::fs::write(&existing, "old\n").unwrap();
+    let path = |p: &std::path::Path| p.to_str().unwrap().to_string();
+    for (args, error) in [
+        (vec![path(&new)], "Editing needs a terminal for input and output"),
+        (vec![path(&existing)], "Editing needs a terminal for input and output"),
+        (vec!["-".into()], "Edit needs a .txt or .json file"),
+        (vec![path(&dir.join("art.html"))], "Edit needs a .txt or .json file"),
+        (
+            vec![path(&existing), "--width".into(), "5".into()],
+            "--width and --height apply only to a new file",
+        ),
+        (
+            vec![path(&new), "--height".into(), "0".into()],
+            "Dimensions must be 1..=512 columns and 1..=256 rows",
+        ),
+        (
+            vec![path(&new), "--output".into(), path(&dir.join("x.txt"))],
+            "Edit does not accept export options",
+        ),
+    ] {
+        let mut argv = vec!["edit".to_string()];
+        argv.extend(args);
+        let argv: Vec<&str> = argv.iter().map(String::as_str).collect();
+        let output = cli(&argv);
+        assert!(!output.status.success(), "{argv:?}");
+        assert_eq!(text(&output.stderr), format!("apollinaire: {error}\n"), "{argv:?}");
+        assert!(output.stdout.is_empty(), "{argv:?}");
+    }
+    assert!(!new.exists(), "nothing is created without a save");
+    assert_eq!(std::fs::read_to_string(&existing).unwrap(), "old\n");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
