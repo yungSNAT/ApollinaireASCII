@@ -761,20 +761,35 @@ fn output_name(input: &Path) -> String {
         clean
     }
 }
-/// Read a file, or stdin for `-`, refusing more than `limit` bytes.
+/// Read a file, or stdin for `-`, refusing more than `limit` bytes. A file whose size is
+/// already over the limit is refused before any of it is read.
 fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>> {
-    let mut bytes = Vec::new();
-    let reader: Box<dyn Read> = if path == Path::new("-") {
+    let stdin = path == Path::new("-");
+    let name = if stdin {
+        "Standard input".into()
+    } else {
+        path.display().to_string()
+    };
+    let exceeds = format!("{name} exceeds the {} MiB input limit", limit / (1024 * 1024));
+    let reader: Box<dyn Read> = if stdin {
         Box::new(io::stdin())
     } else {
-        Box::new(File::open(path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?)
+        let cannot_read = |e: io::Error| format!("Cannot read {name}: {e}");
+        let file = File::open(path).map_err(cannot_read)?;
+        let size = file.metadata().map_err(cannot_read)?.len();
+        if size > limit as u64 {
+            return Err(format!("{exceeds} ({size} bytes)"));
+        }
+        Box::new(file)
     };
+    // Pipes and special files report no size, and a file can grow, so the read stays bounded.
+    let mut bytes = Vec::new();
     reader
         .take(limit as u64 + 1)
         .read_to_end(&mut bytes)
         .map_err(|e| format!("Read failed: {e}"))?;
     if bytes.len() > limit {
-        return Err(format!("Input exceeds {} MiB", limit / (1024 * 1024)));
+        return Err(exceeds);
     }
     Ok(bytes)
 }
