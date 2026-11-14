@@ -669,7 +669,7 @@ async fn a_full_row_does_not_stop_typing_on_the_frame_playback_moves_to() {
 }
 
 #[wasm_bindgen_test]
-fn area_selects_moves_copies_pastes_and_clears() {
+async fn area_selects_moves_copies_pastes_and_clears() {
     blank(10, 5);
     tool("type");
     drag(&[(1, 1)]);
@@ -723,6 +723,14 @@ fn area_selects_moves_copies_pastes_and_clears() {
     tool("area");
     drag(&[(0, 4), (0, 4)]);
     click("area-copy");
+    wait_for(|| {
+        matches!(
+            status().as_str(),
+            "Area copied as ASCII text."
+                | "Error: Copy was blocked. Select the artwork and copy it with your keyboard."
+        )
+    })
+    .await;
     cursor_to((9, 0));
     click("area-paste");
     assert_eq!(
@@ -949,7 +957,8 @@ async fn open(name: &str, contents: &str) -> String {
         .dispatch_event(&web_sys::Event::new("change").unwrap())
         .unwrap();
     for _ in 0..500 {
-        if !status().starts_with("Reading") {
+        // Clipboard messages can replace the status whilst the file is still loading.
+        if enabled("generate") {
             return status();
         }
         sleep(10).await;
