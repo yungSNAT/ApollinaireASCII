@@ -467,6 +467,23 @@ fn a_file_name_near_the_length_limit_still_saves() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+#[test]
+fn a_file_with_the_temporary_name_is_kept_and_the_save_still_succeeds() {
+    let dir = scratch("taken");
+    let taken = dir.join(format!(".apollinaire-{}.tmp", std::process::id()));
+    std::fs::write(&taken, "someone else's").unwrap();
+    let path = dir.join("art.txt");
+    let mut editor = Editor::new(
+        path.clone(),
+        Animation::still(Frame::from_text("b").unwrap()),
+    );
+    editor.save().unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "b\n");
+    assert_eq!(std::fs::read_to_string(&taken).unwrap(), "someone else's");
+    assert_eq!(names(&dir).len(), 2, "{:?}", names(&dir));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 #[cfg(unix)]
 #[test]
 fn a_link_to_a_missing_file_is_not_replaced() {
