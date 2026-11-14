@@ -505,7 +505,12 @@ impl App {
                 ((x, y), false)
             }
             _ if self.drawing.row_full => {
-                status("The row is full. Press Enter for the next row.", false);
+                let message = if y < rows - 1 {
+                    "The row is full. Press Enter for the next row."
+                } else {
+                    "The row is full."
+                };
+                status(message, false);
                 return Ok(());
             }
             _ => {

@@ -648,6 +648,15 @@ fn enter_on_the_bottom_row_keeps_typing_where_it_was() {
     keys(&["a", "b", "Enter", "c"]);
     assert_eq!(art(), rows(&["    ", "abc "]));
     assert!(status().contains("no row below"), "{}", status());
+    // A full bottom row stops typing without pointing to Enter.
+    keys(&["d", "e", "Enter", "f"]);
+    assert_eq!(art(), rows(&["    ", "abcd"]));
+    keys(&["g"]);
+    assert!(
+        status().contains("row is full") && !status().contains("Enter"),
+        "{}",
+        status()
+    );
 }
 
 #[wasm_bindgen_test]
