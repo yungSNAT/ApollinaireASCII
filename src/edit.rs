@@ -520,7 +520,12 @@ impl Screen {
 }
 impl Drop for Screen {
     fn drop(&mut self) {
-        let _ = execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen, Show);
+        let _ = execute!(
+            io::stdout(),
+            DisableMouseCapture,
+            LeaveAlternateScreen,
+            Show
+        );
         let _ = terminal::disable_raw_mode();
     }
 }

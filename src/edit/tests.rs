@@ -86,7 +86,11 @@ fn typing_places_characters_and_undoes_as_one_step() {
         "     \n     ",
     ] {
         editor.handle(ctrl('z'));
-        assert_eq!(shown(&editor), expected, "typing after any other key is a new step");
+        assert_eq!(
+            shown(&editor),
+            expected,
+            "typing after any other key is a new step"
+        );
     }
     editor.handle(ctrl('z'));
     assert_eq!(editor.message, "Nothing to undo");
@@ -129,7 +133,11 @@ fn the_brush_is_chosen_with_ctrl_b_or_f3_and_a_mouse_stroke_is_one_step() {
     assert_eq!(editor.message, "Type the brush character");
     editor.handle(press(KeyCode::Char('*')));
     assert_eq!(editor.message, "Brush: *");
-    assert_eq!(shown(&editor), "      \n      \n      ", "choosing draws nothing");
+    assert_eq!(
+        shown(&editor),
+        "      \n      \n      ",
+        "choosing draws nothing"
+    );
 
     editor.handle(mouse(MouseEventKind::Down(MouseButton::Left), 0, 0));
     editor.handle(mouse(MouseEventKind::Drag(MouseButton::Left), 5, 0));
@@ -141,7 +149,11 @@ fn the_brush_is_chosen_with_ctrl_b_or_f3_and_a_mouse_stroke_is_one_step() {
     assert_eq!(shown(&editor), "******\n     *\n     *");
     assert_eq!(editor.cursor, (5, 2));
     editor.handle(mouse(MouseEventKind::Drag(MouseButton::Left), 0, 2));
-    assert_eq!(shown(&editor), "******\n     *\n     *", "no stroke after release");
+    assert_eq!(
+        shown(&editor),
+        "******\n     *\n     *",
+        "no stroke after release"
+    );
     editor.handle(ctrl('b'));
     editor.handle(press(KeyCode::Esc));
     assert_eq!(editor.message, "Brush unchanged");
@@ -252,7 +264,10 @@ fn saving_follows_a_link_and_keeps_the_permissions() {
     std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o640)).unwrap();
     let link = dir.join("link.txt");
     std::os::unix::fs::symlink(&target, &link).unwrap();
-    let mut editor = Editor::new(link.clone(), Animation::still(Frame::from_text("b").unwrap()));
+    let mut editor = Editor::new(
+        link.clone(),
+        Animation::still(Frame::from_text("b").unwrap()),
+    );
     editor.save().unwrap();
     assert!(std::fs::symlink_metadata(&link).unwrap().is_symlink());
     assert_eq!(std::fs::read_to_string(&target).unwrap(), "b\n");
@@ -275,7 +290,10 @@ fn a_save_refused_by_windows_leaves_the_file_unchanged() {
         .share_mode(0)
         .open(&path)
         .unwrap();
-    let mut editor = Editor::new(path.clone(), Animation::still(Frame::from_text("b").unwrap()));
+    let mut editor = Editor::new(
+        path.clone(),
+        Animation::still(Frame::from_text("b").unwrap()),
+    );
     let error = editor.save().unwrap_err();
     assert!(error.starts_with("Cannot save"), "{error}");
     drop(held);
@@ -296,7 +314,10 @@ fn the_view_scrolls_to_the_cursor_and_the_status_lines_report_state() {
     let screen = String::from_utf8(screen).unwrap();
     assert!(screen.contains(&format!("0  {}", "-".repeat(57))));
     assert!(screen.contains("7  -"));
-    assert!(!screen.contains("8  -"), "only 8 rows fit above the status lines");
+    assert!(
+        !screen.contains("8  -"),
+        "only 8 rows fit above the status lines"
+    );
     assert!(screen.contains("art.json  frame 1/1  column 1 row 1  brush #"));
 
     editor.handle(press(KeyCode::End));
@@ -317,14 +338,26 @@ fn the_view_scrolls_to_the_cursor_and_the_status_lines_report_state() {
 
     let mut small = Vec::new();
     editor.draw(&mut small, 19, 10).unwrap();
-    assert!(String::from_utf8(small).unwrap().contains("Enlarge the terminal"));
+    assert!(
+        String::from_utf8(small)
+            .unwrap()
+            .contains("Enlarge the terminal")
+    );
     editor.handle(mouse(MouseEventKind::Down(MouseButton::Left), 1, 1));
-    assert_eq!(editor.cursor, (40, 22), "no frame is shown, so a click does nothing");
+    assert_eq!(
+        editor.cursor,
+        (40, 22),
+        "no frame is shown, so a click does nothing"
+    );
 
     editor.handle(press(KeyCode::F(1)));
     let mut help = Vec::new();
     editor.draw(&mut help, 100, 30).unwrap();
-    assert!(String::from_utf8(help).unwrap().contains("Ctrl+S or F2: save"));
+    assert!(
+        String::from_utf8(help)
+            .unwrap()
+            .contains("Ctrl+S or F2: save")
+    );
     let steps = editor.undo.len();
     typed(&mut editor, "x");
     editor.handle(mouse(MouseEventKind::Down(MouseButton::Left), 1, 1));

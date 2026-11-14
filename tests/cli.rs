@@ -1044,10 +1044,19 @@ fn edit_checks_its_file_and_options_before_needing_a_terminal() {
     std::fs::write(&existing, "old\n").unwrap();
     let path = |p: &std::path::Path| p.to_str().unwrap().to_string();
     for (args, error) in [
-        (vec![path(&new)], "Editing needs a terminal for input and output"),
-        (vec![path(&existing)], "Editing needs a terminal for input and output"),
+        (
+            vec![path(&new)],
+            "Editing needs a terminal for input and output",
+        ),
+        (
+            vec![path(&existing)],
+            "Editing needs a terminal for input and output",
+        ),
         (vec!["-".into()], "Edit needs a .txt or .json file"),
-        (vec![path(&dir.join("art.html"))], "Edit needs a .txt or .json file"),
+        (
+            vec![path(&dir.join("art.html"))],
+            "Edit needs a .txt or .json file",
+        ),
         (
             vec![path(&existing), "--width".into(), "5".into()],
             "--width and --height apply only to a new file",
@@ -1066,7 +1075,11 @@ fn edit_checks_its_file_and_options_before_needing_a_terminal() {
         let argv: Vec<&str> = argv.iter().map(String::as_str).collect();
         let output = cli(&argv);
         assert!(!output.status.success(), "{argv:?}");
-        assert_eq!(text(&output.stderr), format!("apollinaire: {error}\n"), "{argv:?}");
+        assert_eq!(
+            text(&output.stderr),
+            format!("apollinaire: {error}\n"),
+            "{argv:?}"
+        );
         assert!(output.stdout.is_empty(), "{argv:?}");
     }
     assert!(!new.exists(), "nothing is created without a save");
