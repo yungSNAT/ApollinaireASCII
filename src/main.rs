@@ -2,9 +2,9 @@ mod edit;
 mod fetch;
 
 use apollinaire_ascii::{
-    Animation, BorderStyle, Canvas, EffectOptions, Frame, MAX_INPUT_BYTES, MAX_MEDIA_BYTES,
-    RenderOptions, Result, SceneOptions, TimedFrame, animation, art, bubble, effects, export,
-    lettering,
+    Animation, BorderStyle, Canvas, EffectOptions, Frame, Layered, MAX_INPUT_BYTES,
+    MAX_MEDIA_BYTES, RenderOptions, Result, SceneOptions, TimedFrame, animation, art, bubble,
+    effects, export, lettering,
 };
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use std::{
@@ -623,7 +623,15 @@ fn run(args: Args) -> Result<()> {
                 if width.is_some() || height.is_some() {
                     return Err("--width and --height apply only to a new file".into());
                 }
-                load(&file, true)?
+                if file.extension().is_some_and(|e| e == "json") {
+                    // Saving writes one animation, so a layered project would lose its layers.
+                    Layered::from_json(&read_text(&file)?)?
+                        .plain()
+                        .cloned()
+                        .ok_or("This project uses layers; merge them in the browser editor first")?
+                } else {
+                    load(&file, true)?
+                }
             } else {
                 Animation::still(Frame::blank(width.unwrap_or(72), height.unwrap_or(24))?)
             };

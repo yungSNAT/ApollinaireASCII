@@ -59,7 +59,7 @@ web-sys = { version = "0.3.107", optional = true, features = ["Window", "Documen
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "0.3.80"
-web-sys = { version = "0.3.107", features = ["PointerEventInit", "KeyboardEventInit", "ClipboardEventInit", "Selection", "DataTransferItemList", "DataTransferItem", "EventInit", "Response", "CssStyleDeclaration"] }
+web-sys = { version = "0.3.107", features = ["PointerEventInit", "KeyboardEventInit", "ClipboardEventInit", "Selection", "DataTransferItemList", "DataTransferItem", "EventInit", "Response", "CssStyleDeclaration", "HtmlCollection"] }
 
 [lints.rust]
 unsafe_code = "forbid"

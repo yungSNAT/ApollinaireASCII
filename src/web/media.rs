@@ -179,7 +179,7 @@ fn progress(done: Option<(f64, f64)>) {
         }
     }
 }
-fn set_disabled(id: &str, disabled: bool) -> Result<()> {
+pub(super) fn set_disabled(id: &str, disabled: bool) -> Result<()> {
     let element = node::<Element>(id)?;
     if disabled {
         element.set_attribute("disabled", "disabled")
@@ -214,10 +214,10 @@ fn current(ticket: u32) -> bool {
 }
 /// Commits a finished capture unless it was cancelled or superseded.
 fn finish(app: &mut App, project: Animation, message: &str) -> Result<()> {
-    app.commit(project);
+    app.commit(project)?;
     app.seek(0);
-    input("width")?.set_value(&app.project.width().to_string());
-    input("height")?.set_value(&app.project.height().to_string());
+    input("width")?.set_value(&app.project().width().to_string());
+    input("height")?.set_value(&app.project().height().to_string());
     app.display(true)?;
     status(message, false);
     Ok(())

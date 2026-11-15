@@ -132,8 +132,8 @@ fn storage_error(value: JsValue) -> String {
         name.as_deref().unwrap_or("browser error")
     )
 }
-fn encode_record(project: Option<&Animation>) -> Result<JsValue> {
-    let json = project.map(Animation::to_json).unwrap_or_default();
+fn encode_record(project: Option<&Layered>) -> Result<JsValue> {
+    let json = project.map(Layered::to_json).unwrap_or_default();
     if json.len() > MAX_INPUT_BYTES {
         return Err(
             "Recovery JSON exceeds 16 MiB. Recovery stopped; save the project separately.".into(),
@@ -150,7 +150,7 @@ fn encode_record(project: Option<&Animation>) -> Result<JsValue> {
     // An empty project is a revision-only discard marker, preventing stale empty-slot writers.
     Ok(format!("{revision}\n{json}").into())
 }
-fn decode_record(record: &JsValue) -> Result<Option<Animation>> {
+fn decode_record(record: &JsValue) -> Result<Option<Layered>> {
     if record.is_undefined() {
         return Ok(None);
     }
@@ -169,7 +169,7 @@ fn decode_record(record: &JsValue) -> Result<Option<Animation>> {
     if json.is_empty() {
         return Ok(None);
     }
-    Animation::from_json(json).map(Some)
+    Layered::from_json(json).map(Some)
 }
 
 /// Request listeners live only until the request settles, including error paths.
@@ -346,7 +346,7 @@ pub(super) async fn replace_record(
 
 enum Operation {
     Save,
-    Restore(Animation),
+    Restore(Layered),
     Discard,
 }
 fn launch(app: &mut App, operation: Operation) -> Result<()> {
@@ -361,7 +361,7 @@ fn launch(app: &mut App, operation: Operation) -> Result<()> {
     let restoring = matches!(operation, Operation::Restore(_));
     let discarded = matches!(operation, Operation::Discard);
     let value = match &operation {
-        Operation::Save => encode_record(Some(&app.project))?,
+        Operation::Save => encode_record(Some(&app.layers))?,
         Operation::Restore(project) => encode_record(Some(project))?,
         Operation::Discard => encode_record(None)?,
     };
@@ -385,10 +385,10 @@ fn launch(app: &mut App, operation: Operation) -> Result<()> {
                 Ok(()) => {
                     match operation {
                         Operation::Restore(project) => {
-                            app.commit(project);
+                            app.replace_layers(project, 0);
                             app.seek(0);
-                            input("width")?.set_value(&app.project.width().to_string());
-                            input("height")?.set_value(&app.project.height().to_string());
+                            input("width")?.set_value(&app.project().width().to_string());
+                            input("height")?.set_value(&app.project().height().to_string());
                             app.recovery.enabled = true;
                             app.recovery.saved_revision = app.recovery.revision;
                         }
@@ -548,10 +548,25 @@ mod tests {
 
     #[wasm_bindgen_test]
     fn recovery_records_validate_projects_and_bound_both_parts() {
-        let project = Animation::still(Frame::from_text("ASCII").unwrap());
+        let project = Layered::single(Animation::still(Frame::from_text("ASCII").unwrap()));
         let encoded = encode_record(Some(&project)).unwrap();
         assert_eq!(decode_record(&encoded).unwrap(), Some(project.clone()));
         assert_eq!(decode_record(&encode_record(None).unwrap()).unwrap(), None);
+        let two = Layered::new(vec![
+            crate::Layer {
+                name: "Back".into(),
+                visible: true,
+                art: Animation::still(Frame::from_text("AS   ").unwrap()),
+            },
+            crate::Layer {
+                name: "Front".into(),
+                visible: false,
+                art: Animation::still(Frame::from_text("  CII").unwrap()),
+            },
+        ])
+        .unwrap();
+        let encoded = encode_record(Some(&two)).unwrap();
+        assert_eq!(decode_record(&encoded).unwrap(), Some(two));
         assert_eq!(decode_record(&JsValue::UNDEFINED).unwrap(), None);
         for invalid in [
             JsValue::NULL,
