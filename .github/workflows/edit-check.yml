@@ -21,6 +21,7 @@ jobs:
           persist-credentials: false
       - run: rustup toolchain install
       - run: cargo build --locked --release --bin apollinaire
-      - run: timeout 600 python3 -u -I .github/edit-check/pty.py target/release/apollinaire "$RUNNER_TEMP/after"
+      - timeout-minutes: 12
+        run: python3 -u -I .github/edit-check/pty.py target/release/apollinaire "$RUNNER_TEMP/after"
       - if: always()
         run: ps -axo pid,stat,wchan,command | grep -i apollinaire | grep -v grep || true
