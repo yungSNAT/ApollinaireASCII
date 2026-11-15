@@ -1135,3 +1135,79 @@ fn edit_refuses_a_link_to_a_missing_file() {
     );
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// Run the CLI with the given stdout and return its exit status and stderr.
+fn cli_stdout(args: &[&str], stdout: impl Into<std::process::Stdio>) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_apollinaire"))
+        .args(args)
+        .stdout(stdout)
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap()
+        .wait_with_output()
+        .unwrap()
+}
+
+// `apollinaire man | head -3`: the reader has what it asked for, so that is no failure.
+#[test]
+fn a_reader_that_closed_the_pipe_ends_every_command_quietly() {
+    let dir = scratch("closed-pipe");
+    let drawing = dir.join("drawing.txt");
+    std::fs::write(&drawing, "ab\ncd\n").unwrap();
+    let picture = dir.join("a.png");
+    image::DynamicImage::new_rgba8(16, 8).save(&picture).unwrap();
+    let out = dir.join("out");
+    for args in [
+        &["man"][..],
+        &["completions", "bash"],
+        &["list"],
+        &["list", "--tag", "ghost"],
+        &["art", "ghost"],
+        &["check", drawing.to_str().unwrap()],
+        &[
+            "image",
+            picture.to_str().unwrap(),
+            "--width",
+            "8",
+            "--output-dir",
+            out.to_str().unwrap(),
+        ],
+    ] {
+        let (reader, writer) = std::io::pipe().unwrap();
+        drop(reader);
+        let output = cli_stdout(args, writer);
+        assert!(
+            output.status.success() && output.stderr.is_empty(),
+            "{args:?}: {:?}, {}",
+            output.status,
+            text(&output.stderr)
+        );
+    }
+    // The batch still converted its input after the reader left.
+    assert!(out.join("a.png.txt").exists());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+// Any other failure to write is still reported: only a closed pipe is the reader's choice.
+#[cfg(target_os = "linux")]
+#[test]
+fn output_to_a_full_device_is_reported_as_a_failure() {
+    for args in [
+        &["man"][..],
+        &["completions", "bash"],
+        &["list"],
+        &["art", "ghost"],
+    ] {
+        let full = std::fs::OpenOptions::new()
+            .write(true)
+            .open("/dev/full")
+            .unwrap();
+        let output = cli_stdout(args, full);
+        assert_eq!(output.status.code(), Some(1), "{args:?}");
+        assert!(
+            text(&output.stderr).starts_with("apollinaire: Output failed: "),
+            "{args:?}: {}",
+            text(&output.stderr)
+        );
+    }
+}
