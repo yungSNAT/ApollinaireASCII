@@ -1,7 +1,8 @@
 // Copyright 2026 Ryan Duguid
 // SPDX-License-Identifier: MIT
 
-//! ANSI and CP437 art (`.ans`, `.asc`, `.nfo`, `.diz`) as an input. Art with escape sequences
+//! ANSI and CP437 art (`.ans`, `.asc`, `.nfo`, `.diz`, and UTF-8 ANSI as `.utf8.ans`) as an
+//! input. Art with escape sequences
 //! plays on a virtual screen as libansilove draws it, and plain CP437 text is read line by line;
 //! colour and attributes are dropped, and each CP437 glyph becomes its nearest printable ASCII
 //! character.
@@ -19,7 +20,7 @@ use crate::{Frame, MAX_HEIGHT, MAX_WIDTH, Result};
 pub const DEFAULT_WIDTH: usize = 80;
 
 /// Whether a file name ends in .ans, .asc, .nfo or .diz, in any case: the names ANSI and CP437
-/// art goes by, which the CLI and the browser editor read with [`decode`].
+/// art goes by, which the CLI and the browser editor read with [`read`].
 pub fn is_ansi_name(name: &str) -> bool {
     name.rsplit_once('.').is_some_and(|(_, extension)| {
         ["ans", "asc", "nfo", "diz"]
@@ -42,6 +43,47 @@ aiounNao?--//!<>\
 +++++++++++#_||\"\
 aBrnEoutOOOd8one\
 =+><||/~o..vn2# ";
+
+/// The characters CP437 draws for bytes 0x80 to 0xFF, in order.
+const HIGH: &str = "ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐\
+                    └┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■\u{a0}";
+/// The pictures CP437 draws for bytes 0x01 to 0x1F, then 0x7F.
+const PICTURES: &str = "☺☻♥♦♣♠•◘○◙♂♀♪♫☼►◄↕‼¶§▬↨↑↓→←∟↔▲▼⌂";
+
+/// Decode art by its file name: a `.utf8.ans` name, in any case, holds UTF-8 ANSI art as text0wnz
+/// saves it, and the other names [`is_ansi_name`] accepts hold CP437, read with [`decode`].
+///
+/// In UTF-8 art each character becomes the CP437 byte that draws it, and a picture CP437 draws
+/// for a control byte becomes that picture's ASCII character, so it is drawn rather than acted
+/// on. A character CP437 cannot draw, or text that is not UTF-8, is refused. The SAUCE record is
+/// read as bytes, as it need not be UTF-8.
+pub fn read(name: &str, bytes: &[u8]) -> Result<Frame> {
+    let lower = name.to_ascii_lowercase();
+    if !lower.ends_with(".utf8.ans") {
+        return decode(bytes);
+    }
+    let (art, sauce_width) = sauce(bytes);
+    let art = &art[..art.iter().position(|b| *b == 0x1a).unwrap_or(art.len())];
+    let text = std::str::from_utf8(art)
+        .map_err(|e| format!("Byte {}: the art is not UTF-8", e.valid_up_to() + 1))?;
+    let mut cp437 = Vec::with_capacity(art.len());
+    for (index, character) in text.char_indices() {
+        cp437.push(if character.is_ascii() {
+            character as u8
+        } else if let Some(position) = HIGH.chars().position(|c| c == character) {
+            0x80 + position as u8
+        } else if let Some(position) = PICTURES.chars().position(|c| c == character) {
+            GLYPHS[if position == 31 { 0x7f } else { position + 1 }]
+        } else {
+            return Err(format!(
+                "Byte {}: U+{:04X} has no CP437 glyph",
+                index + 1,
+                u32::from(character)
+            ));
+        });
+    }
+    render(&cp437, sauce_width)
+}
 
 /// Split off a SAUCE record and its comment block, returning the art and the record's width
 /// for character art.
@@ -80,7 +122,14 @@ fn sauce(bytes: &[u8]) -> (&[u8], Option<usize>) {
 /// a byte outside `@` to `~`, is refused. The frame is as tall as the last row written.
 pub fn decode(bytes: &[u8]) -> Result<Frame> {
     let (art, sauce_width) = sauce(bytes);
-    let art = &art[..art.iter().position(|b| *b == 0x1a).unwrap_or(art.len())];
+    render(
+        &art[..art.iter().position(|b| *b == 0x1a).unwrap_or(art.len())],
+        sauce_width,
+    )
+}
+
+/// Draw CP437 art that ends before any end-of-file byte, at least `sauce_width` columns wide.
+fn render(art: &[u8], sauce_width: Option<usize>) -> Result<Frame> {
     if sauce_width.is_some_and(|w| w > MAX_WIDTH) {
         return Err(format!(
             "The SAUCE record gives a width of {}; the limit is {MAX_WIDTH} columns",
