@@ -1,0 +1,1 @@
+{"format":"asciiforge","version":2,"width":3,"height":1,"loop":true,"layers":[{"name":"Sky","visible":true},{"name":"Bird","visible":true}],"frames":[{"duration_ms":100,"layers":["* *"," v "]},{"duration_ms":150,"layers":["* *","v  "]}]}

@@ -319,3 +319,28 @@ fn every_project_that_can_be_built_or_edited_loads_again() {
     );
     assert_eq!(project, before);
 }
+
+/// The fuzz workflow seeds `project_json` with these files, so it starts from projects that load.
+#[test]
+fn the_project_json_fuzz_seeds_load_with_and_without_layers() {
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/project_json");
+    let mut layer_counts: Vec<(String, usize)> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| {
+            let path = entry.unwrap().path();
+            let project = Layered::from_json(&std::fs::read_to_string(&path).unwrap())
+                .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            (name, project.layers().len())
+        })
+        .collect();
+    layer_counts.sort();
+    assert_eq!(
+        layer_counts,
+        [
+            ("version-1.json".to_owned(), 1),
+            ("version-2-hidden-layer.json".to_owned(), 3),
+            ("version-2.json".to_owned(), 2),
+        ]
+    );
+}

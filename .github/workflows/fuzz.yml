@@ -24,13 +24,15 @@ jobs:
         run: |
           rustup toolchain install nightly --profile minimal
           cargo +nightly install cargo-fuzz --locked --version 0.13.2
-      # The bundled fonts seed the font target; the others start from nothing.
+      # The bundled fonts seed the font target and the test projects, with and without
+      # layers, seed project_json; decode_media starts from nothing.
       - name: Fuzz for 5 minutes
         env:
           TARGET: ${{ matrix.target }}
         run: |
           seeds=()
           if [ "$TARGET" = font ]; then seeds=(src/fonts); fi
+          if [ "$TARGET" = project_json ]; then seeds=(tests/fixtures/project_json); fi
           mkdir -p "fuzz/corpus/$TARGET"
           cargo +nightly fuzz run "$TARGET" "fuzz/corpus/$TARGET" "${seeds[@]}" -- -max_total_time=300 -rss_limit_mb=4096
       - name: Keep the crashing input
