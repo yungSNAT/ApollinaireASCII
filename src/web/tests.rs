@@ -320,6 +320,68 @@ fn saved_art_stamps_preview_cancel_clip_and_commit_as_one_undo_step() {
 }
 
 #[wasm_bindgen_test]
+fn tables_and_trees_become_stamps_placed_by_keyboard() {
+    blank(18, 7);
+    let make = |kind: &str, separator: &str, text: &str| {
+        element::<HtmlTextAreaElement>("outline-text").set_value(text);
+        element::<HtmlSelectElement>("outline-kind").set_value(kind);
+        element::<HtmlSelectElement>("outline-separator").set_value(separator);
+        click("outline-stamp");
+    };
+    make("header", "|", "Item|Qty\nLobster|28");
+    assert!(
+        status().starts_with("Table saved as a stamp"),
+        "{}",
+        status()
+    );
+    let stamp_art: HtmlInputElement = document()
+        .query_selector("input[name=tool][value=stamp-art]")
+        .unwrap()
+        .unwrap()
+        .dyn_into()
+        .unwrap();
+    assert!(stamp_art.checked());
+    cursor_to((0, 0));
+    keys(&[" ", "Enter"]);
+    let table = [
+        "+---------+-----+ ",
+        "| Item    | Qty | ",
+        "+---------+-----+ ",
+        "| Lobster | 28  | ",
+        "+---------+-----+ ",
+    ];
+    let blank_row = " ".repeat(18);
+    let blank_row = blank_row.as_str();
+    assert_eq!(art(), rows(&[&table[..], &[blank_row; 2]].concat()));
+    make("tree", "|", "Varrock\n  Palace");
+    assert!(
+        status().starts_with("Tree saved as a stamp"),
+        "{}",
+        status()
+    );
+    cursor_to((0, 5));
+    keys(&[" ", "Enter"]);
+    let tree = ["Varrock           ", "`-- Palace        "];
+    assert_eq!(art(), rows(&[&table[..], &tree].concat()));
+    // Placing is one undo step, and a refused outline keeps the artwork and the stamps.
+    click("undo");
+    assert_eq!(art(), rows(&[&table[..], &[blank_row; 2]].concat()));
+    let saved = element::<HtmlSelectElement>("art-stamp").child_element_count();
+    make("tree", "|", "a\n    b\n  c");
+    assert_eq!(
+        status(),
+        "Error: Line 3: its indentation matches no outer line"
+    );
+    assert_eq!(
+        element::<HtmlSelectElement>("art-stamp").child_element_count(),
+        saved
+    );
+    while !element::<Element>("delete-stamp").has_attribute("disabled") {
+        click("delete-stamp");
+    }
+}
+
+#[wasm_bindgen_test]
 fn saved_art_stamp_library_is_bounded_and_removal_keeps_artwork() {
     blank(1, 1);
     // Each test starts with no saved entries, without inspecting application state.

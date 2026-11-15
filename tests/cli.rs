@@ -1213,3 +1213,70 @@ fn output_to_a_full_device_is_reported_as_a_failure() {
         );
     }
 }
+
+#[test]
+fn table_lays_out_tab_separated_rows_or_a_chosen_separator() {
+    let drops = cli_stdin(&["table", "-"], b"Item\tQty\r\nLobster\t28\r\n");
+    assert!(drops.status.success(), "{}", text(&drops.stderr));
+    assert_eq!(
+        text(&drops.stdout),
+        "+---------+-----+\n| Item    | Qty |\n+---------+-----+\n| Lobster | 28  |\n+---------+-----+\n"
+    );
+    let dir = scratch("table");
+    let rows = dir.join("rows.csv");
+    std::fs::write(&rows, "a,b\nc\n").unwrap();
+    let path = rows.to_str().unwrap();
+    for (args, expected) in [
+        (
+            &["--separator", ",", "--rules", "every"][..],
+            "+---+---+\n| a | b |\n+---+---+\n| c |   |\n+---+---+\n",
+        ),
+        (
+            &["--separator", ",", "--rules", "none"][..],
+            "+---+---+\n| a | b |\n| c |   |\n+---+---+\n",
+        ),
+        // A comma is not the default separator, so each line is one cell.
+        (&[][..], "+-----+\n| a,b |\n+-----+\n| c   |\n+-----+\n"),
+    ] {
+        let output = cli(&[&["table", path][..], args].concat());
+        assert_eq!(text(&output.stdout), expected, "{args:?}");
+    }
+    let tabbed = cli_stdin(&["table", "-", "--separator", "\t"], b"a\tb");
+    assert_eq!(text(&tabbed.stdout), "+---+---+\n| a | b |\n+---+---+\n");
+    refused(
+        &cli(&["table", path, "--separator", "::"]),
+        "Use tab or one printable ASCII character",
+    );
+    refused(
+        &cli_stdin(&["table", "-"], b"\n\n"),
+        "A table needs at least one row of text",
+    );
+    // Like every still result, a table can be saved as a JSON project.
+    let json = cli_stdin(&["table", "-", "--format", "json"], b"x");
+    assert!(
+        text(&json.stdout).starts_with('{'),
+        "{}",
+        text(&json.stderr)
+    );
+}
+
+#[test]
+fn tree_draws_an_indented_outline_from_a_file_or_stdin() {
+    let dir = scratch("tree");
+    let outline = dir.join("outline.txt");
+    std::fs::write(&outline, "Gielinor\n  Misthalin\n    Varrock\n  Asgarnia\n").unwrap();
+    let expected = "Gielinor       \n|-- Misthalin  \n|   `-- Varrock\n`-- Asgarnia   \n";
+    let from_file = cli(&["tree", outline.to_str().unwrap()]);
+    assert_eq!(
+        text(&from_file.stdout),
+        expected,
+        "{}",
+        text(&from_file.stderr)
+    );
+    let from_stdin = cli_stdin(&["tree", "-"], &std::fs::read(&outline).unwrap());
+    assert_eq!(text(&from_stdin.stdout), expected);
+    refused(
+        &cli_stdin(&["tree", "-"], b"a\n    b\n  c\n"),
+        "Line 3: its indentation matches no outer line",
+    );
+}
