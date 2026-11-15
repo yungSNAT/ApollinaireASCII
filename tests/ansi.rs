@@ -1,7 +1,7 @@
 // Copyright 2026 Ryan Duguid
 // SPDX-License-Identifier: MIT
 
-use apollinaire_ascii::ansi::{DEFAULT_WIDTH, decode, is_ansi_name};
+use apollinaire_ascii::ansi::{DEFAULT_WIDTH, decode, is_ansi_name, read};
 
 /// The decoded rows with their padding to the frame width removed.
 fn rows(bytes: &[u8]) -> Vec<String> {
@@ -188,6 +188,47 @@ fn oversized_and_empty_art_is_refused() {
     }
     // Short input that cannot hold a SAUCE record is art.
     assert_eq!(rows(b"SAUCE00"), ["SAUCE00"]);
+}
+
+#[test]
+fn utf8_ansi_art_maps_each_character_back_to_its_cp437_glyph() {
+    // The colour test's box as text0wnz saves it in a .utf8.ans file.
+    let art = "\x1b[0;1;34;44m╔══╗\x1b[0m\r\n║\x1b[31mHi\x1b[m║\r\n╚══╝\x1a";
+    let frame = read("box.UTF8.ans", art.as_bytes()).unwrap();
+    let rows: Vec<&str> = frame.text().lines().map(str::trim_end).collect();
+    assert_eq!(rows, ["+==+", "|Hi|", "+==+"]);
+    // Every glyph CP437 draws above 0x7F decodes as its byte does.
+    let high = "ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐\
+                └┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■\u{a0}";
+    let bytes: Vec<u8> = (0x80..=0xff).collect();
+    assert_eq!(
+        read("a.utf8.ans", high.as_bytes()).unwrap(),
+        decode(&bytes).unwrap()
+    );
+    // The pictures CP437 draws for control bytes are drawn, never acted on as controls.
+    let low = "☺☻♥♦♣♠•◘○◙♂♀♪♫☼►◄↕‼¶§▬↨↑↓→←∟↔▲▼⌂";
+    assert_eq!(
+        read("a.utf8.ans", low.as_bytes()).unwrap().text(),
+        "oo****.#oo*****><|!PS_|^v><L-^v^"
+    );
+    // A SAUCE record's bytes need not be UTF-8: a width of 200 is the byte 0xC8.
+    let mut art = "░".as_bytes().to_vec();
+    art.extend(sauce(1, 1, 200, &[]));
+    assert_eq!(read("a.utf8.ans", &art).unwrap().width(), 200);
+    // A character with no CP437 glyph, or bytes that are not UTF-8, are refused.
+    assert_eq!(
+        read("a.utf8.ans", "a€".as_bytes()).unwrap_err(),
+        "Byte 2: U+20AC has no CP437 glyph"
+    );
+    assert_eq!(
+        read("a.utf8.ans", b"a\xffb").unwrap_err(),
+        "Byte 2: the art is not UTF-8"
+    );
+    // Other ANSI names are CP437, whatever their bytes.
+    assert_eq!(
+        read("a.ans", "░".as_bytes()).unwrap().text(),
+        decode("░".as_bytes()).unwrap().text()
+    );
 }
 
 #[test]
