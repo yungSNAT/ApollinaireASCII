@@ -283,8 +283,22 @@ fn layers_panel_works_from_the_keyboard_alone() {
     assert_eq!(browser.script(open), false);
     browser.script(
         "window.seen = [];
-         for (const t of ['keydown', 'keypress', 'keyup', 'click', 'toggle'])
-           document.addEventListener(t, e => seen.push(t + ':' + (e.key || '') + ':' + e.defaultPrevented), true);",
+         const p = document.getElementById('layers-panel');
+         window.panel = p;
+         const t0 = performance.now();
+         const at = () => Math.round(performance.now() - t0);
+         for (const t of ['keydown', 'keypress', 'keyup', 'click', 'beforetoggle', 'toggle'])
+           document.addEventListener(t, e => {
+             seen.push(at() + ' ' + t + ':' + (e.key || '') + ':' + (e.target.id || e.target.tagName) + ':' + (e.newState || '') + ':open=' + p.open + ':prevented=' + e.defaultPrevented);
+             if (t === 'click') for (const ms of [0, 50, 500]) setTimeout(() => seen.push(at() + ' after click +' + ms + ' open=' + p.open), ms);
+           }, true);
+         new MutationObserver(r => r.forEach(m => seen.push(at() + ' mutation ' + m.attributeName + ' old=' + m.oldValue + ' open=' + p.open)))
+           .observe(p, {attributes: true, attributeOldValue: true});
+         const remove = Element.prototype.removeAttribute;
+         Element.prototype.removeAttribute = function (n) {
+           if (this === p) seen.push(at() + ' removeAttribute ' + n + ' ' + new Error().stack.split('\\n').slice(1, 5).join(' / '));
+           return remove.call(this, n);
+         };",
     );
     browser.press(ENTER, 1);
     let started = Instant::now();
@@ -301,7 +315,11 @@ fn layers_panel_works_from_the_keyboard_alone() {
         true,
         "after Space: {}; events: {}",
         browser.script(open),
-        browser.script("return seen.join(' ') + ' | ' + navigator.userAgent;")
+        browser.script(
+            "return seen.join(' ; ') + ' | same panel ' + (document.getElementById('layers-panel') === panel)
+               + ', panels ' + document.querySelectorAll('#layers-panel').length + ', connected ' + panel.isConnected
+               + ', summary parent ok ' + (document.activeElement.parentElement === panel) + ' | ' + navigator.userAgent;"
+        )
     );
 
     // With one layer, only the list, name, visibility and Add take focus.
