@@ -3,6 +3,36 @@
 
 use crate::Animation;
 
+/// An asciicast v2 recording that `asciinema play`, its web player and `agg` can replay. Each
+/// frame homes the cursor and overwrites the whole grid, so the only escape sequences are
+/// cursor movement, one screen clear and hiding the cursor. A last event at the end of the
+/// final frame keeps that frame on screen for its duration. Recordings play once; looping is
+/// the player's option.
+pub fn asciicast(project: &Animation) -> String {
+    let mut result = format!(
+        "{{\"version\":2,\"width\":{},\"height\":{}}}\n",
+        project.width(),
+        project.height()
+    );
+    let mut event = |ms: u64, output: &str| {
+        let output = serde_json::to_string(output).expect("a string always serialises");
+        result.push_str(&format!(
+            "[{}.{:03},\"o\",{output}]\n",
+            ms / 1000,
+            ms % 1000
+        ));
+    };
+    let mut start = 0;
+    for (index, entry) in project.frames().iter().enumerate() {
+        let setup = if index == 0 { "\x1b[?25l\x1b[2J" } else { "" };
+        let rows = entry.frame.text().replace('\n', "\r\n");
+        event(start, &format!("{setup}\x1b[H{rows}"));
+        start += u64::from(entry.duration_ms);
+    }
+    event(start, "\x1b[?25h");
+    result
+}
+
 /// Portable HTML uses a small JS text player because it has no WASM dependency.
 pub fn html(project: &Animation) -> String {
     let data = project

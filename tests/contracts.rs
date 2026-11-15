@@ -992,7 +992,11 @@ fn replay(screen: &mut [Vec<u8>], cursor: &mut (usize, usize), output: &str) {
 
 #[test]
 fn asciicast_export_replays_each_frame_at_its_start_time() {
-    let frames = vec![timed("ab\ncd", 120), timed("\"\\\n  ", 250), timed("x \n y", 30)];
+    let frames = vec![
+        timed("ab\ncd", 120),
+        timed("\"\\\n  ", 250),
+        timed("x \n y", 30),
+    ];
     let project = Animation::new(frames, true).unwrap();
     let cast = export::asciicast(&project);
     // The file is ASCII text even though the frames are drawn with escape sequences.
@@ -1018,7 +1022,11 @@ fn asciicast_export_replays_each_frame_at_its_start_time() {
         replay(&mut screen, &mut cursor, output);
         // After the last event the screen still shows the last frame, for its full duration.
         let shown = &project.frames()[index.min(project.frames().len() - 1)].frame;
-        assert_eq!(screen.join(&b'\n'), shown.text().as_bytes(), "event {index}");
+        assert_eq!(
+            screen.join(&b'\n'),
+            shown.text().as_bytes(),
+            "event {index}"
+        );
     }
 }
 
