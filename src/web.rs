@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: MIT
 
 use crate::{
-    Animation, BorderStyle, Canvas, EffectOptions, Frame, MAX_INPUT_BYTES, RenderOptions, Result,
-    SceneOptions, TimedFrame, animation, art, decode_media, effects, export, image_renderer::RAMPS,
-    lettering,
+    Animation, BorderStyle, Canvas, EffectOptions, Frame, Layer, Layered, MAX_INPUT_BYTES,
+    RenderOptions, Result, SceneOptions, TimedFrame, animation, art, decode_media, effects, export,
+    image_renderer::RAMPS, lettering,
 };
 use js_sys::{Array, Uint8Array};
 use std::cell::RefCell;
@@ -17,14 +17,18 @@ use web_sys::{
 };
 
 mod draw;
+mod layer_panel;
 mod media;
 mod recovery;
 #[cfg(test)]
 mod tests;
+use layer_panel::MERGE_FIRST;
 
 thread_local! {static APP:RefCell<Option<App>>=const {RefCell::new(None)};}
 struct App {
-    project: Animation,
+    /// Every layer; drawing, the frame text and effects change the active one.
+    layers: Layered,
+    active: usize,
     selected: usize,
     frame_range: Range<usize>,
     playing: bool,
@@ -42,7 +46,8 @@ struct App {
     recovery: recovery::Recovery,
 }
 struct Snapshot {
-    project: Animation,
+    layers: Layered,
+    active: usize,
     selected: usize,
     frame_range: Range<usize>,
 }
@@ -141,23 +146,95 @@ impl App {
         self.selected = index;
         self.frame_range = index..index + 1;
         self.reset_drawing();
-        self.elapsed = self.project.frames()[..index]
+        self.elapsed = self.project().frames()[..index]
             .iter()
             .map(|frame| f64::from(frame.duration_ms))
             .sum();
     }
-    fn commit(&mut self, project: Animation) {
+    /// The active layer.
+    fn project(&self) -> &Animation {
+        &self.layers.layers()[self.active].art
+    }
+    /// Replace the active layer. Every layer takes its frame durations and looping, so it must
+    /// keep the size and frame count unless it is the only layer.
+    fn commit(&mut self, project: Animation) -> Result<()> {
+        let current = self.project();
+        if self.layers.layers().len() > 1
+            && (project.width() != current.width()
+                || project.height() != current.height()
+                || project.frames().len() != current.frames().len())
+        {
+            return Err(MERGE_FIRST.into());
+        }
+        let timing: Vec<u32> = project.frames().iter().map(|f| f.duration_ms).collect();
+        let looping = project.looping();
+        let mut project = Some(project);
+        let layers = self
+            .layers
+            .layers()
+            .iter()
+            .enumerate()
+            .map(|(index, layer)| {
+                let art = match project.take_if(|_| index == self.active) {
+                    Some(project) => project,
+                    None => Animation::new(
+                        layer
+                            .art
+                            .frames()
+                            .iter()
+                            .zip(&timing)
+                            .map(|(own, &duration_ms)| TimedFrame {
+                                frame: own.frame.clone(),
+                                duration_ms,
+                            })
+                            .collect(),
+                        looping,
+                    )?,
+                };
+                Ok(Layer {
+                    name: layer.name.clone(),
+                    visible: layer.visible,
+                    art,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        self.replace_layers(Layered::new(layers)?, self.active);
+        Ok(())
+    }
+    /// Change every layer's frames alike, as adding, duplicating, deleting or moving frames do.
+    fn restructure(&mut self, edit: impl Fn(&mut Animation) -> Result<()>) -> Result<()> {
+        let layers = self
+            .layers
+            .layers()
+            .iter()
+            .map(|layer| {
+                let mut art = layer.art.clone();
+                edit(&mut art)?;
+                Ok(Layer {
+                    name: layer.name.clone(),
+                    visible: layer.visible,
+                    art,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        self.replace_layers(Layered::new(layers)?, self.active);
+        Ok(())
+    }
+    /// Make `layers` the project with layer `active` chosen, keeping the old one for undo.
+    fn replace_layers(&mut self, layers: Layered, active: usize) {
         self.pause();
+        let active = active.min(layers.layers().len() - 1);
         self.undo.push(Snapshot {
-            project: std::mem::replace(&mut self.project, project),
+            layers: std::mem::replace(&mut self.layers, layers),
+            active: std::mem::replace(&mut self.active, active),
             selected: self.selected,
             frame_range: self.frame_range.clone(),
         });
         self.redo.clear();
         self.limit_history();
-        let end = self.frame_range.end.min(self.project.frames().len());
+        let end = self.frame_range.end.min(self.project().frames().len());
         let range = self.frame_range.start.min(end - 1)..end;
-        self.seek(self.selected.min(self.project.frames().len() - 1));
+        self.seek(self.selected.min(self.project().frames().len() - 1));
         self.frame_range = range;
         self.dirty = false;
         self.modified = true;
@@ -169,7 +246,10 @@ impl App {
                 .undo
                 .iter()
                 .chain(self.redo.iter())
-                .map(|s| s.project.width() * s.project.height() * s.project.frames().len())
+                .map(|s| {
+                    let art = &s.layers.layers()[0].art;
+                    s.layers.layers().len() * art.width() * art.height() * art.frames().len()
+                })
                 .sum::<usize>()
                 > 16_000_000
         {
@@ -181,26 +261,26 @@ impl App {
         }
     }
     fn display(&self, editor: bool) -> Result<()> {
-        let entry = &self.project.frames()[self.selected];
+        let entry = &self.project().frames()[self.selected];
         self.render()?;
         node::<Element>("dimensions")?.set_text_content(Some(&format!(
             "{} columns x {} rows",
-            self.project.width(),
-            self.project.height()
+            self.project().width(),
+            self.project().height()
         )));
         let frame_label = format!(
             "Frame {} / {}",
             self.selected + 1,
-            self.project.frames().len()
+            self.project().frames().len()
         );
         node::<Element>("frame-count")?.set_text_content(Some(&frame_label));
         let timeline = input("timeline")?;
-        timeline.set_max(&(self.project.frames().len() - 1).to_string());
+        timeline.set_max(&(self.project().frames().len() - 1).to_string());
         timeline.set_value(&self.selected.to_string());
         timeline
             .set_attribute("aria-valuetext", &frame_label)
             .map_err(|_| "Cannot update timeline")?;
-        input("loop")?.set_checked(self.project.looping());
+        input("loop")?.set_checked(self.project().looping());
         if editor {
             node::<HtmlTextAreaElement>("editor")?.set_value(&entry.frame.text());
             input("duration")?.set_value(&entry.duration_ms.to_string());
@@ -208,7 +288,7 @@ impl App {
             input("range-last")?.set_value(&self.frame_range.end.to_string());
         }
         for id in ["range-first", "range-last"] {
-            input(id)?.set_max(&self.project.frames().len().to_string());
+            input(id)?.set_max(&self.project().frames().len().to_string());
         }
         let range_label = format!(
             "Selected frames {} to {} ({} frame{})",
@@ -261,17 +341,17 @@ impl App {
             }
         }
         for (id, disabled) in [
-            ("play", busy || self.project.frames().len() == 1),
+            ("play", busy || self.project().frames().len() == 1),
             ("previous", busy),
             ("next", busy),
             (
                 "delete-frame",
-                self.frame_range.len() == self.project.frames().len() || busy,
+                self.frame_range.len() == self.project().frames().len() || busy,
             ),
             ("move-left", self.frame_range.start == 0 || busy),
             (
                 "move-right",
-                self.frame_range.end == self.project.frames().len() || busy,
+                self.frame_range.end == self.project().frames().len() || busy,
             ),
             ("undo", self.undo.is_empty() || busy),
             ("redo", self.redo.is_empty() || busy),
@@ -288,12 +368,13 @@ impl App {
             }
         }
         self.recovery.controls(busy || self.dirty)?;
+        layer_panel::controls(self, busy, editor)?;
         media::controls(self)
     }
     fn update_frame(&mut self, frame: Frame, duration_ms: u32) -> Result<()> {
-        let mut project = self.project.clone();
+        let mut project = self.project().clone();
         project.replace_frame(self.selected, TimedFrame { frame, duration_ms })?;
-        self.commit(project);
+        self.commit(project)?;
         self.display(true)
     }
 }
@@ -308,7 +389,8 @@ pub fn start() -> std::result::Result<(), JsValue> {
         .is_some_and(|q| q.matches());
     APP.with(|cell| {
         *cell.borrow_mut() = Some(App {
-            project,
+            layers: Layered::single(project),
+            active: 0,
             selected: 0,
             frame_range: 0..1,
             playing: !reduced,
@@ -373,16 +455,16 @@ pub fn start() -> std::result::Result<(), JsValue> {
     listen("timeline", "input", move |_| {
         report(state(|app| {
             app.clean()?;
-            app.seek(number("timeline")?.min(app.project.frames().len() - 1));
+            app.seek(number("timeline")?.min(app.project().frames().len() - 1));
             app.display(true)
         }))
     })?;
     listen("loop", "change", move |_| {
         report(state(|app| {
             app.clean()?;
-            let mut project = app.project.clone();
+            let mut project = app.project().clone();
             project.set_looping(checked("loop")?);
-            app.commit(project);
+            app.commit(project)?;
             app.display(false)
         }))
     })?;
@@ -425,6 +507,7 @@ pub fn start() -> std::result::Result<(), JsValue> {
         })?;
     }
     media::start()?;
+    layer_panel::start()?;
     let fonts = node::<Element>("font").map_err(|e| JsValue::from_str(&e))?;
     let uploaded = node::<Element>("custom-option").map_err(|e| JsValue::from_str(&e))?;
     for name in lettering::FONTS {
@@ -624,7 +707,7 @@ fn generate(app: &mut App) -> Result<()> {
             project.looping(),
         )?;
     }
-    app.commit(project);
+    app.commit(project)?;
     app.seek(0);
     app.display(true)?;
     status(
@@ -641,7 +724,7 @@ fn action(id: &str) -> Result<()> {
     if id == "copy" {
         let content = state(|app| {
             app.clean()?;
-            Ok(app.project.frames()[app.selected].frame.text())
+            Ok(app.layers.frame(app.selected).text())
         })?;
         copy_text(content, "Frame copied as ASCII text.");
         return Ok(());
@@ -663,11 +746,13 @@ fn action(id: &str) -> Result<()> {
             if app.loading {
                 return Err("Wait for the file to finish loading.".into());
             }
-            let mut canvas = Canvas::new(app.project.width(), app.project.height())?;
+            let mut canvas = Canvas::new(app.project().width(), app.project().height())?;
             let draft = text("editor")?;
             if !draft.is_empty() {
                 let edited = Frame::from_text_padded(&draft)?;
-                if edited.width() > app.project.width() || edited.height() > app.project.height() {
+                if edited.width() > app.project().width()
+                    || edited.height() > app.project().height()
+                {
                     return Err("Edited text extends beyond the project dimensions.".into());
                 }
                 canvas.overlay(&edited, 0, 0, false)?;
@@ -686,7 +771,8 @@ fn action(id: &str) -> Result<()> {
                 if app.playing {
                     app.pause();
                 } else {
-                    if !app.project.looping() && app.elapsed >= app.project.duration_ms() as f64 {
+                    if !app.project().looping() && app.elapsed >= app.project().duration_ms() as f64
+                    {
                         let range = app.frame_range.clone();
                         app.seek(0);
                         app.frame_range = range;
@@ -696,7 +782,7 @@ fn action(id: &str) -> Result<()> {
                 }
             }
             "previous" | "next" => {
-                let count = app.project.frames().len();
+                let count = app.project().frames().len();
                 let index = if id == "next" {
                     (app.selected + 1) % count
                 } else {
@@ -713,7 +799,8 @@ fn action(id: &str) -> Result<()> {
                 }
                 .ok_or("No history is available")?;
                 let current = Snapshot {
-                    project: std::mem::replace(&mut app.project, previous.project),
+                    layers: std::mem::replace(&mut app.layers, previous.layers),
+                    active: std::mem::replace(&mut app.active, previous.active),
                     selected: app.selected,
                     frame_range: app.frame_range.clone(),
                 };
@@ -731,7 +818,7 @@ fn action(id: &str) -> Result<()> {
             "select-range" => {
                 let first = number("range-first")?;
                 let last = number("range-last")?;
-                if first == 0 || first > last || last > app.project.frames().len() {
+                if first == 0 || first > last || last > app.project().frames().len() {
                     return Err(
                         "Choose a frame range with 1 <= first <= last <= frame count".into(),
                     );
@@ -743,42 +830,38 @@ fn action(id: &str) -> Result<()> {
             "apply-range-duration" => {
                 let duration = u32::try_from(number("range-duration")?)
                     .map_err(|_| "Frame duration is too large")?;
-                let mut project = app.project.clone();
+                let mut project = app.project().clone();
                 project.set_frame_durations(app.frame_range.clone(), duration)?;
-                if project != app.project {
-                    app.commit(project);
+                if project != *app.project() {
+                    app.commit(project)?;
                 }
                 status("Selected frame durations applied.", false);
             }
             "add-frame" | "duplicate" | "delete-frame" | "move-left" | "move-right" => {
-                let mut project = app.project.clone();
                 let range = app.frame_range.clone();
-                let offset = app
-                    .selected
-                    .saturating_sub(range.start)
-                    .min(range.len() - 1);
-                let (selected, new_range);
-                match id {
+                let at = app.selected;
+                let offset = at.saturating_sub(range.start).min(range.len() - 1);
+                let (selected, new_range) = match id {
                     "add-frame" => {
-                        project.insert_frame(
-                            app.selected + 1,
-                            TimedFrame {
-                                frame: Frame::blank(project.width(), project.height())?,
-                                duration_ms: project.frames()[app.selected].duration_ms,
-                            },
-                        )?;
-                        selected = app.selected + 1;
-                        new_range = selected..selected + 1;
+                        app.restructure(|project| {
+                            project.insert_frame(
+                                at + 1,
+                                TimedFrame {
+                                    frame: Frame::blank(project.width(), project.height())?,
+                                    duration_ms: project.frames()[at].duration_ms,
+                                },
+                            )
+                        })?;
+                        (at + 1, at + 1..at + 2)
                     }
                     "duplicate" => {
-                        project.duplicate_frames(range.clone())?;
-                        selected = range.end + offset;
-                        new_range = range.end..range.end + range.len();
+                        app.restructure(|project| project.duplicate_frames(range.clone()))?;
+                        (range.end + offset, range.end..range.end + range.len())
                     }
                     "delete-frame" => {
-                        project.remove_frames(range.clone())?;
-                        selected = range.start.min(project.frames().len() - 1);
-                        new_range = selected..selected + 1;
+                        app.restructure(|project| project.remove_frames(range.clone()))?;
+                        let selected = range.start.min(app.project().frames().len() - 1);
+                        (selected, selected..selected + 1)
                     }
                     _ => {
                         let destination = if id == "move-left" {
@@ -789,17 +872,15 @@ fn action(id: &str) -> Result<()> {
                         } else {
                             range.start + 1
                         };
-                        project.move_frames(range.clone(), destination)?;
-                        selected = destination + offset;
-                        new_range = destination..destination + range.len();
+                        app.restructure(|project| project.move_frames(range.clone(), destination))?;
+                        (destination + offset, destination..destination + range.len())
                     }
-                }
-                app.commit(project);
+                };
                 app.seek(selected);
                 app.frame_range = new_range;
             }
             "flip-horizontal" | "flip-vertical" => {
-                let entry = &app.project.frames()[app.selected];
+                let entry = &app.project().frames()[app.selected];
                 let frame = match (id, checked("mirror-glyphs")?) {
                     ("flip-horizontal", true) => entry.frame.mirror_horizontal(),
                     ("flip-horizontal", false) => entry.frame.flip_horizontal(),
@@ -809,13 +890,13 @@ fn action(id: &str) -> Result<()> {
                 app.update_frame(frame, entry.duration_ms)?;
             }
             "download-text" => download(
-                &(app.project.frames()[app.selected].frame.text() + "\n"),
+                &(app.layers.frame(app.selected).text() + "\n"),
                 "frame.txt",
                 "text/plain;charset=utf-8",
             )?,
             "download-json" => {
                 download(
-                    &app.project.to_json(),
+                    &app.layers.to_json(),
                     "artwork.ascii.json",
                     "application/json",
                 )?;
@@ -825,7 +906,7 @@ fn action(id: &str) -> Result<()> {
                 );
             }
             "download-html" => download(
-                &export::html(&app.project),
+                &export::html(&app.layers.flatten()),
                 "artwork.html",
                 "text/html;charset=utf-8",
             )?,
@@ -853,7 +934,7 @@ fn copy_text(content: String, done: &'static str) {
     });
 }
 fn apply_effect(app: &mut App) -> Result<()> {
-    let source = app.project.frames()[app.selected].frame.clone();
+    let source = app.project().frames()[app.selected].frame.clone();
     let options = EffectOptions {
         duration_ms: u32::try_from(number("effect-duration")?)
             .map_err(|_| "Duration is too large")?,
@@ -863,7 +944,7 @@ fn apply_effect(app: &mut App) -> Result<()> {
     };
     let project = effects::apply(&select("effect")?, &source, &options)?;
     let count = project.frames().len();
-    app.commit(project);
+    app.commit(project)?;
     app.seek(0);
     status(
         &format!("Effect applied: {count} frames from the selected frame. Press Play to watch."),
@@ -929,8 +1010,8 @@ fn tick() -> Result<()> {
         let time = now();
         app.elapsed += (time - app.last).max(0.0);
         app.last = time;
-        let index = app.project.frame_at(app.elapsed as u64);
-        let stopped = !app.project.looping() && app.elapsed >= app.project.duration_ms() as f64;
+        let index = app.project().frame_at(app.elapsed as u64);
+        let stopped = !app.project().looping() && app.elapsed >= app.project().duration_ms() as f64;
         if stopped {
             app.pause();
         }
@@ -1014,21 +1095,24 @@ fn begin_file(id: &'static str) {
                 node::<HtmlSelectElement>("font")?.set_value("custom");
                 status("Font loaded. Generate lettering to use it.", false);
             } else {
-                let project = if let Some(options) = options {
-                    decode_media(&bytes, &options)?
+                if let Some(options) = options {
+                    // Opening a file or picture replaces every layer.
+                    app.replace_layers(Layered::single(decode_media(&bytes, &options)?), 0);
                 } else {
                     let text = String::from_utf8(bytes)
                         .map_err(|_| "Text must contain printable ASCII")?;
-                    if file.name().to_ascii_lowercase().ends_with(".json") {
-                        Animation::from_json(&text)?
+                    let project = if file.name().to_ascii_lowercase().ends_with(".json") {
+                        Layered::from_json(&text)?
                     } else {
-                        Animation::still(Frame::from_text_padded(&text.replace("\r\n", "\n"))?)
-                    }
-                };
-                app.commit(project);
+                        Layered::single(Animation::still(Frame::from_text_padded(
+                            &text.replace("\r\n", "\n"),
+                        )?))
+                    };
+                    app.replace_layers(project, 0);
+                }
                 app.seek(0);
-                input("width")?.set_value(&app.project.width().to_string());
-                input("height")?.set_value(&app.project.height().to_string());
+                input("width")?.set_value(&app.project().width().to_string());
+                input("height")?.set_value(&app.project().height().to_string());
                 status(
                     "File opened as ASCII text. Save JSON to retain every frame.",
                     false,

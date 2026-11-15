@@ -1042,6 +1042,9 @@ fn edit_checks_its_file_and_options_before_needing_a_terminal() {
     let new = dir.join("new.txt");
     let existing = dir.join("old.txt");
     std::fs::write(&existing, "old\n").unwrap();
+    let layered = dir.join("layered.json");
+    let two = r#"{"format":"asciiforge","version":2,"width":1,"height":1,"loop":false,"layers":[{"name":"a","visible":true},{"name":"b","visible":true}],"frames":[{"duration_ms":10,"layers":["x"," "]}]}"#;
+    std::fs::write(&layered, two).unwrap();
     let path = |p: &std::path::Path| p.to_str().unwrap().to_string();
     for (args, error) in [
         (
@@ -1051,6 +1054,10 @@ fn edit_checks_its_file_and_options_before_needing_a_terminal() {
         (
             vec![path(&existing)],
             "Editing needs a terminal for input and output",
+        ),
+        (
+            vec![path(&layered)],
+            "This project uses layers; merge them in the browser editor first",
         ),
         (vec!["-".into()], "Edit needs a .txt or .json file"),
         (
@@ -1084,6 +1091,7 @@ fn edit_checks_its_file_and_options_before_needing_a_terminal() {
     }
     assert!(!new.exists(), "nothing is created without a save");
     assert_eq!(std::fs::read_to_string(&existing).unwrap(), "old\n");
+    assert_eq!(std::fs::read_to_string(&layered).unwrap(), two);
     std::fs::remove_dir_all(&dir).unwrap();
 }
 

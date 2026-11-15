@@ -156,21 +156,24 @@ fn place(id: &str, (x, y, width, height): Area, columns: usize, rows: usize) -> 
 
 impl App {
     fn frame(&self) -> &Frame {
-        &self.project.frames()[self.selected].frame
+        &self.project().frames()[self.selected].frame
     }
     fn duration(&self) -> u32 {
-        self.project.frames()[self.selected].duration_ms
+        self.project().frames()[self.selected].duration_ms
     }
     fn fits(&self, (x, y, width, height): Area) -> bool {
         x >= 0
             && y >= 0
-            && x as usize + width <= self.project.width()
-            && y as usize + height <= self.project.height()
+            && x as usize + width <= self.project().width()
+            && y as usize + height <= self.project().height()
     }
     /// Called whenever the selected frame or project changes.
     pub(super) fn reset_drawing(&mut self) {
         let fits = self.drawing.selection.is_none_or(|area| self.fits(area));
-        let (columns, rows) = (self.project.width() as i32, self.project.height() as i32);
+        let (columns, rows) = (
+            self.project().width() as i32,
+            self.project().height() as i32,
+        );
         let drawing = &mut self.drawing;
         drawing.stroke = None;
         drawing.typing = false;
@@ -189,20 +192,40 @@ impl App {
         self.drawing.stroke = None;
         self.drawing.typing = false;
     }
-    /// Show the frame (or the stroke preview), onion skin, cursor and selection.
+    /// Show the frame (or the stroke preview) over and under the other visible layers, then
+    /// the onion skin, cursor and selection.
     pub(super) fn render(&self) -> Result<()> {
         let drawing = &self.drawing;
-        let shown = drawing.stroke.as_ref().map_or(self.frame(), |s| &s.preview);
+        let (columns, rows) = (self.project().width(), self.project().height());
+        let edited = drawing.stroke.as_ref().map_or(self.frame(), |s| &s.preview);
+        let layers = self.layers.layers();
+        let stacked = (layers.len() > 1 || !layers[0].visible).then(|| {
+            crate::layers::stack(
+                columns,
+                rows,
+                layers
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, layer)| layer.visible)
+                    .map(|(index, layer)| {
+                        if index == self.active {
+                            edited
+                        } else {
+                            &layer.art.frames()[self.selected].frame
+                        }
+                    }),
+            )
+        });
+        let shown = stacked.as_ref().unwrap_or(edited);
         // A live camera writes its own preview into the grid; the overlays wait until it stops.
         let live = self.camera.is_some();
         if !live {
             node::<Element>("art")?.set_text_content(Some(&shown.text()));
         }
-        let (columns, rows) = (self.project.width(), self.project.height());
         let onion =
             (checked("onion-skin")? && self.selected > 0 && !self.playing && !live).then(|| {
                 // The ghost fills only blank cells, so it never overlaps or joins the frame's text.
-                let previous = &self.project.frames()[self.selected - 1].frame;
+                let previous = &self.project().frames()[self.selected - 1].frame;
                 let cells = previous
                     .cells()
                     .iter()
@@ -382,7 +405,10 @@ impl App {
     }
     fn extend(&mut self, point: (i32, i32)) -> Result<()> {
         self.drawing.cursor = point;
-        let (columns, rows) = (self.project.width() as i32, self.project.height() as i32);
+        let (columns, rows) = (
+            self.project().width() as i32,
+            self.project().height() as i32,
+        );
         let tool = self.drawing.tool;
         let Some(stroke) = self.drawing.stroke.as_mut() else {
             return Ok(());
@@ -484,7 +510,10 @@ impl App {
     fn type_key(&mut self, key: &str) -> Result<()> {
         self.clean()?;
         self.pause();
-        let (columns, rows) = (self.project.width() as i32, self.project.height() as i32);
+        let (columns, rows) = (
+            self.project().width() as i32,
+            self.project().height() as i32,
+        );
         let (x, y) = self.drawing.cursor;
         let mut canvas = Canvas::from_frame(self.frame());
         let (cursor, full) = match key {
@@ -525,14 +554,8 @@ impl App {
             return Ok(());
         }
         if self.drawing.typing {
-            let duration = self.duration();
-            self.project.replace_frame(
-                self.selected,
-                crate::TimedFrame {
-                    frame,
-                    duration_ms: duration,
-                },
-            )?;
+            self.layers
+                .replace_frame(self.active, self.selected, frame)?;
             self.modified = true;
             self.recovery.changed();
             self.display(true)?;
@@ -568,8 +591,8 @@ impl App {
         let area = (
             x,
             y,
-            contents.width().min(self.project.width() - x as usize),
-            contents.height().min(self.project.height() - y as usize),
+            contents.width().min(self.project().width() - x as usize),
+            contents.height().min(self.project().height() - y as usize),
         );
         self.set_frame(canvas.finish(), "Pasted at the cursor.")?;
         if self.drawing.tool == Tool::Area {
@@ -589,12 +612,12 @@ fn cell(app: &App, event: &PointerEvent) -> Result<(i32, i32)> {
         axis(
             f64::from(event.client_x()) - rect.left(),
             rect.width(),
-            app.project.width(),
+            app.project().width(),
         ),
         axis(
             f64::from(event.client_y()) - rect.top(),
             rect.height(),
-            app.project.height(),
+            app.project().height(),
         ),
     ))
 }
@@ -672,8 +695,8 @@ fn key(event: Event) -> Result<()> {
         };
         if let Some((x, y)) = step {
             let point = (
-                x.clamp(0, app.project.width() as i32 - 1),
-                y.clamp(0, app.project.height() as i32 - 1),
+                x.clamp(0, app.project().width() as i32 - 1),
+                y.clamp(0, app.project().height() as i32 - 1),
             );
             if app.drawing.stroke.is_some() {
                 app.extend(point)?;

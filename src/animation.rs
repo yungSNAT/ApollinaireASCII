@@ -1,7 +1,7 @@
 // Copyright 2026 Ryan Duguid
 // SPDX-License-Identifier: MIT
 
-use crate::{Canvas, Frame, MAX_FRAMES, MAX_INPUT_BYTES, MAX_PROJECT_CELLS, Result, dimensions};
+use crate::{Canvas, Frame, MAX_FRAMES, MAX_PROJECT_CELLS, Result, dimensions};
 use serde_json::json;
 use std::ops::Range;
 
@@ -185,11 +185,9 @@ impl Animation {
         })
         .to_string()
     }
+    /// Read a version 1 project, or a version 2 project flattened to its visible layers.
     pub fn from_json(input: &str) -> Result<Self> {
-        if input.len() > MAX_INPUT_BYTES {
-            return Err("Project exceeds the 16 MiB input limit".into());
-        }
-        crate::project_json::parse(input)
+        crate::Layered::from_json(input).map(crate::Layered::into_flat)
     }
 }
 

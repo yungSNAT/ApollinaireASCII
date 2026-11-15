@@ -10,13 +10,23 @@ A version 1 JSON project looks like this:
 {"format":"asciiforge","version":1,"width":3,"height":1,"loop":true,"frames":[{"text":"o o","duration_ms":100},{"text":"- -","duration_ms":150}]}
 ```
 
-All fields are required and no additional or duplicate fields are accepted. JSON property order is immaterial. Frame dimensions must match the project. Import validates typed fields and budgets during deserialisation rather than allocating an arbitrary JSON value tree. The immutable frame type prevents invalid artwork from entering a valid project through the public API.
+All fields are required and no additional or duplicate fields are accepted. JSON property order is immaterial. Frame dimensions must match the project.
+
+A version 2 project adds layers, listed bottom to top, and each frame holds one text per layer:
+
+```json
+{"format":"asciiforge","version":2,"width":3,"height":1,"loop":true,"layers":[{"name":"Sky","visible":true},{"name":"Bird","visible":true}],"frames":[{"duration_ms":100,"layers":["* *"," v "]},{"duration_ms":150,"layers":["* *","v  "]}]}
+```
+
+Version 2 has the same strict rules plus these: 1 to 16 layers; each name is 1 to 32 printable ASCII characters; every frame lists exactly one text per layer, in the order of `layers`. Every layer shares the frames, their durations, the loop setting and the size. A space in a layer is transparent and shows the layers below it, so a space cannot hide a lower layer's character; hidden layers are kept but not shown. Flattening stacks the visible layers into one animation. `Animation::from_json`, and therefore every CLI command, reads a version 2 project flattened; `apollinaire edit` refuses one, since saving would drop its layers. `Layered::to_json` writes version 1 when the project is one visible layer named `Layer 1`, so files without layers are unchanged, and version 2 otherwise. Import validates typed fields and budgets during deserialisation rather than allocating an arbitrary JSON value tree. The immutable frame type prevents invalid artwork from entering a valid project through the public API.
 
 | Limit | Maximum |
 | --- | --- |
 | Canvas | 512 columns by 256 rows |
 | Frames | 600 |
-| Total project cells | 8,000,000 |
+| Total project cells, across all layers | 8,000,000 |
+| Layers | 16 |
+| Layer name | 1 to 32 printable ASCII characters |
 | Frame duration | 10 to 60,000 ms |
 | Project duration | One hour |
 | Effect duration | 100 to 60,000 ms at 1 to 60 FPS |
@@ -34,7 +44,7 @@ All fields are required and no additional or duplicate fields are accepted. JSON
 | Browser art stamp library | 16 distinct stamps and 1,000,000 cells in total; session memory only |
 | Browser recovery project JSON | 16 MiB encoded UTF-8, plus a bounded revision header |
 
-Browser recovery is separate from project JSON v1. Its opt-in IndexedDB slot contains a random revision line followed by the unchanged project JSON. Restores use the existing bounded project parser. A discard replaces the artwork with a revision-only marker; automatic writers compare the exact observed record within a read/write transaction, so stale writers cannot overwrite a later save or discard. Storage availability and quota remain browser controlled. Recovery excludes unapplied text, stamps and history.
+Browser recovery is separate from saved project files. Its opt-in IndexedDB slot contains a random revision line followed by the unchanged project JSON. Restores use the existing bounded project parser. A discard replaces the artwork with a revision-only marker; automatic writers compare the exact observed record within a read/write transaction, so stale writers cannot overwrite a later save or discard. Storage availability and quota remain browser controlled. Recovery excludes unapplied text, stamps and history.
 
 Frame-range operations preserve project limits and leave the project unchanged on failure. Browser ranges show 1-based inclusive frame numbers; the Rust methods accept nonempty, zero-based, end-exclusive ranges. `move_frames` takes the range's destination index in the resulting project. History includes the active frame and chosen range alongside each project snapshot.
 

@@ -19,6 +19,7 @@ pub mod export;
 pub mod frame;
 mod gif;
 pub mod image_renderer;
+pub mod layers;
 pub mod lettering;
 mod project_json;
 pub mod video;
@@ -31,6 +32,7 @@ pub use canvas::Canvas;
 pub use effects::EffectOptions;
 pub use frame::{BorderStyle, Frame};
 pub use image_renderer::{RenderOptions, decode_media, render_image};
+pub use layers::{Layer, Layered};
 
 pub type Result<T> = std::result::Result<T, String>;
 pub const MAX_WIDTH: usize = 512;

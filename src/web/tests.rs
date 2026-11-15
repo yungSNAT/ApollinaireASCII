@@ -106,6 +106,9 @@ fn blank(width: usize, height: usize) {
         document().body().unwrap().append_child(&host).unwrap();
         super::start().expect("editor starts");
     });
+    if enabled("layer-merge") {
+        click("layer-merge");
+    }
     tool("select-text");
     check("diagram", false);
     check("arrow", true);
@@ -1600,6 +1603,8 @@ async fn refused_and_cancelled_picture_imports_leave_the_project_and_history() {
 #[wasm_bindgen_test]
 async fn refused_and_cancelled_video_conversions_leave_the_project_and_history() {
     blank(4, 1);
+    // The stroke goes on a second layer, so a conversion must replace both layers.
+    click("layer-add");
     tool("pencil");
     drag(&[(0, 0), (1, 0)]);
     let before = project_now().await;
@@ -1620,8 +1625,10 @@ async fn refused_and_cancelled_video_conversions_leave_the_project_and_history()
         "{}",
         status()
     );
+    assert_eq!(layer_list(), ["Layer 1"]);
     click("undo");
     assert_eq!(project_now().await, before);
+    assert_eq!(layer_list(), ["Layer 2", "Layer 1"]);
 
     for (name, video, end, width, refusal) in [
         ("broken.webm", &b"not a video"[..], "", "4", "cannot play"),
@@ -1985,4 +1992,213 @@ fn errors_say_so_name_the_field_by_its_label_and_stay_in_view() {
     assert_eq!(status(), "Error: File exceeds the 1 MiB input limit");
     blank(4, 1);
     assert_eq!(region.get_attribute("data-kind").as_deref(), Some("info"));
+}
+
+/// Put text in the frame editor and apply it to the active layer's frame.
+fn apply_frame(text: &str) {
+    input_event("editor", text);
+    click("apply");
+}
+/// The Layers list as shown, top layer first.
+fn layer_list() -> Vec<String> {
+    let list = element::<HtmlSelectElement>("layer");
+    let options = list.children();
+    (0..options.length())
+        .map(|i| options.item(i).unwrap().text_content().unwrap())
+        .collect()
+}
+fn change_event(id: &str) {
+    element::<Element>(id)
+        .dispatch_event(&web_sys::Event::new("change").unwrap())
+        .unwrap();
+}
+
+#[wasm_bindgen_test]
+async fn layers_draw_separately_share_frames_and_save_as_version_2() {
+    blank(5, 1);
+    apply_frame("* * *");
+    click("layer-add");
+    assert_eq!(layer_list(), ["Layer 2", "Layer 1"]);
+    assert_eq!(element::<HtmlTextAreaElement>("editor").value(), "     ");
+    apply_frame(" v   ");
+    assert_eq!(art(), "*v* *");
+
+    // Hiding and renaming apply to the active layer and can be undone.
+    check("layer-visible", false);
+    assert_eq!(art(), "* * *");
+    assert_eq!(layer_list(), ["Layer 2 (hidden)", "Layer 1"]);
+    click("undo");
+    assert_eq!(art(), "*v* *");
+    set_value("layer-name", "Bird");
+    change_event("layer-name");
+    assert_eq!(layer_list(), ["Bird", "Layer 1"]);
+    set_value("layer-name", "");
+    change_event("layer-name");
+    assert!(status().contains("1 to 32 printable ASCII"), "{}", status());
+    assert_eq!(element::<HtmlInputElement>("layer-name").value(), "Bird");
+
+    // Frame operations change every layer alike.
+    click("add-frame");
+    assert_eq!(frame_count(), "Frame 2 / 2");
+    apply_frame("   v ");
+    seek_frame(0);
+    assert_eq!(art(), "*v* *");
+    seek_frame(1);
+    assert_eq!(art(), "   v ");
+
+    let (name, json) = save("download-json").await;
+    assert_eq!(name, "artwork.ascii.json");
+    let saved = super::Layered::from_json(&json).unwrap();
+    let names: Vec<&str> = saved.layers().iter().map(|l| l.name.as_str()).collect();
+    assert_eq!(names, ["Layer 1", "Bird"]);
+    assert_eq!(saved.layers()[0].art.frames()[1].frame.text(), "     ");
+    assert_eq!(saved.layers()[1].art.frames()[1].frame.text(), "   v ");
+    seek_frame(0);
+    assert_eq!(save("download-text").await.1, "*v* *\n");
+
+    // Choosing the bottom layer edits it under the bird.
+    let list = element::<HtmlSelectElement>("layer");
+    list.set_selected_index(1);
+    change_event("layer");
+    assert_eq!(element::<HtmlTextAreaElement>("editor").value(), "* * *");
+    apply_frame("-----");
+    assert_eq!(art(), "-v---");
+    click("undo");
+    assert_eq!(art(), "*v* *");
+
+    // A new size or frame count is refused and leaves the project as it was.
+    let before = project_now().await;
+    element::<HtmlSelectElement>("mode").set_value("blank");
+    set_value("width", "3");
+    click("generate");
+    assert!(status().contains("Merge layers first"), "{}", status());
+    set_value("width", "5");
+    click("apply-effect");
+    assert!(status().contains("Merge layers first"), "{}", status());
+    assert_eq!(project_now().await, before);
+
+    // Merging keeps what was shown, as one plain layer saved as version 1, and can be undone.
+    click("layer-merge");
+    assert_eq!(layer_list(), ["Layer 1"]);
+    assert_eq!(art(), "*v* *");
+    let merged: serde_json::Value = serde_json::from_str(&save("download-json").await.1).unwrap();
+    assert_eq!(merged["version"], 1);
+    click("undo");
+    assert_eq!(layer_list(), ["Bird", "Layer 1"]);
+    click("layer-merge");
+}
+
+#[wasm_bindgen_test]
+async fn a_layered_project_opens_with_its_layers() {
+    blank(3, 1);
+    let two = r#"{"format":"asciiforge","version":2,"width":3,"height":1,"loop":false,"layers":[{"name":"Back","visible":true},{"name":"Front","visible":false},{"name":"Top","visible":true}],"frames":[{"duration_ms":100,"layers":["abc","XYZ"," - "]}]}"#;
+    open("scene.json", two).await;
+    assert_eq!(layer_list(), ["Top", "Front (hidden)", "Back"]);
+    assert_eq!(art(), "a-c");
+    // Opening chooses the bottom layer, so Move down is off.
+    assert!(!enabled("layer-down"));
+    click("layer-up");
+    assert_eq!(layer_list(), ["Top", "Back", "Front (hidden)"]);
+    click("layer-delete");
+    assert_eq!(layer_list(), ["Top", "Front (hidden)"]);
+    assert_eq!(art(), " - ");
+    click("layer-merge");
+}
+
+/// Every Layers control is a native, focusable form control, so the panel works from the
+/// keyboard alone.
+#[wasm_bindgen_test]
+fn layer_controls_take_keyboard_focus() {
+    blank(3, 1);
+    let panel = element::<Element>("layers-panel");
+    panel.set_attribute("open", "").unwrap();
+    click("layer-add");
+    for id in [
+        "layer",
+        "layer-name",
+        "layer-visible",
+        "layer-add",
+        "layer-down",
+        "layer-delete",
+        "layer-merge",
+    ] {
+        let control = element::<HtmlElement>(id);
+        assert!(
+            ["SELECT", "INPUT", "BUTTON"].contains(&control.tag_name().as_str()),
+            "#{id}"
+        );
+        assert!(control.tab_index() >= 0, "#{id}");
+        control.focus().unwrap();
+        assert_eq!(
+            document().active_element().map(|e| e.id()).as_deref(),
+            Some(id),
+            "#{id}"
+        );
+    }
+    click("layer-merge");
+    panel.remove_attribute("open").unwrap();
+}
+
+#[wasm_bindgen_test]
+async fn converting_a_picture_replaces_every_layer_and_undo_brings_them_back() {
+    blank(5, 1);
+    apply_frame("ab   ");
+    click("layer-add");
+    apply_frame("   cd");
+    assert_eq!(art(), "ab cd");
+    // The picture has the project's size and frame count, yet still replaces both layers.
+    convert("P2\n5 1\n255\n0 0 0 255 255\n").await;
+    assert_eq!(layer_list(), ["Layer 1"]);
+    assert_eq!(art(), "   @@");
+    click("undo");
+    assert_eq!(layer_list(), ["Layer 2", "Layer 1"]);
+    assert_eq!(art(), "ab cd");
+    click("layer-merge");
+}
+
+async fn saved_layers() -> super::Layered {
+    let raw = super::recovery::read_record()
+        .await
+        .unwrap()
+        .as_string()
+        .unwrap();
+    super::Layered::from_json(raw.split_once('\n').unwrap().1).unwrap()
+}
+
+#[wasm_bindgen_test]
+async fn typing_undo_and_recovery_keep_every_layer() {
+    blank(4, 1);
+    recovery_saved_and_idle().await;
+    apply_frame("a  b");
+    click("layer-add");
+    tool("type");
+    cursor_to((1, 0));
+    // The first key commits; the second takes the grouped typing path.
+    keys(&["X", "Y"]);
+    assert_eq!(art(), "aXYb");
+    wait_for(|| recovery_phase() == "saved").await;
+    let saved = saved_layers().await;
+    let texts: Vec<String> = saved
+        .layers()
+        .iter()
+        .map(|l| l.art.frames()[0].frame.text())
+        .collect();
+    assert_eq!(texts, ["a  b", " XY "]);
+    click("undo");
+    assert_eq!(art(), "a  b");
+    click("redo");
+    assert_eq!(art(), "aXYb");
+    wait_for(|| recovery_phase() == "saved").await;
+    let before = save("download-json").await.1;
+    check("recovery-enabled", false);
+    click("layer-merge");
+    click("generate");
+    assert_eq!(art(), "    ");
+    click("restore-recovery");
+    recovery_settled().await;
+    assert_eq!(layer_list(), ["Layer 2", "Layer 1"]);
+    assert_eq!(save("download-json").await.1, before);
+    check("recovery-enabled", false);
+    recovery_settled().await;
+    click("layer-merge");
 }
