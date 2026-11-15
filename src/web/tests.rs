@@ -1603,6 +1603,8 @@ async fn refused_and_cancelled_picture_imports_leave_the_project_and_history() {
 #[wasm_bindgen_test]
 async fn refused_and_cancelled_video_conversions_leave_the_project_and_history() {
     blank(4, 1);
+    // The stroke goes on a second layer, so a conversion must replace both layers.
+    click("layer-add");
     tool("pencil");
     drag(&[(0, 0), (1, 0)]);
     let before = project_now().await;
@@ -1623,8 +1625,10 @@ async fn refused_and_cancelled_video_conversions_leave_the_project_and_history()
         "{}",
         status()
     );
+    assert_eq!(layer_list(), ["Layer 1"]);
     click("undo");
     assert_eq!(project_now().await, before);
+    assert_eq!(layer_list(), ["Layer 2", "Layer 1"]);
 
     for (name, video, end, width, refusal) in [
         ("broken.webm", &b"not a video"[..], "", "4", "cannot play"),

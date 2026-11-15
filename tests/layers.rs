@@ -304,7 +304,9 @@ fn every_project_that_can_be_built_or_edited_loads_again() {
     }
     let mut project = narrow(512, fits).unwrap();
     let json = project.to_json();
+    // A frame of backslashes in place of spaces adds 768 bytes, so the limit is exact.
     assert!(json.len() <= MAX_INPUT_BYTES, "{}", json.len());
+    assert!(json.len() + 768 > MAX_INPUT_BYTES, "{}", json.len());
     assert_eq!(Layered::from_json(&json).unwrap(), project);
     // One more frame of backslashes, as typing would make, is refused and changes nothing.
     let before = project.clone();
