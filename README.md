@@ -108,6 +108,8 @@ apollinaire import ghost.json --output ghost.cast
 
 The checked toolchain is pinned in `rust-toolchain.toml`. Existing output files are never overwritten. Static artwork defaults to text; animations default to JSON so frames and timings are retained. Use `--format text --frame 0` to deliberately select one animated frame.
 
+The `.cast` export is newer than v0.4.1: until the next release, install with `--git` as above to use it. v0.4.1 does not know the format and writes JSON under a `.cast` name.
+
 ## Use the library
 
 The library has no browser or CLI dependency when default features are disabled:
