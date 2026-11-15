@@ -395,6 +395,34 @@ impl Editor {
         }
     }
 
+    fn play(&mut self, out: &mut impl Write) -> io::Result<()> {
+        let shown = self.frame;
+        self.message = "Playing; any key stops".into();
+        // Loop through the frames until a key is pressed; mouse and resize events only
+        // redraw, and each frame keeps its full duration.
+        'playing: for index in (0..self.project.frames().len()).cycle().skip(shown) {
+            self.frame = index;
+            let (columns, rows) = terminal::size()?;
+            self.draw(out, columns, rows)?;
+            let until =
+                Instant::now() + Duration::from_millis(u64::from(self.current().duration_ms));
+            loop {
+                let left = until.saturating_duration_since(Instant::now());
+                if left.is_zero() || !event::poll(left)? {
+                    break;
+                }
+                if let Event::Key(key) = event::read()?
+                    && key.kind != KeyEventKind::Release
+                {
+                    break 'playing;
+                }
+            }
+        }
+        self.frame = shown;
+        self.message.clear();
+        Ok(())
+    }
+
     /// Draw the frame, scrolled to keep the cursor in view, with 2 status lines below it.
     pub fn draw(&mut self, out: &mut impl Write, columns: u16, rows: u16) -> io::Result<()> {
         let (columns, rows) = (usize::from(columns), usize::from(rows));
@@ -620,32 +648,7 @@ pub fn run(path: PathBuf, project: Animation) -> Result<()> {
         match editor.handle(event::read().map_err(failed)?) {
             Flow::Continue => {}
             Flow::Quit => return Ok(()),
-            Flow::Play => {
-                let shown = editor.frame;
-                editor.message = "Playing; any key stops".into();
-                // Loop through the frames until a key is pressed; mouse and resize events only
-                // redraw, and each frame keeps its full duration.
-                'playing: for index in (0..editor.project.frames().len()).cycle().skip(shown) {
-                    editor.frame = index;
-                    let (columns, rows) = terminal::size().map_err(failed)?;
-                    editor.draw(&mut out, columns, rows).map_err(failed)?;
-                    let until = Instant::now()
-                        + Duration::from_millis(u64::from(editor.current().duration_ms));
-                    loop {
-                        let left = until.saturating_duration_since(Instant::now());
-                        if left.is_zero() || !event::poll(left).map_err(failed)? {
-                            break;
-                        }
-                        if let Event::Key(key) = event::read().map_err(failed)?
-                            && key.kind != KeyEventKind::Release
-                        {
-                            break 'playing;
-                        }
-                    }
-                }
-                editor.frame = shown;
-                editor.message.clear();
-            }
+            Flow::Play => editor.play(&mut out).map_err(failed)?,
         }
     }
 }

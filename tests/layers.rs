@@ -61,6 +61,7 @@ fn layers_with_their_own_contents_survive_json_and_flatten_visible_layers_only()
 fn a_plain_single_layer_is_written_as_version_1_and_anything_else_as_version_2() {
     let plain = Layered::single(art(&["ab"], false));
     assert_eq!(plain.plain(), Some(&art(&["ab"], false)));
+    assert_eq!(plain.flatten(), art(&["ab"], false));
     assert_eq!(plain.to_json(), art(&["ab"], false).to_json());
     assert_eq!(Layered::from_json(&plain.to_json()).unwrap(), plain);
     for (name, visible) in [("Sky", true), (DEFAULT_NAME, false)] {
@@ -172,6 +173,23 @@ fn two_layer_json(edit: impl FnOnce(&mut Value)) -> String {
 #[test]
 fn version_2_json_is_strict() {
     for (input, expected) in [
+        (
+            two_layer_json(|v| {
+                v["version"] = json!(1);
+                v.as_object_mut().unwrap().remove("layers");
+            }),
+            "Each version 1 frame needs",
+        ),
+        (
+            two_layer_json(|v| {
+                v["frames"][0].as_object_mut().unwrap().remove("layers");
+            }),
+            "missing field `text`",
+        ),
+        (
+            two_layer_json(|v| v["layers"][0] = json!(true)),
+            "a layer with name and visible",
+        ),
         (
             two_layer_json(|v| {
                 v.as_object_mut().unwrap().remove("layers");

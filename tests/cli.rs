@@ -3,6 +3,9 @@
 
 #![cfg(feature = "cli")]
 mod common;
+#[cfg(target_os = "linux")]
+#[path = "cli/terminal_edit.rs"]
+mod terminal_edit;
 use std::io::Write;
 use std::process::Command;
 fn cli(args: &[&str]) -> std::process::Output {

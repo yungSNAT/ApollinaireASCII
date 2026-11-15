@@ -57,6 +57,229 @@ fn names(dir: &Path) -> Vec<String> {
 }
 
 #[test]
+fn navigation_and_ignored_commands_preserve_the_artwork_and_history() {
+    let mut editor = editor("abc\ndef");
+    typed(&mut editor, "x");
+    let project = editor.project.clone();
+    let history = (editor.undo.clone(), editor.redo.clone());
+    for key in [
+        press(KeyCode::Right),
+        press(KeyCode::Down),
+        press(KeyCode::Up),
+        press(KeyCode::Tab),
+        ctrl('a'),
+    ] {
+        assert_eq!(editor.handle(key), Flow::Continue);
+    }
+    assert_eq!(editor.cursor, (2, 0));
+    assert_eq!(editor.project, project);
+    assert_eq!((editor.undo.clone(), editor.redo.clone()), history);
+}
+
+#[test]
+fn rendering_stops_at_the_first_failed_write() {
+    struct FailingWriter {
+        remaining: usize,
+        failed: bool,
+        writes_after_failure: usize,
+        flushed: bool,
+        bytes: Vec<u8>,
+    }
+    impl Write for FailingWriter {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if self.failed {
+                self.writes_after_failure += 1;
+            }
+            if self.remaining == 0 {
+                self.failed = true;
+                return Err(io::Error::other("fixture write failed"));
+            }
+            let written = bytes.len().min(self.remaining);
+            self.bytes.extend_from_slice(&bytes[..written]);
+            self.remaining -= written;
+            Ok(written)
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            self.flushed = true;
+            Ok(())
+        }
+    }
+
+    let mut editor = editor("unique artwork");
+    typed(&mut editor, "X");
+    let project = editor.project.clone();
+    let history = (editor.undo.clone(), editor.redo.clone());
+    let mut complete = Vec::new();
+    editor.draw(&mut complete, 80, 24).unwrap();
+    let complete = String::from_utf8(complete).unwrap();
+    // Fail in artwork, status and the final cursor command, using the real drawing output.
+    for limit in [
+        complete.find("Xnique artwork").unwrap() + 2,
+        complete.find("art.json (modified)").unwrap() + 2,
+        complete.rfind("\u{1b}[1;2H").unwrap() + 2,
+    ] {
+        let mut writer = FailingWriter {
+            remaining: limit,
+            failed: false,
+            writes_after_failure: 0,
+            flushed: false,
+            bytes: Vec::new(),
+        };
+        let error = editor.draw(&mut writer, 80, 24).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::Other);
+        assert_eq!(error.to_string(), "fixture write failed");
+        assert_eq!(writer.bytes, complete.as_bytes()[..limit]);
+        assert!(writer.failed);
+        assert_eq!(writer.writes_after_failure, 0);
+        assert!(!writer.flushed);
+        assert_eq!(editor.project, project);
+        assert_eq!((editor.undo.clone(), editor.redo.clone()), history);
+    }
+}
+
+#[test]
+fn saving_through_an_ordinary_file_keeps_the_parent_and_editor_unchanged() {
+    let dir = scratch("save-file-parent");
+    let parent = dir.join("parent");
+    std::fs::write(&parent, "keep parent").unwrap();
+    let mut editor = editor("old");
+    editor.path = parent.join("art.txt");
+    typed(&mut editor, "n");
+    let project = editor.project.clone();
+    let history = (editor.undo.clone(), editor.redo.clone());
+    editor.handle(ctrl('s'));
+    assert!(
+        editor.message.starts_with("Cannot save"),
+        "{}",
+        editor.message
+    );
+    assert!(editor.modified);
+    assert_eq!(editor.project, project);
+    assert_eq!((editor.undo.clone(), editor.redo.clone()), history);
+    assert_eq!(std::fs::read_to_string(&parent).unwrap(), "keep parent");
+    assert_eq!(names(&dir), ["parent"]);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn a_destination_replaced_with_a_directory_survives_a_failed_save() {
+    let dir = scratch("save-replaced-destination");
+    let path = dir.join("art.txt");
+    std::fs::write(&path, "old\n").unwrap();
+    let mut editor = Editor::new(
+        path.clone(),
+        Animation::still(Frame::from_text("old").unwrap()),
+    );
+    typed(&mut editor, "n");
+    let project = editor.project.clone();
+    let history = (editor.undo.clone(), editor.redo.clone());
+    std::fs::remove_file(&path).unwrap();
+    std::fs::create_dir(&path).unwrap();
+    std::fs::write(path.join("keep"), "keep child").unwrap();
+    editor.handle(ctrl('s'));
+    assert!(
+        editor.message.starts_with("Cannot save"),
+        "{}",
+        editor.message
+    );
+    assert!(editor.modified);
+    assert_eq!(editor.project, project);
+    assert_eq!((editor.undo.clone(), editor.redo.clone()), history);
+    assert_eq!(
+        std::fs::read_to_string(path.join("keep")).unwrap(),
+        "keep child"
+    );
+    assert_eq!(names(&path), ["keep"]);
+    assert_eq!(names(&dir), ["art.txt"], "the temporary file is removed");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn a_rejected_canvas_operation_discards_its_partial_drawing() {
+    let mut editor = editor("old");
+    let project = editor.project.clone();
+    // Exercise the drawing helper's transaction boundary with a real validation failure.
+    editor.draw_with(Some(Run::Typing), |canvas| {
+        canvas.set(0, 0, b'x')?;
+        canvas.set(1, 0, b'\n')
+    });
+    assert_eq!(
+        editor.message,
+        "Only printable ASCII is allowed: byte 0 is 0x0a"
+    );
+    assert_eq!(editor.project, project);
+    assert!(editor.undo.is_empty());
+    assert!(editor.redo.is_empty());
+    assert!(!editor.modified);
+    assert!(editor.joining.is_none());
+}
+
+#[test]
+fn a_drawing_with_incompatible_frame_dimensions_keeps_the_project_and_history() {
+    let mut editor = editor("old");
+    editor.handle(ctrl('d'));
+    assert_eq!(editor.project.frames().len(), 2);
+    let project = editor.project.clone();
+    let history = (editor.undo.clone(), editor.redo.clone());
+    let modified = editor.modified;
+    let selected = editor.frame;
+    // The mutable drawing surface accepts valid canvases; the project must still reject
+    // one whose dimensions differ from its other frames. Current keys do not resize it.
+    editor.draw_with(None, |canvas| {
+        *canvas = Canvas::new(2, 1)?;
+        canvas.set(0, 0, b'x')
+    });
+    assert_eq!(editor.message, "Every frame must have the same dimensions");
+    assert_eq!(editor.project, project);
+    assert_eq!((editor.undo.clone(), editor.redo.clone()), history);
+    assert_eq!(editor.modified, modified);
+    assert_eq!(editor.frame, selected);
+}
+
+#[test]
+fn history_maintenance_trims_redo_states_created_by_undoing_frame_duplication() {
+    let mut editor = Editor::new(
+        PathBuf::from("history.json"),
+        Animation::still(Frame::blank(512, 256).unwrap()),
+    );
+    for _ in 0..15 {
+        editor.handle(ctrl('d'));
+    }
+    let cells = |states: &[(Animation, usize)]| {
+        states
+            .iter()
+            .map(|(project, _)| project.width() * project.height() * project.frames().len())
+            .sum::<usize>()
+    };
+    assert_eq!(cells(&editor.undo), 15_728_640);
+    assert!(cells(&editor.undo) < HISTORY_CELLS);
+    for _ in 0..15 {
+        editor.handle(ctrl('z'));
+    }
+    assert!(editor.undo.is_empty());
+    assert_eq!(cells(&editor.redo), 17_694_720);
+    let project = editor.project.clone();
+    // Undo retains larger projects than those it removes. Test the maintenance helper
+    // against that event-produced history, without constructing or changing stack entries.
+    editor.limit_history();
+    assert_eq!(editor.project, project);
+    assert!(editor.undo.is_empty());
+    assert_eq!(cells(&editor.redo), 15_597_568);
+    assert!(cells(&editor.redo) <= HISTORY_CELLS);
+    assert_eq!(
+        editor
+            .redo
+            .iter()
+            .map(|(project, _)| project.frames().len())
+            .collect::<Vec<_>>(),
+        (2..=15).rev().collect::<Vec<_>>()
+    );
+    editor.handle(ctrl('y'));
+    assert_eq!(editor.project.frames().len(), 2);
+    assert_eq!(editor.frame, 1);
+}
+
+#[test]
 fn typing_places_characters_and_undoes_as_one_step() {
     let mut editor = editor("     \n     ");
     typed(&mut editor, "Hi!");
@@ -336,6 +559,14 @@ fn the_view_scrolls_to_the_cursor_and_the_status_lines_report_state() {
     editor.handle(mouse(MouseEventKind::Down(MouseButton::Left), 0, 0));
     assert_eq!(editor.cursor, (40, 22));
 
+    editor.handle(press(KeyCode::Home));
+    editor.handle(press(KeyCode::Up));
+    let mut back = Vec::new();
+    editor.draw(&mut back, 60, 10).unwrap();
+    assert_eq!(editor.cursor, (0, 21));
+    assert_eq!(editor.scroll, (0, 21));
+    assert!(String::from_utf8(back).unwrap().contains("\u{1b}[1;1H"));
+
     let mut small = Vec::new();
     editor.draw(&mut small, 19, 10).unwrap();
     assert!(
@@ -346,7 +577,7 @@ fn the_view_scrolls_to_the_cursor_and_the_status_lines_report_state() {
     editor.handle(mouse(MouseEventKind::Down(MouseButton::Left), 1, 1));
     assert_eq!(
         editor.cursor,
-        (40, 22),
+        (0, 21),
         "no frame is shown, so a click does nothing"
     );
 
