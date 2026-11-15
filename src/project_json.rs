@@ -32,7 +32,7 @@ impl<'de> Deserialize<'de> for Project {
             ) -> std::result::Result<Project, M::Error> {
                 let (mut format, mut version, mut width, mut height, mut looping) =
                     (None, None, None, None, None);
-                let (mut layers, mut frames) = (None, None);
+                let (mut layers, mut frames): (Option<Few<Meta>>, _) = (None, None);
                 while let Some(key) = map.next_key::<String>()? {
                     match key.as_str() {
                         "format" => field(&mut format, &mut map, "format")?,

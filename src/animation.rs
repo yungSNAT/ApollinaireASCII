@@ -1,7 +1,7 @@
 // Copyright 2026 Ryan Duguid
 // SPDX-License-Identifier: MIT
 
-use crate::{Canvas, Frame, MAX_FRAMES, MAX_INPUT_BYTES, MAX_PROJECT_CELLS, Result, dimensions};
+use crate::{Canvas, Frame, MAX_FRAMES, MAX_PROJECT_CELLS, Result, dimensions};
 use serde_json::json;
 use std::ops::Range;
 

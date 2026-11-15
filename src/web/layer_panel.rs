@@ -133,7 +133,8 @@ pub(super) fn controls(app: &App, busy: bool, editor: bool) -> Result<()> {
     if list.get_attribute("data-labels").as_deref() != Some(key.as_str()) {
         list.set_text_content(None);
         for label in &labels {
-            list.append_child(&element("option", label)?)
+            let option = element("option", label)?;
+            list.append_child(&option)
                 .map_err(|_| "Cannot list the layers")?;
         }
         list.set_attribute("data-labels", &key)
