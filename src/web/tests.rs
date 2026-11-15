@@ -2134,3 +2134,67 @@ fn layer_controls_take_keyboard_focus() {
     click("layer-merge");
     panel.remove_attribute("open").unwrap();
 }
+
+#[wasm_bindgen_test]
+async fn converting_a_picture_replaces_every_layer_and_undo_brings_them_back() {
+    blank(5, 1);
+    apply_frame("ab   ");
+    click("layer-add");
+    apply_frame("   cd");
+    assert_eq!(art(), "ab cd");
+    // The picture has the project's size and frame count, yet still replaces both layers.
+    convert("P2\n5 1\n255\n0 0 0 255 255\n").await;
+    assert_eq!(layer_list(), ["Layer 1"]);
+    assert_eq!(art(), "   @@");
+    click("undo");
+    assert_eq!(layer_list(), ["Layer 2", "Layer 1"]);
+    assert_eq!(art(), "ab cd");
+    click("layer-merge");
+}
+
+async fn saved_layers() -> super::Layered {
+    let raw = super::recovery::read_record()
+        .await
+        .unwrap()
+        .as_string()
+        .unwrap();
+    super::Layered::from_json(raw.split_once('\n').unwrap().1).unwrap()
+}
+
+#[wasm_bindgen_test]
+async fn typing_undo_and_recovery_keep_every_layer() {
+    blank(4, 1);
+    recovery_saved_and_idle().await;
+    apply_frame("a  b");
+    click("layer-add");
+    tool("type");
+    cursor_to((1, 0));
+    // The first key commits; the second takes the grouped typing path.
+    keys(&["X", "Y"]);
+    assert_eq!(art(), "aXYb");
+    wait_for(|| recovery_phase() == "saved").await;
+    let saved = saved_layers().await;
+    let texts: Vec<String> = saved
+        .layers()
+        .iter()
+        .map(|l| l.art.frames()[0].frame.text())
+        .collect();
+    assert_eq!(texts, ["a  b", " XY "]);
+    click("undo");
+    assert_eq!(art(), "a  b");
+    click("redo");
+    assert_eq!(art(), "aXYb");
+    wait_for(|| recovery_phase() == "saved").await;
+    let before = save("download-json").await.1;
+    check("recovery-enabled", false);
+    click("layer-merge");
+    click("generate");
+    assert_eq!(art(), "    ");
+    click("restore-recovery");
+    recovery_settled().await;
+    assert_eq!(layer_list(), ["Layer 2", "Layer 1"]);
+    assert_eq!(save("download-json").await.1, before);
+    check("recovery-enabled", false);
+    recovery_settled().await;
+    click("layer-merge");
+}

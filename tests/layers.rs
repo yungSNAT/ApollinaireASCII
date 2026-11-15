@@ -1,7 +1,9 @@
 // Copyright 2026 Ryan Duguid
 // SPDX-License-Identifier: MIT
 
-use apollinaire_ascii::{Animation, Frame, Layer, Layered, TimedFrame, layers::DEFAULT_NAME};
+use apollinaire_ascii::{
+    Animation, Frame, Layer, Layered, MAX_INPUT_BYTES, TimedFrame, layers::DEFAULT_NAME,
+};
 use serde_json::{Value, json};
 
 fn art(texts: &[&str], looping: bool) -> Animation {
@@ -254,4 +256,64 @@ fn version_2_json_is_refused_once_its_cells_pass_the_limit() {
             .unwrap_err()
             .contains("8,000,000 cells")
     );
+}
+
+/// 16 layers of `frames` frames, 3 by 256: every frame backslashes, which JSON doubles, except
+/// layer 0's frames from `spaces` on.
+fn narrow(frames: usize, spaces: usize) -> Result<Layered, String> {
+    let slash = Frame::from_text(&vec!["\\".repeat(3); 256].join("\n")).unwrap();
+    let space = Frame::blank(3, 256).unwrap();
+    Layered::new(
+        (0..16)
+            .map(|i| Layer {
+                name: format!("L{i}"),
+                visible: true,
+                art: Animation::new(
+                    (0..frames)
+                        .map(|f| TimedFrame {
+                            frame: if i == 0 && f >= spaces {
+                                space.clone()
+                            } else {
+                                slash.clone()
+                            },
+                            duration_ms: 10,
+                        })
+                        .collect(),
+                    false,
+                )
+                .unwrap(),
+            })
+            .collect(),
+    )
+}
+
+#[test]
+fn every_project_that_can_be_built_or_edited_loads_again() {
+    // 7,372,800 cells is within the cell limit, but its JSON would be over 19 MiB.
+    assert!(narrow(600, 600).unwrap_err().contains("16 MiB input limit"));
+    // Find the most backslashes layer 0 can hold in 512 frames.
+    assert!(narrow(512, 512).is_err());
+    let (mut fits, mut over) = (0, 512);
+    while over - fits > 1 {
+        let middle = (fits + over) / 2;
+        if narrow(512, middle).is_ok() {
+            fits = middle;
+        } else {
+            over = middle;
+        }
+    }
+    let mut project = narrow(512, fits).unwrap();
+    let json = project.to_json();
+    assert!(json.len() <= MAX_INPUT_BYTES, "{}", json.len());
+    assert_eq!(Layered::from_json(&json).unwrap(), project);
+    // One more frame of backslashes, as typing would make, is refused and changes nothing.
+    let before = project.clone();
+    let slash = before.layers()[1].art.frames()[0].frame.clone();
+    assert!(
+        project
+            .replace_frame(0, fits, slash)
+            .unwrap_err()
+            .contains("16 MiB input limit")
+    );
+    assert_eq!(project, before);
 }
