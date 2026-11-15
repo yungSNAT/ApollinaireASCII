@@ -233,8 +233,9 @@ jobs:
         run: |
           sha256sum -- * > SHA256SUMS.txt
           bash ../.github/scripts/manifests.sh "$TAG" SHA256SUMS.txt .
+          sha256sum -- apollinaire.rb apollinaire.json >> SHA256SUMS.txt
           ruby -c apollinaire.rb
-          ls -l
+          cat SHA256SUMS.txt
 
   # crates.io trusted publishing: the crate's trusted publisher names this workflow file and the
   # crates-io environment, which accepts only v* tags. No long-lived token is stored. --no-verify
