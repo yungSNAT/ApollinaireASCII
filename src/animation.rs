@@ -187,7 +187,7 @@ impl Animation {
     }
     /// Read a version 1 project, or a version 2 project flattened to its visible layers.
     pub fn from_json(input: &str) -> Result<Self> {
-        crate::Layered::from_json(input).map(|project| project.flatten())
+        crate::Layered::from_json(input).map(crate::Layered::into_flat)
     }
 }
 

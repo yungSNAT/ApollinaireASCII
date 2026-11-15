@@ -214,7 +214,8 @@ fn current(ticket: u32) -> bool {
 }
 /// Commits a finished capture unless it was cancelled or superseded.
 fn finish(app: &mut App, project: Animation, message: &str) -> Result<()> {
-    app.commit(project)?;
+    // A converted video or recording replaces every layer, as opening a file does.
+    app.replace_layers(crate::Layered::single(project), 0);
     app.seek(0);
     input("width")?.set_value(&app.project().width().to_string());
     input("height")?.set_value(&app.project().height().to_string());

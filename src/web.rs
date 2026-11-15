@@ -1096,11 +1096,11 @@ fn begin_file(id: &'static str) {
                 status("Font loaded. Generate lettering to use it.", false);
             } else {
                 if let Some(options) = options {
-                    app.commit(decode_media(&bytes, &options)?)?;
+                    // Opening a file or picture replaces every layer.
+                    app.replace_layers(Layered::single(decode_media(&bytes, &options)?), 0);
                 } else {
                     let text = String::from_utf8(bytes)
                         .map_err(|_| "Text must contain printable ASCII")?;
-                    // Opening a file replaces every layer.
                     let project = if file.name().to_ascii_lowercase().ends_with(".json") {
                         Layered::from_json(&text)?
                     } else {

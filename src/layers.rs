@@ -39,7 +39,16 @@ pub struct Layered {
 }
 
 impl Layered {
+    /// Also refuses a project whose JSON would pass the 16 MiB input limit, so every project
+    /// that can be built can be loaded again.
     pub fn new(layers: Vec<Layer>) -> Result<Self> {
+        let project = Self::parsed(layers)?;
+        project.fits()?;
+        Ok(project)
+    }
+    /// [`new`](Self::new) without the size check, for the parser: a parsed project's JSON is
+    /// no longer than the input it came from.
+    pub(crate) fn parsed(layers: Vec<Layer>) -> Result<Self> {
         if layers.is_empty() || layers.len() > MAX_LAYERS {
             return Err(format!("A project needs 1..={MAX_LAYERS} layers"));
         }
@@ -70,6 +79,34 @@ impl Layered {
         }
         Ok(Self { layers })
     }
+    fn fits(&self) -> Result<()> {
+        if self.json_bound() > MAX_INPUT_BYTES {
+            return Err("Project JSON would exceed the 16 MiB input limit".into());
+        }
+        Ok(())
+    }
+    /// At least the length of [`to_json`](Self::to_json). In printable ASCII JSON escapes only
+    /// `"` and `\`, and each row break is written as `\n`.
+    fn json_bound(&self) -> usize {
+        let texts: usize = self
+            .layers
+            .iter()
+            .flat_map(|layer| layer.art.frames())
+            .map(|entry| {
+                let cells = entry.frame.cells();
+                let escaped = cells.iter().filter(|&&b| b == b'"' || b == b'\\').count();
+                // Quotes, a comma and an escaped line feed between rows.
+                cells.len() + escaped + 3 + 2 * (entry.frame.height() - 1)
+            })
+            .sum();
+        let names: usize = self
+            .layers
+            .iter()
+            .map(|layer| 2 * layer.name.len() + 32)
+            .sum();
+        // Per frame: {"duration_ms":60000,"layers":[]}, and the header with its brackets.
+        texts + names + 40 * self.layers[0].art.frames().len() + 128
+    }
     pub fn single(art: Animation) -> Self {
         Self {
             layers: vec![Layer {
@@ -90,19 +127,26 @@ impl Layered {
             _ => None,
         }
     }
-    /// Replace one frame of one layer, keeping the frame's duration.
+    /// Replace one frame of one layer, keeping the frame's duration. Nothing changes on error.
     pub fn replace_frame(&mut self, layer: usize, index: usize, frame: Frame) -> Result<()> {
         let art = &mut self
             .layers
             .get_mut(layer)
             .ok_or("Layer index is outside the project")?
             .art;
-        let duration_ms = art
+        let old = art
             .frames()
             .get(index)
             .ok_or("Frame index is outside the project")?
-            .duration_ms;
-        art.replace_frame(index, TimedFrame { frame, duration_ms })
+            .clone();
+        let duration_ms = old.duration_ms;
+        art.replace_frame(index, TimedFrame { frame, duration_ms })?;
+        self.fits().inspect_err(|_| {
+            self.layers[layer]
+                .art
+                .replace_frame(index, old)
+                .expect("The old frame fitted");
+        })
     }
     /// One frame as shown: the visible layers stacked.
     pub fn frame(&self, index: usize) -> Frame {
@@ -115,6 +159,13 @@ impl Layered {
                 .filter(|layer| layer.visible)
                 .map(|layer| &layer.art.frames()[index].frame),
         )
+    }
+    /// [`flatten`](Self::flatten), moving rather than copying a lone visible layer.
+    pub(crate) fn into_flat(mut self) -> Animation {
+        match &self.layers[..] {
+            [layer] if layer.visible => self.layers.swap_remove(0).art,
+            _ => self.flatten(),
+        }
     }
     /// The project as shown, for export and every command that reads one animation.
     pub fn flatten(&self) -> Animation {

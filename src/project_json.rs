@@ -101,7 +101,7 @@ impl<'de> Deserialize<'de> for Project {
                     .map_err(de::Error::custom)?;
                 match names {
                     None => Ok(Layered::single(animations.remove(0))),
-                    Some(names) => Layered::new(
+                    Some(names) => Layered::parsed(
                         names
                             .into_iter()
                             .zip(animations)
