@@ -1,5 +1,6 @@
-# Codecov reports coverage for the README badge. No coverage threshold decides
-# merges, so Codecov's own statuses are informational and it posts no comments.
+# Codecov reports coverage for the README badge. CI's native (ubuntu-latest) job fails
+# when the coverage report has an uncovered line, so Codecov's statuses are
+# informational and it posts no comments.
 coverage:
   status:
     project:
