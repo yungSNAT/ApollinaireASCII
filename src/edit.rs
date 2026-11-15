@@ -561,23 +561,21 @@ impl Screen {
 }
 impl Drop for Screen {
     fn drop(&mut self) {
-        let _ = execute!(
-            io::stdout(),
-            DisableMouseCapture,
-            LeaveAlternateScreen,
-            Show
-        );
-        let _ = terminal::disable_raw_mode();
+        restore(&mut io::stdout());
     }
+}
+fn restore(out: &mut impl Write) {
+    let _ = execute!(out, DisableMouseCapture, LeaveAlternateScreen, Show);
+    let _ = terminal::disable_raw_mode();
 }
 
 /// crossterm 0.29 reads a closed input terminal for ever at full CPU, so on Unix the editor
 /// ends through the hangup signal instead: its input must be the terminal that controls its
 /// session, which signals the editor when it closes, and the signal ends the editor even when
-/// it was set to be ignored (as `nohup` does).
+/// it was set to be ignored (as `nohup` does). A thread restores the terminal, in case it is
+/// still open, then exits; holding stdout keeps the editor from drawing after the restore.
 #[cfg(unix)]
 fn end_on_hangup() -> Result<()> {
-    use std::sync::{Arc, atomic::AtomicBool};
     let controlling = matches!(
         (rustix::termios::tcgetsid(io::stdin()), rustix::process::getsid(None)),
         (Ok(terminal), Ok(own)) if terminal == own
@@ -585,13 +583,15 @@ fn end_on_hangup() -> Result<()> {
     if !controlling {
         return Err("Editing needs input from the terminal that controls this session".into());
     }
-    signal_hook::flag::register_conditional_shutdown(
-        signal_hook::consts::SIGHUP,
-        1,
-        Arc::new(AtomicBool::new(true)),
-    )
-    .map(drop)
-    .map_err(|e| format!("Cannot use the terminal: {e}"))
+    let mut hangups = signal_hook::iterator::Signals::new([signal_hook::consts::SIGHUP])
+        .map_err(|e| format!("Cannot use the terminal: {e}"))?;
+    std::thread::spawn(move || {
+        if hangups.forever().next().is_some() {
+            restore(&mut io::stdout().lock());
+            std::process::exit(1);
+        }
+    });
+    Ok(())
 }
 
 pub fn run(path: PathBuf, project: Animation) -> Result<()> {
