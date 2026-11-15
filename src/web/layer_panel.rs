@@ -4,8 +4,7 @@
 //! The Layers panel: choose the layer to edit, add, delete, reorder, rename, hide and merge.
 //! The list shows the top layer first, as it is drawn over the others.
 use super::{
-    App, checked, document, element, input, listen, media::set_disabled, node, report, state,
-    status,
+    App, checked, element, input, listen, media::set_disabled, node, report, state, status,
 };
 use crate::{Animation, Frame, Layer, Layered, Result, TimedFrame, layers::MAX_LAYERS};
 use web_sys::HtmlSelectElement;
@@ -148,11 +147,6 @@ pub(super) fn controls(app: &App, busy: bool, editor: bool) -> Result<()> {
     }
     input("layer-visible")?.set_checked(layer.visible);
     let single = layers.len() == 1;
-    let focused = document()
-        .active_element()
-        .map(|e| e.id())
-        .unwrap_or_default();
-    let mut dropped = false;
     for (id, disabled) in [
         ("layer", busy),
         ("layer-name", busy),
@@ -164,12 +158,6 @@ pub(super) fn controls(app: &App, busy: bool, editor: bool) -> Result<()> {
         ("layer-merge", busy || single),
     ] {
         set_disabled(id, disabled)?;
-        dropped |= disabled && id == focused;
-    }
-    // A button that disables itself, as Move up does on reaching the top, would drop keyboard
-    // focus to the page; keep it in the panel on the list.
-    if dropped && !busy {
-        list.focus().map_err(|_| "Cannot focus the layer list")?;
     }
     Ok(())
 }
