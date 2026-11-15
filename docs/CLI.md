@@ -45,7 +45,7 @@ apollinaire completions zsh > _apollinaire
 apollinaire man | man -l -
 ```
 
-`--output` creates a new file. An existing file causes an error, even when its contents are identical. Without it, exports go to stdout. Errors go to stderr and return a nonzero exit status. `check` reports validated dimensions and timing on stdout.
+`--output` creates a new file. An existing file causes an error, even when its contents are identical. Without it, exports go to stdout. Errors go to stderr and return a nonzero exit status. A reader that closes the pipe early, as `head` does, ends the command quietly with status 0. `check` reports validated dimensions and timing on stdout.
 
 Borders come in 4 styles: `plain` (`+-|`, the default), `rounded` (`.-'|`), `dotted` (`.:`) and `heavy` (`#=`). `art` takes one as `--border=<style>` (with the `=`, so `--border` alone still works before the piece's name), and `transform ... border` and `say` as `--style <style>`.
 
