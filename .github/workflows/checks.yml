@@ -69,6 +69,13 @@ jobs:
           path: coverage-rust.lcov
           retention-days: 1
       - run: cargo build --locked --release
+      # `apollinaire edit` in a real Windows pseudo console: typing, function keys, mouse
+      # drawing, frames, playback, save and quit, with the release build.
+      - name: Terminal editor in a Windows pseudo console
+        if: matrix.os == 'windows-latest'
+        run: |
+          python -m pip install --disable-pip-version-check --only-binary :all: --require-hashes -r .github/scripts/conpty-requirements.txt
+          python -u -I .github/scripts/conpty.py
       - run: cargo run --locked --example library
 
   # The upload runs apart from the tests so the OIDC token is never available
