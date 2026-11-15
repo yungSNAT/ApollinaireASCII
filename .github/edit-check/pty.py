@@ -256,12 +256,14 @@ for name, ignore in [("sighup-with-terminal-open-restores-it", False),
     drain_master(1.0)
     before = len(seen)
     proc.send_signal(signal.SIGHUP)
-    try:
-        code = proc.wait(timeout=10)
-    except subprocess.TimeoutExpired:
+    # Keep reading, as a terminal does: macOS waits for unread output when the editor exits.
+    end = time.time() + 10
+    while proc.poll() is None and time.time() < end:
+        drain_master(0.1)
+    if proc.poll() is None:
         proc.kill()
-        proc.wait()
-        code = "hung"
+        drain_master(1.0)
+    code = proc.poll() if proc.poll() is not None else "hung"
     drain_master(0.5)
     after = bytes(seen[before:])
     fd = os.open(slave_name, os.O_RDWR | os.O_NOCTTY)

@@ -12,16 +12,25 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest]
+        os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
       - run: rustup toolchain install
+      - name: Before, at 9073527 (pseudo-terminal cases)
+        timeout-minutes: 12
+        run: |
+          git checkout 9073527 -- src Cargo.toml Cargo.lock
+          cargo build --locked --release --bin apollinaire
+          cp target/release/apollinaire "$RUNNER_TEMP/apollinaire-before"
+          git checkout HEAD -- src Cargo.toml Cargo.lock
+          python3 -u -I .github/edit-check/pty.py "$RUNNER_TEMP/apollinaire-before" "$RUNNER_TEMP/before" || echo "BEFORE-PTY: some cases failed"
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked edit
       - run: cargo build --locked --release --bin apollinaire
       - timeout-minutes: 12
         run: python3 -u -I .github/edit-check/pty.py target/release/apollinaire "$RUNNER_TEMP/after"
-      - if: always()
-        run: ps -axo pid,stat,wchan,command | grep -i apollinaire | grep -v grep || true
