@@ -80,7 +80,8 @@ impl Layered {
         Ok(Self { layers })
     }
     fn fits(&self) -> Result<()> {
-        if self.json_bound() > MAX_INPUT_BYTES {
+        // The bound is cheap and close; only a project near the limit is serialised to measure.
+        if self.json_bound() > MAX_INPUT_BYTES && self.to_json().len() > MAX_INPUT_BYTES {
             return Err("Project JSON would exceed the 16 MiB input limit".into());
         }
         Ok(())
