@@ -2,10 +2,9 @@
 // SPDX-License-Identifier: MIT
 
 //! ANSI and CP437 art (`.ans`, `.asc`, `.nfo`, `.diz`, and UTF-8 ANSI as `.utf8.ans`) as an
-//! input. Art with escape sequences
-//! plays on a virtual screen as libansilove draws it, and plain CP437 text is read line by line;
-//! colour and attributes are dropped, and each CP437 glyph becomes its nearest printable ASCII
-//! character.
+//! input. Art with escape sequences plays on a virtual screen as libansilove draws it, and plain
+//! CP437 text is read line by line; colour and attributes are dropped, and each CP437 glyph
+//! becomes its nearest printable ASCII character.
 //!
 //! ```
 //! use apollinaire_ascii::ansi;
