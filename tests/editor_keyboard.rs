@@ -176,19 +176,20 @@ impl Browser {
             self.chord(&[&c.to_string()]);
         }
     }
-    /// The focused element's id, `summary` for the Layers summary, or its tag name.
+    /// The focused element's id, `layers-summary` for the Layers summary (the page's other
+    /// summaries have no id), or its tag name.
     fn focused(&self) -> String {
         self.script(
             "const e = document.activeElement;
-             if (e === document.querySelector('#layers-panel > summary')) return 'summary';
+             if (e === document.querySelector('#layers-panel > summary')) return 'layers-summary';
              return e.id || e.tagName.toLowerCase();",
         )
         .as_str()
         .unwrap()
         .to_string()
     }
-    /// Wait up to 5 seconds for `read` to give `expected`: the browser runs a key's default
-    /// action, such as opening a summary, after WebDriver has delivered the key.
+    /// Wait up to 5 seconds for `read` to give `expected`, and name the focused element if it
+    /// never does.
     fn settles<T: PartialEq + std::fmt::Debug>(&self, expected: T, read: impl Fn(&Self) -> T) {
         let started = Instant::now();
         loop {
@@ -274,53 +275,15 @@ fn layers_panel_works_from_the_keyboard_alone() {
 
     // Tab from the top of the page reaches the folded panel, and Enter opens it.
     let mut presses = 0;
-    while browser.focused() != "summary" {
+    while browser.focused() != "layers-summary" {
         presses += 1;
         assert!(presses < 300, "Tab never reached the Layers panel");
         browser.chord(&[TAB]);
     }
     let open = "return document.getElementById('layers-panel').open;";
     assert_eq!(browser.script(open), false);
-    browser.script(
-        "window.seen = [];
-         const p = document.getElementById('layers-panel');
-         window.panel = p;
-         const t0 = performance.now();
-         const at = () => Math.round(performance.now() - t0);
-         for (const t of ['keydown', 'keypress', 'keyup', 'click', 'beforetoggle', 'toggle'])
-           document.addEventListener(t, e => {
-             seen.push(at() + ' ' + t + ':' + (e.key || '') + ':' + (e.target.id || e.target.tagName) + ':' + (e.newState || '') + ':open=' + p.open + ':prevented=' + e.defaultPrevented);
-             if (t === 'click') for (const ms of [0, 50, 500]) setTimeout(() => seen.push(at() + ' after click +' + ms + ' open=' + p.open), ms);
-           }, true);
-         new MutationObserver(r => r.forEach(m => seen.push(at() + ' mutation ' + m.attributeName + ' old=' + m.oldValue + ' open=' + p.open)))
-           .observe(p, {attributes: true, attributeOldValue: true});
-         const remove = Element.prototype.removeAttribute;
-         Element.prototype.removeAttribute = function (n) {
-           if (this === p) seen.push(at() + ' removeAttribute ' + n + ' ' + new Error().stack.split('\\n').slice(1, 5).join(' / '));
-           return remove.call(this, n);
-         };",
-    );
     browser.press(ENTER, 1);
-    let started = Instant::now();
-    while browser.script(open) != true && started.elapsed() < Duration::from_secs(2) {
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    let after_enter = browser.script(open);
-    if after_enter != true {
-        browser.press(SPACE, 1);
-        std::thread::sleep(Duration::from_millis(500));
-    }
-    assert_eq!(
-        after_enter,
-        true,
-        "after Space: {}; events: {}",
-        browser.script(open),
-        browser.script(
-            "return seen.join(' ; ') + ' | same panel ' + (document.getElementById('layers-panel') === panel)
-               + ', panels ' + document.querySelectorAll('#layers-panel').length + ', connected ' + panel.isConnected
-               + ', summary parent ok ' + (document.activeElement.parentElement === panel) + ' | ' + navigator.userAgent;"
-        )
-    );
+    browser.settles(json!(true), |b| b.script(open));
 
     // With one layer, only the list, name, visibility and Add take focus.
     browser.tab_through(
