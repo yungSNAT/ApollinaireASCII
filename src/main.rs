@@ -3,7 +3,7 @@ mod fetch;
 
 use apollinaire_ascii::{
     Animation, BorderStyle, Canvas, EffectOptions, Frame, Layered, MAX_INPUT_BYTES,
-    MAX_MEDIA_BYTES, RenderOptions, Result, SceneOptions, TimedFrame, animation, art, bubble,
+    MAX_MEDIA_BYTES, RenderOptions, Result, SceneOptions, TimedFrame, animation, ansi, art, bubble,
     effects, export, lettering,
 };
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
@@ -252,9 +252,10 @@ enum Command {
         #[arg(long, default_value_t = 0)]
         source_frame: usize,
     },
-    /// Load .txt or an ApollinaireASCII .json project. Text CRLF is normalised to LF.
+    /// Load .txt, an ApollinaireASCII .json project or ANSI art. Text CRLF is normalised to LF.
     Import {
-        /// A .txt or .json file, or `-` for stdin.
+        /// A .txt or .json file, ANSI or CP437 art (.ans, .asc, .nfo or .diz, colour dropped),
+        /// or `-` for stdin.
         input: PathBuf,
         /// Pad ragged text rows with spaces instead of refusing them.
         #[arg(long)]
@@ -852,6 +853,14 @@ fn read_text(path: &Path) -> Result<String> {
         .map_err(|_| "Text input must be UTF-8 containing printable ASCII".into())
 }
 fn load(path: &Path, pad: bool) -> Result<Animation> {
+    if path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(ansi::is_ansi_name)
+    {
+        let art = ansi::decode(&read_bounded(path, MAX_INPUT_BYTES)?)?;
+        return Ok(Animation::still(art));
+    }
     let text = read_text(path)?;
     if path.extension().is_some_and(|e| e == "json")
         || (!path.extension().is_some_and(|e| e == "txt")

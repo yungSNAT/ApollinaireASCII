@@ -43,7 +43,7 @@ Every frame contains bytes 32 through 126. Line feeds separate rows when saved a
 | Lettering | 21 FIGlet and TOIlet fonts plus filled block and outline styles; font-default, full-width, fitted and smushed layout for letters and lines; word wrap; multiline text; alignment; validated ASCII-only `.flf` and `.tlf` import |
 | Animation | Ghost, rotating donut, wave, starfield, rain, fire, text reveal and scrolling text; deterministic seeds |
 | Text effects | Reveal, typewriter, decrypt, scatter, wipes in 4 directions, rain, wave and burn, applied to any art or lettering, forwards or in reverse; set duration, FPS and seed |
-| Media conversion | PNG, JPEG, GIF, WebP, BMP and PNM input; animated GIF timing; custom character ramps, aspect correction, transparency, inversion, gamma, contrast, dithering and edges, optionally drawn as `|`, `/`, `-` and `\` along their direction; presets in the browser editor; CLI batches and `https://` URLs |
+| Media conversion | PNG, JPEG, GIF, WebP, BMP and PNM input; animated GIF timing; custom character ramps, aspect correction, transparency, inversion, gamma, contrast, dithering and edges, optionally drawn as `|`, `/`, `-` and `\` along their direction; presets in the browser editor; CLI batches and `https://` URLs; ANSI and CP437 art (`.ans`, `.asc`, `.nfo`, `.diz`) read as ASCII, with box drawing and shading mapped to ASCII characters, colour dropped and the SAUCE width kept |
 | Video and camera | In the browser editor: any video the browser plays, sampled at 1 to 60 frames per second between chosen start and end times; a live text preview from the camera and timed recordings of 1 to 60 seconds |
 | Browser editor | Pencil, eraser, line, rectangle, ellipse, fill, typing, area select/move/copy/paste and reusable art stamps on the character grid, each usable by keyboard; an option that keeps rectangles square and ellipses round; optional directional ASCII mirrors; diagram mode for joined `+-|` boxes, labels and arrows; up to 16 layers that share the frames, with show, hide, reorder and merge, saved in JSON and flattened in text and player exports; onion skin; select/copy text, timeline, frame-range timing/duplication/deletion/reordering, undo/redo, local file imports and opt-in local recovery |
 | Export | Plain `.txt`, timed `.json` projects and standalone `.html` text players; from the CLI, asciicast v2 `.cast` recordings for asciinema's terminal and web players |
@@ -104,11 +104,12 @@ apollinaire image photo.png --width 80 --dither --output photo.txt
 apollinaire image a.png b.gif https://example.com/c.png --width 72 --output-dir ascii
 apollinaire import ghost.json --format html --output ghost.html
 apollinaire import ghost.json --output ghost.cast
+apollinaire import release.nfo --output release.txt
 ```
 
 The checked toolchain is pinned in `rust-toolchain.toml`. Existing output files are never overwritten. Static artwork defaults to text; animations default to JSON so frames and timings are retained. Use `--format text --frame 0` to deliberately select one animated frame.
 
-The `.cast` export is newer than v0.4.1: until the next release, install with `--git` as above to use it. v0.4.1 does not know the format and writes JSON under a `.cast` name.
+The `.cast` export and ANSI art input are newer than v0.4.1: until the next release, install with `--git` as above to use them. v0.4.1 does not know the `.cast` format and writes JSON under a `.cast` name, and it reads an `.ans` file as text, refusing CP437 bytes.
 
 ## Use the library
 

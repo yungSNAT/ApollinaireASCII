@@ -973,8 +973,8 @@ fn preset(name: &str) {
         .unwrap();
 }
 /// Choose a file in the Open control as a user would, then wait for the read to finish.
-async fn open(name: &str, contents: &str) -> String {
-    choose("open-file", name, contents.as_bytes());
+async fn open(name: &str, contents: impl AsRef<[u8]>) -> String {
+    choose("open-file", name, contents.as_ref());
     element::<HtmlInputElement>("open-file")
         .dispatch_event(&web_sys::Event::new("change").unwrap())
         .unwrap();
@@ -1539,6 +1539,20 @@ async fn open_pads_text_restores_projects_and_refuses_unicode() {
         (frame_count().as_str(), art().as_str()),
         ("Frame 2 / 2", "cd")
     );
+}
+
+#[wasm_bindgen_test]
+async fn open_reads_ansi_art_as_ascii_without_its_colour() {
+    blank(3, 1);
+    // A blue double-line box from an ANSI editor, 80 columns wide with no SAUCE record.
+    let box_art = b"\x1b[1;34m\xc9\xcd\xbb\r\n\xc8\xcd\xbc\x1b[0m\x1a";
+    assert!(open("BOX.ANS", box_art).await.contains("File opened"));
+    let line = format!("+=+{}", " ".repeat(77));
+    assert_eq!(art(), rows(&[line.as_str(), line.as_str()]));
+    assert_eq!(element::<HtmlInputElement>("width").value(), "80");
+    // The same bytes in a .txt file are refused as text, and the box stays.
+    assert!(open("box.txt", box_art).await.contains("printable ASCII"));
+    assert_eq!(grid_size(), (80, 2));
 }
 
 #[wasm_bindgen_test]

@@ -3,8 +3,8 @@
 
 use crate::{
     Animation, BorderStyle, Canvas, EffectOptions, Frame, Layer, Layered, MAX_INPUT_BYTES,
-    RenderOptions, Result, SceneOptions, TimedFrame, animation, art, decode_media, effects, export,
-    image_renderer::RAMPS, lettering,
+    RenderOptions, Result, SceneOptions, TimedFrame, animation, ansi, art, decode_media, effects,
+    export, image_renderer::RAMPS, lettering,
 };
 use js_sys::{Array, Uint8Array};
 use std::cell::RefCell;
@@ -1099,14 +1099,19 @@ fn begin_file(id: &'static str) {
                     // Opening a file or picture replaces every layer.
                     app.replace_layers(Layered::single(decode_media(&bytes, &options)?), 0);
                 } else {
-                    let text = String::from_utf8(bytes)
-                        .map_err(|_| "Text must contain printable ASCII")?;
-                    let project = if file.name().to_ascii_lowercase().ends_with(".json") {
-                        Layered::from_json(&text)?
+                    let name = file.name();
+                    let project = if ansi::is_ansi_name(&name) {
+                        Layered::single(Animation::still(ansi::decode(&bytes)?))
                     } else {
-                        Layered::single(Animation::still(Frame::from_text_padded(
-                            &text.replace("\r\n", "\n"),
-                        )?))
+                        let text = String::from_utf8(bytes)
+                            .map_err(|_| "Text must contain printable ASCII")?;
+                        if name.to_ascii_lowercase().ends_with(".json") {
+                            Layered::from_json(&text)?
+                        } else {
+                            Layered::single(Animation::still(Frame::from_text_padded(
+                                &text.replace("\r\n", "\n"),
+                            )?))
+                        }
                     };
                     app.replace_layers(project, 0);
                 }
