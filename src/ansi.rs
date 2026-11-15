@@ -67,16 +67,17 @@ fn sauce(bytes: &[u8]) -> (&[u8], Option<usize>) {
 /// Decode ANSI or plain CP437 art, dropping colour and mapping each glyph to printable ASCII.
 /// Reading stops at the DOS end-of-file byte 0x1A, and a SAUCE record is not drawn.
 ///
-/// Art with no escape sequence is plain CP437 text, read line by line: each LF ends a row, CR
-/// is dropped, a tab advances to the next multiple of 8, and the frame is as wide as the longest
-/// row or the SAUCE width, whichever is wider.
+/// Art with no `ESC [` sequence is plain CP437 text, read line by line: each LF ends a row, CR
+/// is dropped, a tab advances to the next multiple of 8, ESC is the CP437 left arrow, and the
+/// frame is as wide as the longest row or the SAUCE width, whichever is wider.
 ///
-/// Art with escape sequences plays on a screen as wide as the SAUCE record says, or 80 columns,
-/// as libansilove draws it: LF moves to the start of the next row and CR to the start of this
-/// one, and a glyph or move that reaches the last column wraps when the next byte arrives. The
-/// cursor escapes (`A B C D H f s u`) and the erase escapes (`J` and `K`, modes 0 to 2; `2J`
-/// also homes the cursor) apply; every other sequence, colour included, is skipped. The frame is
-/// as tall as the last row written.
+/// Art with `ESC [` sequences plays on a screen as wide as the SAUCE record says, or 80 columns,
+/// as libansilove draws it: LF moves to the start of the next row, CR does nothing, a lone ESC
+/// is skipped, and a glyph or move that reaches the last column wraps when the next byte
+/// arrives. The cursor escapes (`A B C D H f s u`) apply, and so do the erase escapes `J` and
+/// `K` in modes 0 to 2 (libansilove draws only `2J`, which also homes the cursor); every other
+/// sequence, colour included, is skipped. A sequence cut off by the end of the art, or ending in
+/// a byte outside `@` to `~`, is refused. The frame is as tall as the last row written.
 pub fn decode(bytes: &[u8]) -> Result<Frame> {
     let (art, sauce_width) = sauce(bytes);
     let art = &art[..art.iter().position(|b| *b == 0x1a).unwrap_or(art.len())];
@@ -86,7 +87,7 @@ pub fn decode(bytes: &[u8]) -> Result<Frame> {
             sauce_width.unwrap_or_default()
         ));
     }
-    let rows = if art.contains(&0x1b) {
+    let rows = if art.windows(2).any(|pair| pair == b"\x1b[") {
         screen(art, sauce_width.unwrap_or(DEFAULT_WIDTH))?
     } else {
         lines(art)
@@ -148,35 +149,38 @@ fn screen(art: &[u8], width: usize) -> Result<Vec<Vec<u8>>> {
             (x, y) = (0, y.saturating_add(1));
         }
         match byte {
-            b'\r' => x = 0,
+            // libansilove ignores CR: LF alone starts the next row.
+            b'\r' => {}
             b'\n' => (x, y) = (0, y.saturating_add(1)),
             b'\t' => x = ((x / 8 + 1) * 8).min(width),
-            0x08 => x = x.saturating_sub(1),
             0x1b if art.get(index) == Some(&b'[') => {
                 let parameters = index + 1;
                 index = parameters;
                 while art.get(index).is_some_and(|b| (0x20..0x40).contains(b)) {
                     index += 1;
                 }
-                let Some(&command) = art.get(index) else {
-                    break;
-                };
+                let command = *art
+                    .get(index)
+                    .ok_or("The art ends inside an escape sequence")?;
+                if !(0x40..=0x7e).contains(&command) {
+                    return Err(format!(
+                        "Byte {}: an escape sequence ends with 0x{command:02x}, not a command",
+                        index + 1
+                    ));
+                }
                 index += 1;
-                let numbers: Vec<usize> = art[parameters..index - 1]
-                    .split(|b| *b == b';')
-                    .map(|n| {
-                        n.iter()
-                            .filter(|b| b.is_ascii_digit())
-                            .fold(0usize, |v, d| {
-                                v.saturating_mul(10).saturating_add(usize::from(d - b'0'))
-                            })
-                    })
-                    .collect();
-                let first = numbers.first().copied().unwrap_or(0);
+                let mut numbers = art[parameters..index - 1].split(|b| *b == b';').map(|n| {
+                    n.iter()
+                        .filter(|b| b.is_ascii_digit())
+                        .fold(0usize, |v, d| {
+                            v.saturating_mul(10).saturating_add(usize::from(d - b'0'))
+                        })
+                });
+                let first = numbers.next().unwrap_or(0);
                 let count = first.max(1);
                 let erase = match first {
                     0 => Some(x.min(width)..width),
-                    1 => Some(0..(x + 1).min(width)),
+                    1 => Some(0..x.saturating_add(1).min(width)),
                     2 => Some(0..width),
                     _ => None,
                 };
@@ -186,8 +190,9 @@ fn screen(art: &[u8], width: usize) -> Result<Vec<Vec<u8>>> {
                     b'C' => x = x.saturating_add(count).min(width),
                     b'D' => x = x.saturating_sub(count),
                     b'H' | b'f' => {
+                        // A column past the edge wraps when the next byte arrives.
                         y = count - 1;
-                        x = (numbers.get(1).copied().unwrap_or(0).max(1) - 1).min(width - 1);
+                        x = numbers.next().unwrap_or(0).max(1) - 1;
                     }
                     b'J' if first == 2 => {
                         rows.clear();
@@ -210,8 +215,8 @@ fn screen(art: &[u8], width: usize) -> Result<Vec<Vec<u8>>> {
                     _ => {}
                 }
             }
-            // A lone ESC skips the byte after it.
-            0x1b => index += 1,
+            // A lone ESC is skipped; the byte after it is drawn.
+            0x1b => {}
             _ => {
                 if y >= MAX_HEIGHT {
                     return Err(format!("The art is taller than {MAX_HEIGHT} rows"));
