@@ -47,7 +47,7 @@ Every frame contains bytes 32 through 126. Line feeds separate rows when saved a
 | Video and camera | In the browser editor: any video the browser plays, sampled at 1 to 60 frames per second between chosen start and end times; a live text preview from the camera and timed recordings of 1 to 60 seconds |
 | Browser editor | Pencil, eraser, line, rectangle, ellipse, fill, typing, area select/move/copy/paste and reusable art stamps on the character grid, each usable by keyboard; an option that keeps rectangles square and ellipses round; optional directional ASCII mirrors; diagram mode for joined `+-|` boxes, labels and arrows; onion skin; select/copy text, timeline, frame-range timing/duplication/deletion/reordering, undo/redo, local file imports and opt-in local recovery |
 | Export | Plain `.txt`, timed `.json` projects and standalone `.html` text players |
-| Native playback | Terminal playback with cursor movement; saved artwork remains plain text |
+| Terminal | `apollinaire edit`: an interactive editor for `.txt` and `.json` files, with typing, mouse drawing, a chosen brush, frames, playback and undo, on Windows, macOS and Linux; `apollinaire play` for playback. Escape codes only move the cursor; saved artwork remains plain text |
 
 All maintained application logic is Rust, including the browser's DOM controls and file handling. HTML and CSS describe the interface. A small JavaScript loader starts WebAssembly; standalone HTML exports include a small JavaScript text player so each file works on its own.
 
@@ -99,6 +99,7 @@ apollinaire say "Hello there" --art cat --style rounded
 apollinaire animate ghost --output ghost.json
 apollinaire text "HELLO" --font block | apollinaire effect decrypt - --output hello.json
 apollinaire play ghost.json
+apollinaire edit ghost.json
 apollinaire image photo.png --width 80 --dither --output photo.txt
 apollinaire image a.png b.gif https://example.com/c.png --width 72 --output-dir ascii
 apollinaire import ghost.json --format html --output ghost.html

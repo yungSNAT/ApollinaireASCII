@@ -4,10 +4,18 @@ updates:
     directories: [/, /fuzz]
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 7
+    groups:
+      # One pull request bumps a crate in both lockfiles, not one per directory.
+      cargo:
+        group-by: dependency-name
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 7
     groups:
       # CodeQL refuses a workflow whose init, analyze and upload-sarif steps differ in version.
       codeql-action:
