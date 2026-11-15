@@ -68,6 +68,14 @@ jobs:
           name: coverage-rust
           path: coverage-rust.lcov
           retention-days: 1
+      # Holds the report Codecov reads at 100%: every line in it must have a count above 0.
+      # It prints each uncovered file:line and also fails on a report with no lines.
+      - name: Hold line coverage at 100%
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          awk -F'[:,]' '/^SF:/ { file = substr($0, 4) }
+            /^DA:/ { lines++; if ($3 == 0) { print file ":" $2; missed = 1 } }
+            END { exit missed || !lines }' coverage-rust.lcov
       - run: cargo build --locked --release
       # `apollinaire edit` in a real Windows pseudo console: typing, function keys, mouse
       # drawing, frames, playback, save and quit, with the release build.
