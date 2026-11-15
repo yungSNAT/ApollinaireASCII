@@ -793,8 +793,9 @@ fn outline_stamp() -> Result<()> {
     };
     state(|app| {
         app.clean()?;
+        app.keep_stamp(frame)?;
         app.drawing_cancel();
-        app.keep_stamp(frame)
+        Ok(())
     })?;
     // The tool's own change listener runs here, outside the editor state.
     document()

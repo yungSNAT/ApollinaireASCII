@@ -144,8 +144,11 @@ pub enum TableRules {
 
 /// The lines of `text` that hold more than spaces, with CRLF read as LF, and their line numbers.
 fn content_lines(text: &str) -> impl Iterator<Item = (usize, &str)> {
-    text.split('\n')
-        .map(|line| line.strip_suffix('\r').unwrap_or(line))
+    text.split_inclusive('\n')
+        .map(|line| {
+            line.strip_suffix('\n')
+                .map_or(line, |line| line.strip_suffix('\r').unwrap_or(line))
+        })
         .enumerate()
         .filter(|(_, line)| !line.trim_matches(' ').is_empty())
         .map(|(index, line)| (index + 1, line))
@@ -169,28 +172,45 @@ pub fn table(text: &str, separator: u8, rules: TableRules) -> Result<crate::Fram
     if separator != b'\t' {
         printable(&[separator]).map_err(|_| "The separator must be a tab or printable ASCII")?;
     }
-    let rows: Vec<Vec<&str>> = content_lines(text)
-        .map(|(_, line)| {
+    let mut rows: Vec<Vec<&str>> = Vec::new();
+    for (number, line) in content_lines(text) {
+        if let Some((index, byte)) = line
+            .bytes()
+            .enumerate()
+            .find(|(_, b)| *b != separator && !(32..=126).contains(b))
+        {
+            return Err(format!(
+                "Line {number}: byte {} is 0x{byte:02x}, not printable ASCII",
+                index + 1
+            ));
+        }
+        rows.push(
             line.split(char::from(separator))
                 .map(|cell| cell.trim_matches(' '))
-                .collect()
-        })
-        .collect();
+                .collect(),
+        );
+    }
     if rows.is_empty() {
         return Err("A table needs at least one row of text".into());
     }
     let mut widths = vec![0; rows.iter().map(Vec::len).max().unwrap_or(0)];
-    for cell in rows.iter().flatten() {
-        printable(cell.as_bytes())?;
-    }
     for row in &rows {
         for (width, cell) in widths.iter_mut().zip(row) {
             *width = (*width).max(cell.len());
         }
     }
-    let rule: String = widths.iter().fold("+".into(), |line, width| {
-        format!("{line}{}+", "-".repeat(width + 2))
-    });
+    // Each column takes its cell, a space either side and a bar, after the first bar.
+    if widths.iter().map(|width| width + 3).sum::<usize>() + 1 > crate::MAX_WIDTH {
+        return Err(format!(
+            "The table is wider than {} columns",
+            crate::MAX_WIDTH
+        ));
+    }
+    let mut rule = String::from("+");
+    for width in &widths {
+        rule.push_str(&"-".repeat(width + 2));
+        rule.push('+');
+    }
     let mut lines = vec![rule.clone()];
     for (index, row) in rows.iter().enumerate() {
         let mut line = String::from("|");
@@ -241,7 +261,7 @@ pub fn tree(outline: &str) -> Result<crate::Frame> {
             Some(open) if *open == indent => {
                 levels.pop();
             }
-            Some(_) if returned => {
+            _ if returned => {
                 return Err(format!(
                     "Line {number}: its indentation matches no outer line"
                 ));
