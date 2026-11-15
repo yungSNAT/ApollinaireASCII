@@ -17,6 +17,9 @@ apollinaire text "Hello there, friend" --font smslant --wrap 30 --align center
 apollinaire text "$(printf 'TOP\nLOW')" --horizontal smush --vertical fitted
 apollinaire say "Hello there" --art cat --style rounded
 echo "Build passed" | apollinaire say --width 30 --art-file owl.txt --output owl-says.txt
+apollinaire table prices.tsv
+apollinaire table drops.csv --separator , --rules every --output drops.txt
+printf 'src\n  lib.rs\n  main.rs\n' | apollinaire tree -
 apollinaire animate donut --width 72 --height 24 --frames 120 --fps 30 --output donut.json
 apollinaire animate scroll --text "HELLO, FRIEND" --seed 42 --output scroll.html
 apollinaire image photo.jpg --width 100 --ramp fine --gamma 1.2 --contrast 1.3 --dither
@@ -43,7 +46,7 @@ apollinaire completions zsh > _apollinaire
 apollinaire man | man -l -
 ```
 
-`--output` creates a new file. An existing file causes an error, even when its contents are identical. Without it, exports go to stdout. Errors go to stderr and return a nonzero exit status. `check` reports validated dimensions and timing on stdout.
+`--output` creates a new file. An existing file causes an error, even when its contents are identical. Without it, exports go to stdout. Errors go to stderr and return a nonzero exit status. A reader that closes the pipe early, as `head` does, ends the command quietly with status 0. `check` reports validated dimensions and timing on stdout.
 
 Borders come in 4 styles: `plain` (`+-|`, the default), `rounded` (`.-'|`), `dotted` (`.:`) and `heavy` (`#=`). `art` takes one as `--border=<style>` (with the `=`, so `--border` alone still works before the piece's name), and `transform ... border` and `say` as `--style <style>`.
 
@@ -66,6 +69,30 @@ An `image` file, or `-` for stdin, may be up to 128 MiB, matching the image deco
 `text` uses figlet's layout rules. `--horizontal` sets how letters join and `--vertical` how lines of lettering join: `default` (the font's own setting), `full` (no overlap), `fitted` (touching) or `smush` (merged by the font's smushing rules, or universally when the font has none). `--wrap N` breaks lines at spaces, or inside a word that is too long, so none exceeds N columns; it matches `figlet -w N+1`, because figlet reserves the terminal's last column. `--width` sets the canvas width that `--align` uses and does not wrap; each line of lettering is aligned separately, as `figlet -c` and `-r` do. `apollinaire list` names the bundled fonts. `--font-file` accepts a plain FIGlet `.flf` or TOIlet `.tlf` file up to 1 MiB whose every glyph is drawn in printable ASCII; files with other bytes in any glyph, and compressed fonts, are refused with the glyph and byte named.
 
 `say MESSAGE` draws a speech bubble: the message wrapped to `--width` columns (default 40, at most 508) inside a border in one of the 4 styles (`--style`, `plain` by default), with a 2-row `\` tail below it. Without a message argument it reads the message from stdin. `--art NAME` draws a catalogue piece under the tail; `--art-file FILE` draws a static `.txt` or `.json` frame instead, padding ragged text rows, and takes `-` for stdin when the message is an argument. The message must be printable ASCII, at most 16 MiB: wide characters, combining marks and tabs are refused, naming the first such byte. CRLF counts as LF, final line feeds are dropped and each line feed starts a new line. Within a line, runs of spaces become one and spaces at either end are dropped. Lines break at spaces, and a word longer than the width is split across lines. An empty message, one that wraps to more than 252 rows, an animated art file and a result taller than 256 rows are refused.
+
+`table FILE` lays out rows of delimited text as a table with `+-|` borders. Each line holding more than spaces is a row, split into cells at `--separator` (`tab` by default, as text copied from a spreadsheet arrives, or any one printable ASCII character, such as `,`). Quotes are not interpreted, so it is not a CSV parser. Cells lose their outer spaces, short rows get empty cells and each column is as wide as its widest cell, with a space either side. `--rules header` (the default) rules off the first row, `every` rules between every row and `none` draws only the outer border. `-` reads stdin.
+
+```text
+$ printf 'Item\tQty\nLobster\t28\n' | apollinaire table -
++---------+-----+
+| Item    | Qty |
++---------+-----+
+| Lobster | 28  |
++---------+-----+
+```
+
+`tree FILE` draws an outline as `tree --charset=ascii` does. Each line holding more than spaces is a node, and its leading spaces give its depth: a line indented further than the one before is its child, and a line indented less returns to the earlier line with the same indentation. A dedent that matches no earlier line, or a tab used to indent, is refused with its line number. Lines at the outermost indentation are separate roots.
+
+```text
+$ printf 'src\n  lib.rs\n  web\n    draw.rs\n  main.rs\n' | apollinaire tree -
+src
+|-- lib.rs
+|-- web
+|   `-- draw.rs
+`-- main.rs
+```
+
+Both refuse text with no rows and a result over 512 columns or 256 rows; a tree also stops at 256 lines. The browser editor's Tables and trees panel draws the same output from typed or pasted text and keeps it as an art stamp to place.
 
 `play` requires a terminal and refuses redirected stdout. It uses ANSI clear/cursor commands solely to update terminal text. It does not put those codes in the project or any text export. It plays the requested number of cycles; the project's loop setting controls the browser and standalone player. Unsupported media and malformed input fail visibly.
 

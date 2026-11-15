@@ -1,6 +1,7 @@
 // Copyright 2026 Ryan Duguid
 // SPDX-License-Identifier: MIT
 
+use apollinaire_ascii::diagram::{TableRules, table, tree};
 use apollinaire_ascii::{Canvas, Frame, canvas::bounds};
 
 fn canvas(text: &str) -> Canvas {
@@ -225,4 +226,137 @@ fn diagram_output_is_plain_ascii_and_input_is_validated() {
     grid.connector((-2, 1), (9, 1), true).unwrap();
     let frame = grid.finish();
     assert!(frame.cells().iter().all(|b| b" +-|<>^v".contains(b)));
+}
+
+#[test]
+fn tables_size_columns_to_their_widest_cell_and_rule_the_chosen_rows() {
+    let ledger = "Item\tQty\nRune scimitar\t1\n Lobster \t 28 \n";
+    assert_eq!(
+        table(ledger, b'\t', TableRules::Header).unwrap().text(),
+        "+---------------+-----+\n\
+         | Item          | Qty |\n\
+         +---------------+-----+\n\
+         | Rune scimitar | 1   |\n\
+         | Lobster       | 28  |\n\
+         +---------------+-----+"
+    );
+    assert_eq!(
+        table("a,b\nc,d", b',', TableRules::Every).unwrap().text(),
+        "+---+---+\n| a | b |\n+---+---+\n| c | d |\n+---+---+"
+    );
+    assert_eq!(
+        table("a|b\r\n\r\nc", b'|', TableRules::None)
+            .unwrap()
+            .text(),
+        "+---+---+\n| a | b |\n| c |   |\n+---+---+"
+    );
+    // One row has no header to rule off; an empty cell keeps its padding.
+    assert_eq!(
+        table("|x", b'|', TableRules::Header).unwrap().text(),
+        "+--+---+\n|  | x |\n+--+---+"
+    );
+}
+
+#[test]
+fn tables_refuse_blank_text_unprintable_bytes_and_oversized_results() {
+    for blank in ["", "\n \n"] {
+        assert_eq!(
+            table(blank, b'\t', TableRules::Header).unwrap_err(),
+            "A table needs at least one row of text"
+        );
+    }
+    assert!(
+        table("a\tb", b',', TableRules::Header)
+            .unwrap_err()
+            .contains("printable ASCII")
+    );
+    assert!(table("caf\u{e9}", b',', TableRules::Header).is_err());
+    assert_eq!(
+        table("a", b'\n', TableRules::Header).unwrap_err(),
+        "The separator must be a tab or printable ASCII"
+    );
+    // The line and byte are named, and a CR is dropped only before LF.
+    assert_eq!(
+        table("a,b\nc,d\x07", b',', TableRules::Header).unwrap_err(),
+        "Line 2: byte 4 is 0x07, not printable ASCII"
+    );
+    assert_eq!(
+        table("a,b\r", b',', TableRules::Header).unwrap_err(),
+        "Line 1: byte 4 is 0x0d, not printable ASCII"
+    );
+    assert!(table("a,b\r\nc,d\r\n", b',', TableRules::Header).is_ok());
+    assert_eq!(
+        table(&"x".repeat(600), b',', TableRules::Header).unwrap_err(),
+        "The table is wider than 512 columns"
+    );
+    // Many empty columns are refused by width before any rule is drawn.
+    assert_eq!(
+        table(&",".repeat(200_000), b',', TableRules::Header).unwrap_err(),
+        "The table is wider than 512 columns"
+    );
+    assert!(table(&"x\n".repeat(300), b',', TableRules::Header).is_err());
+}
+
+/// Rows padded with spaces to the widest, as a frame holds them.
+fn padded(rows: &[&str]) -> String {
+    let width = rows.iter().map(|r| r.len()).max().unwrap();
+    let rows: Vec<String> = rows.iter().map(|r| format!("{r:width$}")).collect();
+    rows.join("\n")
+}
+
+#[test]
+fn trees_draw_indented_outlines_with_ascii_branches() {
+    let outline = "src\n  lib.rs\n  web\n      draw.rs\n      tests.rs\n  main.rs\n";
+    assert_eq!(
+        tree(outline).unwrap().text(),
+        padded(&[
+            "src",
+            "|-- lib.rs",
+            "|-- web",
+            "|   |-- draw.rs",
+            "|   `-- tests.rs",
+            "`-- main.rs",
+        ])
+    );
+    // Several roots, a dedent of more than one level, blank lines and CRLF.
+    let outline =
+        "Misthalin\r\n Varrock\r\n  Palace\r\n\r\n Lumbridge\r\nKandarin\r\n Ardougne\r\n   Castle";
+    assert_eq!(
+        tree(outline).unwrap().text(),
+        padded(&[
+            "Misthalin",
+            "|-- Varrock",
+            "|   `-- Palace",
+            "`-- Lumbridge",
+            "Kandarin",
+            "`-- Ardougne",
+            "    `-- Castle",
+        ])
+    );
+}
+
+#[test]
+fn trees_refuse_unmatched_dedents_tabs_and_blank_outlines() {
+    assert_eq!(
+        tree("a\n    b\n  c").unwrap_err(),
+        "Line 3: its indentation matches no outer line"
+    );
+    assert_eq!(
+        tree("a\n\tb").unwrap_err(),
+        "Line 2: indent with spaces, not tabs"
+    );
+    assert_eq!(
+        tree(" \n").unwrap_err(),
+        "A tree needs at least one line of text"
+    );
+    // A first line that is indented is a root like any other at that depth.
+    assert_eq!(tree("  a\n  b").unwrap().text(), "a\nb");
+    // A dedent past every earlier line matches none of them either.
+    assert_eq!(
+        tree("  a\nb").unwrap_err(),
+        "Line 2: its indentation matches no outer line"
+    );
+    assert!(tree("a\n caf\u{e9}").is_err());
+    assert!(tree("root\r").is_err());
+    assert!(tree(&"x\n".repeat(300)).is_err());
 }

@@ -130,3 +130,169 @@ impl Canvas {
         Ok(())
     }
 }
+
+/// Where [`table`] draws rules inside its border.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TableRules {
+    /// A rule under the first row, when there is more than one row.
+    Header,
+    /// A rule between every pair of rows.
+    Every,
+    /// No rules between rows.
+    None,
+}
+
+/// The lines of `text` that hold more than spaces, with CRLF read as LF, and their line numbers.
+fn content_lines(text: &str) -> impl Iterator<Item = (usize, &str)> {
+    text.split_inclusive('\n')
+        .map(|line| {
+            line.strip_suffix('\n')
+                .map_or(line, |line| line.strip_suffix('\r').unwrap_or(line))
+        })
+        .enumerate()
+        .filter(|(_, line)| !line.trim_matches(' ').is_empty())
+        .map(|(index, line)| (index + 1, line))
+}
+
+/// Lay out `text` as a table: each line that holds more than spaces is a row, split into
+/// cells at `separator` (a tab or a printable ASCII character; quotes are not interpreted).
+/// Cells lose their outer spaces, short rows get empty cells, and each column is as wide as
+/// its widest cell, with a space either side.
+///
+/// ```
+/// use apollinaire_ascii::diagram::{TableRules, table};
+/// let drops = table("Item,Qty\nLobster,28", b',', TableRules::Header)?;
+/// assert_eq!(
+///     drops.text(),
+///     "+---------+-----+\n| Item    | Qty |\n+---------+-----+\n| Lobster | 28  |\n+---------+-----+"
+/// );
+/// # Ok::<(), String>(())
+/// ```
+pub fn table(text: &str, separator: u8, rules: TableRules) -> Result<crate::Frame> {
+    if separator != b'\t' {
+        printable(&[separator]).map_err(|_| "The separator must be a tab or printable ASCII")?;
+    }
+    let mut rows: Vec<Vec<&str>> = Vec::new();
+    for (number, line) in content_lines(text) {
+        if let Some((index, byte)) = line
+            .bytes()
+            .enumerate()
+            .find(|(_, b)| *b != separator && !(32..=126).contains(b))
+        {
+            return Err(format!(
+                "Line {number}: byte {} is 0x{byte:02x}, not printable ASCII",
+                index + 1
+            ));
+        }
+        rows.push(
+            line.split(char::from(separator))
+                .map(|cell| cell.trim_matches(' '))
+                .collect(),
+        );
+    }
+    if rows.is_empty() {
+        return Err("A table needs at least one row of text".into());
+    }
+    let mut widths = vec![0; rows.iter().map(Vec::len).max().unwrap_or(0)];
+    for row in &rows {
+        for (width, cell) in widths.iter_mut().zip(row) {
+            *width = (*width).max(cell.len());
+        }
+    }
+    // Each column takes its cell, a space either side and a bar, after the first bar.
+    if widths.iter().map(|width| width + 3).sum::<usize>() + 1 > crate::MAX_WIDTH {
+        return Err(format!(
+            "The table is wider than {} columns",
+            crate::MAX_WIDTH
+        ));
+    }
+    let mut rule = String::from("+");
+    for width in &widths {
+        rule.push_str(&"-".repeat(width + 2));
+        rule.push('+');
+    }
+    let mut lines = vec![rule.clone()];
+    for (index, row) in rows.iter().enumerate() {
+        let mut line = String::from("|");
+        for (column, width) in widths.iter().enumerate() {
+            let cell = row.get(column).copied().unwrap_or_default();
+            line.push_str(&format!(" {cell:width$} |"));
+        }
+        lines.push(line);
+        let last = index + 1 == rows.len();
+        if !last && (rules == TableRules::Every || (rules == TableRules::Header && index == 0)) {
+            lines.push(rule.clone());
+        }
+    }
+    lines.push(rule);
+    crate::Frame::from_text(&lines.join("\n"))
+}
+
+/// Draw an outline as a tree, branching as `tree --charset=ascii` does. Each line that holds
+/// more than spaces is a node, and its leading spaces give its depth: a line indented further
+/// than the one before is its child, and a line indented less returns to the earlier line
+/// with the same indentation. Lines at the outermost indentation are roots.
+///
+/// ```
+/// use apollinaire_ascii::diagram::tree;
+/// let map = tree("Misthalin\n  Varrock\n  Lumbridge")?;
+/// assert_eq!(map.text(), "Misthalin    \n|-- Varrock  \n`-- Lumbridge");
+/// # Ok::<(), String>(())
+/// ```
+pub fn tree(outline: &str) -> Result<crate::Frame> {
+    // The indentation of each open level, outermost first.
+    let mut levels: Vec<usize> = Vec::new();
+    let mut nodes: Vec<(usize, &str)> = Vec::new();
+    for (number, line) in content_lines(outline) {
+        let label = line.trim_start_matches(' ');
+        if label.starts_with('\t') {
+            return Err(format!("Line {number}: indent with spaces, not tabs"));
+        }
+        if nodes.len() == crate::MAX_HEIGHT {
+            return Err(format!("A tree has at most {} lines", crate::MAX_HEIGHT));
+        }
+        let indent = line.len() - label.len();
+        let mut returned = false;
+        while levels.last().is_some_and(|open| *open > indent) {
+            levels.pop();
+            returned = true;
+        }
+        match levels.last() {
+            Some(open) if *open == indent => {
+                levels.pop();
+            }
+            _ if returned => {
+                return Err(format!(
+                    "Line {number}: its indentation matches no outer line"
+                ));
+            }
+            _ => {}
+        }
+        nodes.push((levels.len(), label));
+        levels.push(indent);
+    }
+    if nodes.is_empty() {
+        return Err("A tree needs at least one line of text".into());
+    }
+    // From the last node back, `later[d]` says whether a node at depth d follows before any
+    // shallower node, so the branch at that depth carries on below.
+    let mut later: Vec<bool> = Vec::new();
+    let mut rows = Vec::with_capacity(nodes.len());
+    for &(depth, label) in nodes.iter().rev() {
+        later.resize(depth + 1, false);
+        let mut row = String::new();
+        for (level, &continues) in later.iter().enumerate().skip(1) {
+            row.push_str(match (level == depth, continues) {
+                (false, true) => "|   ",
+                (false, false) => "    ",
+                (true, true) => "|-- ",
+                (true, false) => "`-- ",
+            });
+        }
+        row.push_str(label);
+        rows.push(row);
+        later[depth] = true;
+    }
+    rows.reverse();
+    crate::Frame::from_text_padded(&rows.join("\n"))
+}

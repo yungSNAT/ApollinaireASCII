@@ -7,7 +7,11 @@
 use super::{
     App, action, checked, copy_text, document, input, listen, node, report, state, status,
 };
-use crate::{Canvas, Frame, Result, canvas::bounds};
+use crate::{
+    Canvas, Frame, Result,
+    canvas::bounds,
+    diagram::{self, TableRules},
+};
 use wasm_bindgen::JsCast;
 use web_sys::{
     ClipboardEvent, Element, Event, FocusOptions, HtmlElement, KeyboardEvent, PointerEvent,
@@ -311,6 +315,15 @@ impl App {
         self.clean()?;
         let (x, y, width, height) = self.drawing.selection.ok_or("Select an area first.")?;
         let stamp = self.frame().crop(x as usize, y as usize, width, height)?;
+        self.keep_stamp(stamp)?;
+        status(
+            "Area saved as a stamp for this session. Choose Stamp art to place it.",
+            false,
+        );
+        Ok(())
+    }
+    /// Add a stamp to the session's library, or choose it when it is already there.
+    fn keep_stamp(&mut self, stamp: Frame) -> Result<()> {
         if let Some(index) = self.drawing.stamps.iter().position(|saved| *saved == stamp) {
             self.drawing.stamp = index;
         } else {
@@ -332,12 +345,7 @@ impl App {
             self.drawing.stamp = self.drawing.stamps.len();
             self.drawing.stamps.push(stamp);
         }
-        self.refresh_stamps()?;
-        status(
-            "Area saved as a stamp for this session. Choose Stamp art to place it.",
-            false,
-        );
-        Ok(())
+        self.refresh_stamps()
     }
     fn set_frame(&mut self, frame: Frame, message: &str) -> Result<()> {
         if frame == *self.frame() {
@@ -759,7 +767,56 @@ fn clipboard(event: Event) -> Result<()> {
         app.display(false)
     })
 }
+/// Draw the Tables and trees text as a table or tree and keep it as an art stamp, then choose
+/// Stamp art so it can be placed by pointer or keyboard.
+fn outline_stamp() -> Result<()> {
+    let text = super::text("outline-text")?;
+    let kind = super::select("outline-kind")?;
+    let separator = match super::select("outline-separator")?.as_str() {
+        "|" => b'|',
+        "," => b',',
+        "tab" => b'\t',
+        _ => return Err("Choose a cell separator".into()),
+    };
+    let (frame, made) = match kind.as_str() {
+        "tree" => (diagram::tree(&text)?, "Tree"),
+        "header" => (
+            diagram::table(&text, separator, TableRules::Header)?,
+            "Table",
+        ),
+        "every" => (
+            diagram::table(&text, separator, TableRules::Every)?,
+            "Table",
+        ),
+        "none" => (diagram::table(&text, separator, TableRules::None)?, "Table"),
+        _ => return Err("Choose a table or a tree".into()),
+    };
+    state(|app| {
+        app.clean()?;
+        app.keep_stamp(frame)?;
+        app.drawing_cancel();
+        Ok(())
+    })?;
+    // The tool's own change listener runs here, outside the editor state.
+    document()
+        .query_selector("input[name=tool][value=stamp-art]")
+        .ok()
+        .flatten()
+        .and_then(|e| e.dyn_into::<HtmlElement>().ok())
+        .ok_or("Cannot choose Stamp art")?
+        .click();
+    status(
+        &format!(
+            "{made} saved as a stamp and Stamp art chosen. Drag on the artwork to place it, or use Space, the arrow keys and Space."
+        ),
+        false,
+    );
+    Ok(())
+}
 fn button(id: &str) -> Result<()> {
+    if id == "outline-stamp" {
+        return outline_stamp();
+    }
     if id == "area-copy" {
         let text = state(|app| app.area_text())?;
         copy_text(text, "Area copied as ASCII text.");
@@ -900,6 +957,7 @@ pub(super) fn listen_all() -> std::result::Result<(), wasm_bindgen::JsValue> {
         "stamp-text",
         "save-stamp",
         "delete-stamp",
+        "outline-stamp",
     ] {
         listen(id, "click", move |_| report(button(id)))?;
     }

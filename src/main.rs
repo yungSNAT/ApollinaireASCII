@@ -4,6 +4,7 @@ mod fetch;
 use apollinaire_ascii::{
     Animation, BorderStyle, Canvas, EffectOptions, Frame, Layered, MAX_INPUT_BYTES,
     MAX_MEDIA_BYTES, RenderOptions, Result, SceneOptions, TimedFrame, animation, ansi, art, bubble,
+    diagram::{self, TableRules},
     effects, export, lettering,
 };
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
@@ -80,6 +81,29 @@ impl From<Border> for BorderStyle {
     }
 }
 #[derive(Clone, Copy, ValueEnum)]
+enum Rules {
+    Header,
+    Every,
+    None,
+}
+impl From<Rules> for TableRules {
+    fn from(rules: Rules) -> Self {
+        match rules {
+            Rules::Header => Self::Header,
+            Rules::Every => Self::Every,
+            Rules::None => Self::None,
+        }
+    }
+}
+/// `tab` or one printable ASCII character.
+fn separator(value: &str) -> Result<u8> {
+    match value.as_bytes() {
+        b"tab" | b"\t" => Ok(b'\t'),
+        [byte @ 32..=126] => Ok(*byte),
+        _ => Err("Use tab or one printable ASCII character".into()),
+    }
+}
+#[derive(Clone, Copy, ValueEnum)]
 enum Transform {
     Horizontal,
     Vertical,
@@ -153,6 +177,22 @@ enum Command {
         /// message is an argument. Ragged text rows are padded.
         #[arg(long)]
         art_file: Option<PathBuf>,
+    },
+    /// Lay out rows of delimited text as a table with `+-|` borders.
+    Table {
+        /// Text with one row per line, or `-` for stdin. Blank lines are skipped.
+        input: PathBuf,
+        /// Cell separator: `tab` or one printable ASCII character. Quotes are not interpreted.
+        #[arg(long, default_value = "tab", value_parser = separator)]
+        separator: u8,
+        /// Rules inside the border: under the first row, between every row or none.
+        #[arg(long, value_enum, default_value = "header")]
+        rules: Rules,
+    },
+    /// Draw an outline indented with spaces as a tree, as `tree --charset=ascii` does.
+    Tree {
+        /// Text with one node per line, or `-` for stdin. Deeper indentation makes a child.
+        input: PathBuf,
     },
     /// Convert images or animated GIFs to text, from files or https:// URLs.
     Image {
@@ -455,6 +495,16 @@ fn run(args: Args) -> Result<()> {
                 speaker.as_ref(),
             )?)
         }
+        Command::Table {
+            input,
+            separator,
+            rules,
+        } => Animation::still(diagram::table(
+            &read_text(&input)?,
+            separator,
+            rules.into(),
+        )?),
+        Command::Tree { input } => Animation::still(diagram::tree(&read_text(&input)?)?),
         Command::Image {
             inputs,
             output_dir,
