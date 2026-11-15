@@ -187,6 +187,23 @@ impl Browser {
         .unwrap()
         .to_string()
     }
+    /// Wait up to 5 seconds for `read` to give `expected`: the browser runs a key's default
+    /// action, such as opening a summary, after WebDriver has delivered the key.
+    fn settles<T: PartialEq + std::fmt::Debug>(&self, expected: T, read: impl Fn(&Self) -> T) {
+        let started = Instant::now();
+        loop {
+            let value = read(self);
+            if value == expected {
+                return;
+            }
+            assert!(
+                started.elapsed() < Duration::from_secs(5),
+                "expected {expected:?}, still {value:?}; focus on {}",
+                self.focused()
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
     /// Press Tab (or Shift+Tab) once for each id and check where focus lands.
     fn tab_through(&self, ids: &[&str], back: bool) {
         for id in ids {
@@ -195,7 +212,7 @@ impl Browser {
             } else {
                 self.chord(&[TAB]);
             }
-            assert_eq!(self.focused(), *id, "focus after Tab towards {ids:?}");
+            self.settles(id.to_string(), Self::focused);
         }
     }
     /// The Layers list as shown, top layer first, and the name field.
@@ -265,7 +282,7 @@ fn layers_panel_works_from_the_keyboard_alone() {
     let open = "return document.getElementById('layers-panel').open;";
     assert_eq!(browser.script(open), false);
     browser.press(ENTER, 1);
-    assert_eq!(browser.script(open), true);
+    browser.settles(json!(true), |b| b.script(open));
 
     // With one layer, only the list, name, visibility and Add take focus.
     browser.tab_through(
@@ -273,48 +290,59 @@ fn layers_panel_works_from_the_keyboard_alone() {
         false,
     );
     browser.press(ENTER, 1);
-    assert_eq!(
-        browser.layers(),
-        (vec!["Layer 2".into(), "Layer 1".into()], "Layer 2".into())
+    browser.settles(
+        (vec!["Layer 2".into(), "Layer 1".into()], "Layer 2".into()),
+        Browser::layers,
     );
-    assert_eq!(browser.focused(), "layer-add");
+    browser.settles("layer-add".to_string(), Browser::focused);
 
     // The new top layer can move down, be deleted or merged; Move up stays out of the order.
     browser.tab_through(&["layer-down", "layer-delete", "layer-merge"], false);
     browser.tab_through(&["layer-delete", "layer-down"], true);
     browser.press(ENTER, 1);
-    assert_eq!(
-        browser.layers(),
-        (vec!["Layer 1".into(), "Layer 2".into()], "Layer 2".into())
+    browser.settles(
+        (vec!["Layer 1".into(), "Layer 2".into()], "Layer 2".into()),
+        Browser::layers,
     );
     // Move down disabled itself at the bottom; focus stays in the panel on the list.
-    assert_eq!(browser.focused(), "layer");
+    browser.settles("layer".to_string(), Browser::focused);
 
     // The arrow keys choose a layer; a typed name and Space on the checkbox apply to it.
     browser.press(ARROW_UP, 1);
-    assert_eq!(browser.layers().1, "Layer 1");
+    browser.settles("Layer 1".to_string(), |b| b.layers().1);
     browser.tab_through(&["layer-name"], false);
     browser.chord(&[CONTROL, "a"]);
     browser.type_text("Sky");
     browser.tab_through(&["layer-visible"], false);
-    assert_eq!(browser.layers().0, ["Sky", "Layer 2"]);
+    browser.settles(["Sky", "Layer 2"].map(String::from).to_vec(), |b| {
+        b.layers().0
+    });
     browser.press(SPACE, 1);
-    assert_eq!(browser.layers().0, ["Sky (hidden)", "Layer 2"]);
+    browser.settles(
+        ["Sky (hidden)", "Layer 2"].map(String::from).to_vec(),
+        |b| b.layers().0,
+    );
     browser.press(SPACE, 1);
-    assert_eq!(browser.layers().0, ["Sky", "Layer 2"]);
+    browser.settles(["Sky", "Layer 2"].map(String::from).to_vec(), |b| {
+        b.layers().0
+    });
 
     // Sky is on top, so Move down is next after Add; Move up disables itself in turn.
     browser.tab_through(&["layer-add", "layer-down"], false);
     browser.press(ENTER, 1);
-    assert_eq!(browser.layers().0, ["Layer 2", "Sky"]);
-    assert_eq!(browser.focused(), "layer");
+    browser.settles(["Layer 2", "Sky"].map(String::from).to_vec(), |b| {
+        b.layers().0
+    });
+    browser.settles("layer".to_string(), Browser::focused);
     browser.tab_through(
         &["layer-name", "layer-visible", "layer-add", "layer-up"],
         false,
     );
     browser.press(ENTER, 1);
-    assert_eq!(browser.layers().0, ["Sky", "Layer 2"]);
-    assert_eq!(browser.focused(), "layer");
+    browser.settles(["Sky", "Layer 2"].map(String::from).to_vec(), |b| {
+        b.layers().0
+    });
+    browser.settles("layer".to_string(), Browser::focused);
 
     // Delete leaves one layer and disables itself; focus again stays on the list.
     browser.tab_through(
@@ -328,15 +356,15 @@ fn layers_panel_works_from_the_keyboard_alone() {
         false,
     );
     browser.press(ENTER, 1);
-    assert_eq!(browser.layers(), (vec!["Layer 2".into()], "Layer 2".into()));
-    assert_eq!(browser.focused(), "layer");
+    browser.settles((vec!["Layer 2".into()], "Layer 2".into()), Browser::layers);
+    browser.settles("layer".to_string(), Browser::focused);
 
     // Merge does the same.
     browser.tab_through(&["layer-name", "layer-visible", "layer-add"], false);
     browser.press(ENTER, 1);
     browser.tab_through(&["layer-down", "layer-delete", "layer-merge"], false);
     browser.press(ENTER, 1);
-    assert_eq!(browser.layers().0, ["Layer 1"]);
-    assert_eq!(browser.status(), "Layers merged into one.");
-    assert_eq!(browser.focused(), "layer");
+    browser.settles(["Layer 1"].map(String::from).to_vec(), |b| b.layers().0);
+    browser.settles("Layers merged into one.".to_string(), Browser::status);
+    browser.settles("layer".to_string(), Browser::focused);
 }
