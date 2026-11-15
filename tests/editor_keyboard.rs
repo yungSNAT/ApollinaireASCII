@@ -281,8 +281,28 @@ fn layers_panel_works_from_the_keyboard_alone() {
     }
     let open = "return document.getElementById('layers-panel').open;";
     assert_eq!(browser.script(open), false);
+    browser.script(
+        "window.seen = [];
+         for (const t of ['keydown', 'keypress', 'keyup', 'click', 'toggle'])
+           document.addEventListener(t, e => seen.push(t + ':' + (e.key || '') + ':' + e.defaultPrevented), true);",
+    );
     browser.press(ENTER, 1);
-    browser.settles(json!(true), |b| b.script(open));
+    let started = Instant::now();
+    while browser.script(open) != true && started.elapsed() < Duration::from_secs(2) {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let after_enter = browser.script(open);
+    if after_enter != true {
+        browser.press(SPACE, 1);
+        std::thread::sleep(Duration::from_millis(500));
+    }
+    assert_eq!(
+        after_enter,
+        true,
+        "after Space: {}; events: {}",
+        browser.script(open),
+        browser.script("return seen.join(' ') + ' | ' + navigator.userAgent;")
+    );
 
     // With one layer, only the list, name, visibility and Add take focus.
     browser.tab_through(
