@@ -194,8 +194,8 @@ fn oversized_and_empty_art_is_refused() {
 fn utf8_ansi_art_maps_each_character_back_to_its_cp437_glyph() {
     // The colour test's box as text0wnz saves it in a .utf8.ans file.
     let art = "\x1b[0;1;34;44m╔══╗\x1b[0m\r\n║\x1b[31mHi\x1b[m║\r\n╚══╝\x1a";
-    let frame = read("box.UTF8.ans", art.as_bytes()).unwrap();
-    let rows: Vec<&str> = frame.text().lines().map(str::trim_end).collect();
+    let text = read("box.UTF8.ans", art.as_bytes()).unwrap().text();
+    let rows: Vec<&str> = text.lines().map(str::trim_end).collect();
     assert_eq!(rows, ["+==+", "|Hi|", "+==+"]);
     // Every glyph CP437 draws above 0x7F decodes as its byte does.
     let high = "ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐\
