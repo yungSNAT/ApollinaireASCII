@@ -500,7 +500,13 @@ pub fn check_link(path: &Path) -> Result<()> {
 /// Write `content` to a new file beside the file `path` names, following a symbolic link, then
 /// rename it over that file, so a failed write or rename leaves the original as it was. An
 /// existing file's permission bits carry over; its ACLs, extended attributes and owner do not.
+/// Held for the whole of a save, so a hangup waits for the save to finish before exiting.
+static SAVING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn replace_file(path: &Path, content: &str) -> Result<()> {
+    let _saving = SAVING
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     check_link(path).map_err(|e| format!("Cannot save: {e}"))?;
     let failed = |e: io::Error| format!("Cannot save {}: {e}", path.display());
     let target = match std::fs::canonicalize(path) {
@@ -572,8 +578,9 @@ fn restore(out: &mut impl Write) {
 /// crossterm 0.29 reads a closed input terminal for ever at full CPU, so on Unix the editor
 /// ends through the hangup signal instead: its input must be the terminal that controls its
 /// session, which signals the editor when it closes, and the signal ends the editor even when
-/// it was set to be ignored (as `nohup` does). A thread restores the terminal, in case it is
-/// still open, then exits; holding stdout keeps the editor from drawing after the restore.
+/// it was set to be ignored (as `nohup` does). A thread waits for any save to finish, restores
+/// the terminal in case it is still open, then exits; holding the save lock and stdout keeps the
+/// editor from saving or drawing after that.
 #[cfg(unix)]
 fn end_on_hangup() -> Result<()> {
     let controlling = matches!(
@@ -587,6 +594,9 @@ fn end_on_hangup() -> Result<()> {
         .map_err(|e| format!("Cannot use the terminal: {e}"))?;
     std::thread::spawn(move || {
         if hangups.forever().next().is_some() {
+            let _saving = SAVING
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             restore(&mut io::stdout().lock());
             std::process::exit(1);
         }
