@@ -6,11 +6,12 @@ use crate::Animation;
 /// An asciicast v2 recording that `asciinema play`, its web player and `agg` can replay. Each
 /// frame homes the cursor and overwrites the whole grid, so the only escape sequences are
 /// cursor movement, one screen clear and hiding the cursor. A last event at the end of the
-/// final frame keeps that frame on screen for its duration. Recordings play once; looping is
-/// the player's option.
+/// final frame keeps that frame on screen for its duration, and the header's idle time limit
+/// is the longest a frame may last, 60 seconds, so players that shorten pauses keep each
+/// frame whole. Recordings play once; looping is the player's option.
 pub fn asciicast(project: &Animation) -> String {
     let mut result = format!(
-        "{{\"version\":2,\"width\":{},\"height\":{}}}\n",
+        "{{\"version\":2,\"width\":{},\"height\":{},\"idle_time_limit\":60}}\n",
         project.width(),
         project.height()
     );
