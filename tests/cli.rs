@@ -1155,7 +1155,9 @@ fn a_reader_that_closed_the_pipe_ends_every_command_quietly() {
     let drawing = dir.join("drawing.txt");
     std::fs::write(&drawing, "ab\ncd\n").unwrap();
     let picture = dir.join("a.png");
-    image::DynamicImage::new_rgba8(16, 8).save(&picture).unwrap();
+    image::DynamicImage::new_rgba8(16, 8)
+        .save(&picture)
+        .unwrap();
     let out = dir.join("out");
     for args in [
         &["man"][..],
