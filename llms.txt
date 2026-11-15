@@ -2,8 +2,8 @@
 
 > A Rust library, CLI and browser editor for static ASCII art, block lettering and animation made of
 > real, selectable characters. Every frame is printable ASCII (bytes 32 to 126) in line-feed rows; there
-> is no Unicode, Braille, colour, canvas, SVG or image artwork output. Images, GIFs, video and the
-> browser camera are conversion inputs only. A fork of RASCII.
+> is no Unicode, Braille, colour, canvas, SVG or image artwork output. Images, GIFs, video, the
+> browser camera and ANSI or CP437 art files are conversion inputs only. A fork of RASCII.
 
 The crate is `apollinaire-ascii` and the command is `apollinaire`. Install the CLI with
 `cargo install --locked apollinaire-ascii`, or download a release archive for Windows, macOS or Linux

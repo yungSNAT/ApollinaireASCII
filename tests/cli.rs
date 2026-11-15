@@ -1087,6 +1087,11 @@ fn edit_checks_its_file_and_options_before_needing_a_terminal() {
             vec![path(&dir.join("art.html"))],
             "Edit needs a .txt or .json file",
         ),
+        // Saving would replace ANSI art with plain text, so it is imported to .txt instead.
+        (
+            vec![path(&dir.join("art.ans"))],
+            "Edit needs a .txt or .json file",
+        ),
         (
             vec![path(&existing), "--width".into(), "5".into()],
             "--width and --height apply only to a new file",
@@ -1279,4 +1284,45 @@ fn tree_draws_an_indented_outline_from_a_file_or_stdin() {
         &cli_stdin(&["tree", "-"], b"a\n    b\n  c\n"),
         "Line 3: its indentation matches no outer line",
     );
+}
+
+#[test]
+fn ansi_and_cp437_art_files_load_as_ascii_by_their_extension() {
+    let dir = scratch("ansi");
+    // A red CP437 box with a SAUCE record giving 6 columns, as an ANSI editor saves it.
+    let mut art = b"\x1b[31m\xda\xc4\xc4\xbf\r\n\xc0\xc4\xc4\xd9\x1b[0m\x1a".to_vec();
+    let mut sauce = b"SAUCE00".to_vec();
+    sauce.resize(94, b' ');
+    sauce.extend([1, 1, 6, 0]);
+    sauce.resize(128, 0);
+    art.extend(sauce);
+    let expected = "+--+  \n+--+  \n";
+    for name in ["box.ans", "BOX.ASC", "box.nfo", "box.diz"] {
+        let path = dir.join(name);
+        std::fs::write(&path, &art).unwrap();
+        let imported = cli(&["import", path.to_str().unwrap()]);
+        assert_eq!(
+            text(&imported.stdout),
+            expected,
+            "{name}: {}",
+            text(&imported.stderr)
+        );
+    }
+    // Every command that reads art takes it, and a broken file is refused by name.
+    let path = dir.join("box.ans");
+    let checked = cli(&["check", path.to_str().unwrap()]);
+    assert_eq!(
+        text(&checked.stdout),
+        "Valid ASCII: 6 x 2, 1 frame(s), 100 ms\n"
+    );
+    let empty = dir.join("empty.ans");
+    std::fs::write(&empty, b"\x1b[0m\x1a").unwrap();
+    refused(
+        &cli(&["import", empty.to_str().unwrap()]),
+        "The file draws no characters",
+    );
+    // The same bytes named .txt are still text, which must be printable ASCII.
+    let txt = dir.join("box.txt");
+    std::fs::write(&txt, &art).unwrap();
+    refused(&cli(&["import", txt.to_str().unwrap()]), "UTF-8");
 }
