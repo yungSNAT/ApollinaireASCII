@@ -146,6 +146,10 @@ jobs:
       - run: wasm-bindgen target/wasm32-unknown-unknown/release/apollinaire_ascii.wasm --target web --out-dir web/pkg --out-name apollinaire_ascii
       # -O3 rather than -Os or -Oz: it favours conversion speed over a few more kilobytes.
       - run: wasm-opt -O3 web/pkg/apollinaire_ascii_bg.wasm -o web/pkg/apollinaire_ascii_bg.wasm
+      # Real keystrokes from chromedriver walk the Layers panel of the built editor; DOM events
+      # in the editor tests cannot move focus.
+      - name: Layers panel by keyboard alone
+        run: CHROMEDRIVER="$CHROMEWEBDRIVER/chromedriver" cargo test --locked --test editor_keyboard -- --ignored
       # Every effect through the release CLI; a failed run or a byte outside 32 to 126 stops the deploy.
       - name: Render the effect showroom
         run: |
