@@ -39,18 +39,18 @@ fn sauce(data_type: u8, file_type: u8, width: u16, comments: &[&str]) -> Vec<u8>
 
 #[test]
 fn every_cp437_byte_decodes_to_printable_ascii() {
-    // LF, CR, tab and the end-of-file byte shape the text instead; escape picks screen mode.
+    // LF, CR, tab and the end-of-file byte shape the text instead. ESC without `[` is a glyph.
     let art: Vec<u8> = (0..=255u8)
-        .filter(|b| ![b'\n', b'\r', b'\t', 0x1a, 0x1b].contains(b))
+        .filter(|b| ![b'\n', b'\r', b'\t', 0x1a].contains(b))
         .collect();
     let frame = decode(&art).unwrap();
-    assert_eq!((frame.width(), frame.height()), (251, 1));
+    assert_eq!((frame.width(), frame.height()), (252, 1));
     assert!(frame.cells().iter().all(|b| (32..=126).contains(b)));
-    // Printable ASCII stands for itself, 5 cells early after the 5 bytes left out below it.
+    // Printable ASCII stands for itself, 4 cells early after the 4 bytes left out below it.
     let printable: Vec<u8> = (32..=126).collect();
-    assert_eq!(frame.cells()[32 - 5..127 - 5], printable[..]);
+    assert_eq!(frame.cells()[32 - 4..127 - 4], printable[..]);
     // Box drawing becomes + - | =.
-    let boxes = &frame.cells()[0xb3 - 5..=0xda - 5];
+    let boxes = &frame.cells()[0xb3 - 4..=0xda - 4];
     assert!(boxes.iter().all(|b| b"+-|=".contains(b)), "{boxes:?}");
 }
 
@@ -61,6 +61,9 @@ fn plain_cp437_text_is_read_line_by_line() {
     assert_eq!(rows(&nfo), ["#".repeat(80), ".".repeat(90), "end".into()]);
     // Tabs reach the next multiple of 8; CR is dropped wherever it falls.
     assert_eq!(rows(b"a\tb\r\n\r\n\tc"), ["a       b", "", "        c"]);
+    // ESC is the CP437 left arrow when no `[` follows it, so the text stays in line mode.
+    let nfo = [&[0x1b][..], &[b'x'; 89]].concat();
+    assert_eq!(rows(&nfo), [format!("<{}", "x".repeat(89))]);
     // A SAUCE width wider than the text pads it.
     let mut art = b"hi\n".to_vec();
     art.extend(sauce(1, 0, 10, &[]));
@@ -105,12 +108,19 @@ fn erase_escapes_clear_lines_and_the_screen() {
 
 #[test]
 fn control_bytes_and_unknown_escapes_are_handled_like_libansilove() {
-    // Tab stops every 8 columns; backspace steps back; CR returns.
-    assert_eq!(screen(b"a\tb\x08c\rd"), ["d       c"]);
-    // Private modes and other sequences are skipped whole; a lone escape skips one byte.
-    assert_eq!(rows(b"\x1b[?7ha\x1b[255;0;0tb\x1bXc"), ["abc"]);
-    // A truncated escape ends the art.
-    assert_eq!(rows(b"ab\x1b[12"), ["ab"]);
+    // Tab stops every 8 columns; backspace is a glyph and CR does nothing, as in libansilove.
+    assert_eq!(screen(b"a\tb\x08c\rd"), ["a       b#cd"]);
+    // Private modes and other sequences are skipped whole; a lone escape is skipped alone.
+    assert_eq!(rows(b"\x1b[?7ha\x1b[255;0;0tb\x1bXc"), ["abXc"]);
+    // An escape that is cut off or ends in a byte that is no command is refused.
+    assert_eq!(
+        decode(b"ab\x1b[12").unwrap_err(),
+        "The art ends inside an escape sequence"
+    );
+    assert_eq!(
+        decode(b"a\x1b[12\nb").unwrap_err(),
+        "Byte 6: an escape sequence ends with 0x0a, not a command"
+    );
     // Reading stops at the end-of-file byte.
     assert_eq!(screen(b"seen\x1anot seen"), ["seen"]);
     // A glyph in the last column wraps when the next byte arrives, so CR LF after a full row
@@ -122,6 +132,7 @@ fn control_bytes_and_unknown_escapes_are_handled_like_libansilove() {
     );
     assert_eq!(screen(b"\x1b[200Ca"), ["", "a"]);
     assert_eq!(screen(b"\x1b[78C\ta"), ["", "a"]);
+    assert_eq!(screen(b"\x1b[1;200Ha"), ["", "a"]);
 }
 
 #[test]
