@@ -1,0 +1,25 @@
+name: Edit console check
+
+on:
+  push:
+    branches: [ryan/terminal-editor-2026-11-15]
+
+permissions:
+  contents: read
+
+jobs:
+  conpty:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - run: cargo build --locked --release --bin apollinaire
+      - run: python -m pip install pywinpty==3.0.2
+      - timeout-minutes: 10
+        run: python -u -I .github/edit-check/conpty.py "$(cygpath -w "$PWD/target/release/apollinaire.exe")" "$(cygpath -w "$RUNNER_TEMP/conpty")"
