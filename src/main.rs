@@ -43,6 +43,7 @@ enum Format {
     Text,
     Json,
     Html,
+    Cast,
 }
 #[derive(Clone, Copy, ValueEnum)]
 enum Align {
@@ -683,6 +684,7 @@ fn export(project: &Animation, args: &Export, output: Option<&Path>) -> Result<(
         match output.and_then(|p| p.extension()).and_then(|s| s.to_str()) {
             Some("json") => Format::Json,
             Some("html") => Format::Html,
+            Some("cast") => Format::Cast,
             _ if project.frames().len() > 1 && args.frame.is_none() => Format::Json,
             _ => Format::Text,
         }
@@ -693,7 +695,9 @@ fn export(project: &Animation, args: &Export, output: Option<&Path>) -> Result<(
     let content = match format {
         Format::Text => {
             if project.frames().len() > 1 && args.frame.is_none() {
-                return Err("Animation needs JSON or HTML, or select --frame N for text".into());
+                return Err(
+                    "Animation needs JSON, HTML or cast, or select --frame N for text".into(),
+                );
             }
             let entry = project
                 .frames()
@@ -703,6 +707,7 @@ fn export(project: &Animation, args: &Export, output: Option<&Path>) -> Result<(
         }
         Format::Json => format!("{}\n", project.to_json()),
         Format::Html => export::html(project),
+        Format::Cast => export::asciicast(project),
     };
     Ok((format, content))
 }
@@ -750,6 +755,7 @@ fn batch(
                 Format::Text => "txt",
                 Format::Json => "json",
                 Format::Html => "html",
+                Format::Cast => "cast",
             };
             let path = dir.join(format!("{stem}.{extension}"));
             create_new(&path, &content)?;

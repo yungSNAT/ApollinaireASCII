@@ -943,6 +943,107 @@ fn html_export_cannot_turn_artwork_into_markup_or_script() {
     assert_eq!(html.matches("</script>").count(), 2);
 }
 
+/// Replay asciicast output on a `width` x `height` screen, as a terminal would. Only the
+/// sequences the export may use are accepted; scrolling or wrapping off the screen panics.
+fn replay(screen: &mut [Vec<u8>], cursor: &mut (usize, usize), output: &str) {
+    let width = screen[0].len();
+    let mut pending_wrap = false;
+    let mut bytes = output.bytes();
+    while let Some(byte) = bytes.next() {
+        match byte {
+            0x1b => {
+                assert_eq!(bytes.next(), Some(b'['));
+                let mut sequence = String::new();
+                for b in bytes.by_ref() {
+                    sequence.push(char::from(b));
+                    if (0x40..=0x7e).contains(&b) {
+                        break;
+                    }
+                }
+                match sequence.as_str() {
+                    "H" => *cursor = (0, 0),
+                    "2J" => screen.iter_mut().for_each(|row| row.fill(b' ')),
+                    "?25l" | "?25h" => {}
+                    other => panic!("unexpected escape sequence {other:?}"),
+                }
+                pending_wrap = false;
+            }
+            b'\r' => {
+                cursor.1 = 0;
+                pending_wrap = false;
+            }
+            b'\n' => {
+                cursor.0 += 1;
+                assert!(cursor.0 < screen.len(), "the output scrolled the screen");
+            }
+            32..=126 => {
+                assert!(!pending_wrap, "the output wrapped past the right edge");
+                screen[cursor.0][cursor.1] = byte;
+                if cursor.1 + 1 == width {
+                    pending_wrap = true;
+                } else {
+                    cursor.1 += 1;
+                }
+            }
+            other => panic!("unexpected byte {other}"),
+        }
+    }
+}
+
+#[test]
+fn asciicast_export_replays_each_frame_at_its_start_time() {
+    let frames = vec![
+        timed("ab\ncd", 120),
+        timed("\"\\\n  ", 250),
+        timed("x \n y", 30),
+    ];
+    let project = Animation::new(frames, true).unwrap();
+    let cast = export::asciicast(&project);
+    // The file is ASCII text even though the frames are drawn with escape sequences.
+    assert!(cast.bytes().all(|b| b == b'\n' || (32..=126).contains(&b)));
+    assert!(cast.ends_with('\n'));
+    let mut lines = cast.lines();
+    let header: serde_json::Value = serde_json::from_str(lines.next().unwrap()).unwrap();
+    assert_eq!(
+        header,
+        // Players such as agg shorten pauses over 5 seconds unless the header allows them;
+        // a frame may last 60 seconds.
+        serde_json::json!({"version": 2, "width": 2, "height": 2, "idle_time_limit": 60})
+    );
+    let events: Vec<(f64, String, String)> = lines
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(events.len(), project.frames().len() + 1);
+    assert!(events.iter().all(|(_, kind, _)| kind == "o"));
+    let times: Vec<f64> = events.iter().map(|(time, _, _)| *time).collect();
+    assert_eq!(times, [0.0, 0.12, 0.37, 0.4]);
+
+    let mut screen = vec![vec![b' '; 2]; 2];
+    let mut cursor = (0, 0);
+    for (index, (_, _, output)) in events.iter().enumerate() {
+        replay(&mut screen, &mut cursor, output);
+        // After the last event the screen still shows the last frame, for its full duration.
+        let shown = &project.frames()[index.min(project.frames().len() - 1)].frame;
+        assert_eq!(
+            screen.join(&b'\n'),
+            shown.text().as_bytes(),
+            "event {index}"
+        );
+    }
+}
+
+#[test]
+fn asciicast_export_of_a_still_lasts_its_one_frame() {
+    let cast = export::asciicast(&Animation::still(Frame::from_text("a").unwrap()));
+    let events: Vec<(f64, String, String)> = cast
+        .lines()
+        .skip(1)
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let times: Vec<f64> = events.iter().map(|(time, _, _)| *time).collect();
+    assert_eq!(times, [0.0, 0.1]);
+}
+
 #[test]
 fn speech_bubbles_bound_the_message_before_wrapping_it() {
     use apollinaire_ascii::bubble::say;

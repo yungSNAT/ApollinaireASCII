@@ -533,12 +533,32 @@ fn image_batches_create_one_file_per_input_and_never_overwrite() {
 }
 
 #[test]
+fn a_cast_extension_or_format_writes_an_asciicast_recording() {
+    let dir = scratch("cast");
+    let file = dir.join("ghost.cast");
+    let saved = cli(&["animate", "ghost", "--output", file.to_str().unwrap()]);
+    assert!(saved.status.success(), "{}", text(&saved.stderr));
+    let printed = cli(&["animate", "ghost", "--format", "cast"]);
+    assert!(printed.status.success(), "{}", text(&printed.stderr));
+    assert_eq!(std::fs::read(&file).unwrap(), printed.stdout);
+    assert!(printed.stdout.starts_with(b"{\"version\":2,"));
+    let frame = cli(&["animate", "ghost", "--format", "cast", "--frame", "0"]);
+    assert!(!frame.status.success());
+    assert!(text(&frame.stderr).contains("--frame applies only to text output"));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn image_batches_use_safe_names_and_the_requested_export_format() {
     let dir = scratch("batch-formats");
     let input = dir.join("two words.pgm");
     std::fs::write(&input, b"P2\n2 1\n255\n0 255\n").unwrap();
     let input = input.to_str().unwrap();
-    for (format, signature) in [("json", "{"), ("html", "<!doctype html>")] {
+    for (format, signature) in [
+        ("json", "{"),
+        ("html", "<!doctype html>"),
+        ("cast", "{\"version\":2,"),
+    ] {
         let output = dir.join(format);
         let result = cli(&[
             "image",
