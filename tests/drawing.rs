@@ -275,7 +275,25 @@ fn tables_refuse_blank_text_unprintable_bytes_and_oversized_results() {
         table("a", b'\n', TableRules::Header).unwrap_err(),
         "The separator must be a tab or printable ASCII"
     );
-    assert!(table(&"x".repeat(600), b',', TableRules::Header).is_err());
+    // The line and byte are named, and a CR is dropped only before LF.
+    assert_eq!(
+        table("a,b\nc,d\x07", b',', TableRules::Header).unwrap_err(),
+        "Line 2: byte 4 is 0x07, not printable ASCII"
+    );
+    assert_eq!(
+        table("a,b\r", b',', TableRules::Header).unwrap_err(),
+        "Line 1: byte 4 is 0x0d, not printable ASCII"
+    );
+    assert!(table("a,b\r\nc,d\r\n", b',', TableRules::Header).is_ok());
+    assert_eq!(
+        table(&"x".repeat(600), b',', TableRules::Header).unwrap_err(),
+        "The table is wider than 512 columns"
+    );
+    // Many empty columns are refused by width before any rule is drawn.
+    assert_eq!(
+        table(&",".repeat(200_000), b',', TableRules::Header).unwrap_err(),
+        "The table is wider than 512 columns"
+    );
     assert!(table(&"x\n".repeat(300), b',', TableRules::Header).is_err());
 }
 
@@ -333,6 +351,12 @@ fn trees_refuse_unmatched_dedents_tabs_and_blank_outlines() {
     );
     // A first line that is indented is a root like any other at that depth.
     assert_eq!(tree("  a\n  b").unwrap().text(), "a\nb");
+    // A dedent past every earlier line matches none of them either.
+    assert_eq!(
+        tree("  a\nb").unwrap_err(),
+        "Line 2: its indentation matches no outer line"
+    );
     assert!(tree("a\n caf\u{e9}").is_err());
+    assert!(tree("root\r").is_err());
     assert!(tree(&"x\n".repeat(300)).is_err());
 }
