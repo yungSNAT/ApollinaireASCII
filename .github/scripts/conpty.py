@@ -2,20 +2,23 @@
 # SPDX-License-Identifier: MIT
 """Drive `apollinaire edit` through a Windows pseudo console (ConPTY): type, draw, save and quit.
 
-Usage: python -I conpty.py <apollinaire.exe> <work folder>
-Needs pywinpty (conpty-requirements.txt). Prints one line per case and exits 1 if any fails.
+Usage, after `cargo build --release`: python -I .github/scripts/conpty.py
+Runs target/release/apollinaire.exe in a new temporary folder. Needs pywinpty
+(conpty-requirements.txt). Prints one line per case and exits 1 if any fails.
 """
 import json
 import os
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 
 from winpty import PtyProcess
 
-binary, work = sys.argv[1], sys.argv[2]
-os.makedirs(work, exist_ok=True)
+root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+binary = os.path.join(root, "target", "release", "apollinaire.exe")
+work = tempfile.mkdtemp(prefix="conpty-")
 failed = 0
 
 
