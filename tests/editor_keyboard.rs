@@ -156,7 +156,11 @@ impl Browser {
             .iter()
             .map(|k| json!({"type": "keyDown", "value": k}))
             .collect();
-        actions.extend(keys.iter().rev().map(|k| json!({"type": "keyUp", "value": k})));
+        actions.extend(
+            keys.iter()
+                .rev()
+                .map(|k| json!({"type": "keyUp", "value": k})),
+        );
         self.post(
             "/actions",
             &json!({"actions": [{"type": "key", "id": "keyboard", "actions": actions}]}),
@@ -264,7 +268,10 @@ fn layers_panel_works_from_the_keyboard_alone() {
     assert_eq!(browser.script(open), true);
 
     // With one layer, only the list, name, visibility and Add take focus.
-    browser.tab_through(&["layer", "layer-name", "layer-visible", "layer-add"], false);
+    browser.tab_through(
+        &["layer", "layer-name", "layer-visible", "layer-add"],
+        false,
+    );
     browser.press(ENTER, 1);
     assert_eq!(
         browser.layers(),
@@ -301,7 +308,10 @@ fn layers_panel_works_from_the_keyboard_alone() {
     browser.press(ENTER, 1);
     assert_eq!(browser.layers().0, ["Layer 2", "Sky"]);
     assert_eq!(browser.focused(), "layer");
-    browser.tab_through(&["layer-name", "layer-visible", "layer-add", "layer-up"], false);
+    browser.tab_through(
+        &["layer-name", "layer-visible", "layer-add", "layer-up"],
+        false,
+    );
     browser.press(ENTER, 1);
     assert_eq!(browser.layers().0, ["Sky", "Layer 2"]);
     assert_eq!(browser.focused(), "layer");
