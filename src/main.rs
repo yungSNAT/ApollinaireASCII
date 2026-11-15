@@ -342,34 +342,33 @@ fn run(args: Args) -> Result<()> {
     let project = match args.command {
         Command::List { tag: Some(tag) } => {
             no_export(&args.export, "List")?;
-            let mut found = false;
-            for piece in art::search(&tag) {
-                found = true;
-                println!(
-                    "{:<18} {:<11} {}",
-                    piece.name,
-                    piece.category,
-                    piece.tags.join(", ")
-                );
+            let found: String = art::search(&tag)
+                .map(|piece| {
+                    format!(
+                        "{:<18} {:<11} {}\n",
+                        piece.name,
+                        piece.category,
+                        piece.tags.join(", ")
+                    )
+                })
+                .collect();
+            if found.is_empty() {
+                return Err(format!("No artwork matches {tag}"));
             }
-            return if found {
-                Ok(())
-            } else {
-                Err(format!("No artwork matches {tag}"))
-            };
+            return emit(found.as_bytes());
         }
         Command::List { tag: None } => {
             no_export(&args.export, "List")?;
-            println!("Art ({} pieces):", art::CATALOGUE.len());
+            let mut list = format!("Art ({} pieces):\n", art::CATALOGUE.len());
             for category in art::CATEGORIES {
                 let names: Vec<_> = art::search("")
                     .filter(|p| p.category == *category)
                     .map(|p| p.name)
                     .collect();
-                println!("  {category}: {}", names.join(", "));
+                list += &format!("  {category}: {}\n", names.join(", "));
             }
-            println!(
-                "Fonts: {}\nScenes: {}\nEffects: {}\nRamps: {}",
+            list += &format!(
+                "Fonts: {}\nScenes: {}\nEffects: {}\nRamps: {}\n",
                 lettering::FONTS.join(", "),
                 animation::SCENES.join(", "),
                 effects::EFFECTS.join(", "),
@@ -379,7 +378,7 @@ fn run(args: Args) -> Result<()> {
                     .collect::<Vec<_>>()
                     .join(", ")
             );
-            return Ok(());
+            return emit(list.as_bytes());
         }
         Command::Art { name, border } => {
             let frame = art::template(&name)?;
@@ -640,43 +639,47 @@ fn run(args: Args) -> Result<()> {
         }
         Command::Completions { shell } => {
             no_export(&args.export, "Completions")?;
-            clap_complete::generate(
-                shell,
-                &mut Args::command(),
-                "apollinaire",
-                &mut io::stdout(),
-            );
-            return Ok(());
+            let mut script = Vec::new();
+            clap_complete::generate(shell, &mut Args::command(), "apollinaire", &mut script);
+            return emit(&script);
         }
         Command::Man => {
             no_export(&args.export, "Man")?;
-            return clap_mangen::Man::new(Args::command())
-                .render(&mut io::stdout())
-                .map_err(|e| format!("Output failed: {e}"));
+            let mut page = Vec::new();
+            clap_mangen::Man::new(Args::command())
+                .render(&mut page)
+                .map_err(|e| format!("Output failed: {e}"))?;
+            return emit(&page);
         }
         Command::Check { input } => {
             no_export(&args.export, "Check")?;
             let project = load(&input, false)?;
-            println!(
-                "Valid ASCII: {} x {}, {} frame(s), {} ms",
+            let report = format!(
+                "Valid ASCII: {} x {}, {} frame(s), {} ms\n",
                 project.width(),
                 project.height(),
                 project.frames().len(),
                 project.duration_ms()
             );
-            return Ok(());
+            return emit(report.as_bytes());
         }
     };
     let (_, content) = export(&project, &args.export, args.export.output.as_deref())?;
     if let Some(path) = &args.export.output {
         create_new(path, &content)?;
     } else {
-        io::stdout()
-            .lock()
-            .write_all(content.as_bytes())
-            .map_err(|e| format!("Output failed: {e}"))?;
+        emit(content.as_bytes())?;
     }
     Ok(())
+}
+/// Write to stdout. A reader that closed the pipe, as `head` does once it has enough, has
+/// what it asked for, so that is no failure; any other error is.
+fn emit(bytes: &[u8]) -> Result<()> {
+    let mut out = io::stdout().lock();
+    match out.write_all(bytes).and_then(|()| out.flush()) {
+        Err(e) if e.kind() != io::ErrorKind::BrokenPipe => Err(format!("Output failed: {e}")),
+        _ => Ok(()),
+    }
 }
 /// Choose the format from --format, the output extension or the frame count, and render it.
 fn export(project: &Animation, args: &Export, output: Option<&Path>) -> Result<(Format, String)> {
@@ -762,7 +765,9 @@ fn batch(
             Ok(path)
         });
         match result {
-            Ok(path) => println!("{} -> {}", input.display(), path.display()),
+            Ok(path) => {
+                emit(format!("{} -> {}\n", input.display(), path.display()).as_bytes())?;
+            }
             Err(error) => {
                 failed += 1;
                 eprintln!("apollinaire: {}: {error}", input.display());
