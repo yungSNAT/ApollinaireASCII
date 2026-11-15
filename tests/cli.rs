@@ -1087,6 +1087,11 @@ fn edit_checks_its_file_and_options_before_needing_a_terminal() {
             vec![path(&dir.join("art.html"))],
             "Edit needs a .txt or .json file",
         ),
+        // Saving would replace ANSI art with plain text, so it is imported to .txt instead.
+        (
+            vec![path(&dir.join("art.ans"))],
+            "Edit needs a .txt or .json file",
+        ),
         (
             vec![path(&existing), "--width".into(), "5".into()],
             "--width and --height apply only to a new file",

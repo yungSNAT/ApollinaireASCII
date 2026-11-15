@@ -29,6 +29,7 @@ apollinaire image https://example.com/photo.jpg --width 80 --output photo.txt
 apollinaire import art.txt --pad --format json --output art.json
 apollinaire import movie.json --format html --output movie.html
 apollinaire import movie.json --format text --frame 0 --output first.txt
+apollinaire import logo.ans --output logo.txt
 apollinaire compose background.txt cat.txt --x 4 --y 2 --transparent-spaces
 apollinaire transform movie.json horizontal --output flipped.json
 apollinaire transform art.txt crop --x 2 --y 1 --width 20 --height 10
@@ -49,6 +50,8 @@ Borders come in 4 styles: `plain` (`+-|`, the default), `rounded` (`.-'|`), `dot
 `--format text|json|html|cast` overrides extension/default inference. `.json`, `.html` and `.cast` output extensions select those formats; otherwise a still defaults to text and an animation to JSON. Animated text export requires an explicit zero-based `--frame`. `--frame` is valid only with text export.
 
 Use `-` as the input path for stdin. `.json` input is always parsed as a project and `.txt` as text. A project with layers (version 2 in [the format notes](FORMAT.md)) is read flattened to its visible layers. Ambiguous input, including stdin, is treated as JSON when it begins with `{` and is syntactically JSON; otherwise it is text. Give literal artwork that is also valid JSON a `.txt` filename to force text interpretation. CRLF is normalised to LF for text imports. `--pad` explicitly pads ragged rows; the browser pads text imports automatically.
+
+Files named `.ans`, `.asc`, `.nfo` or `.diz`, in any letter case, are ANSI or CP437 art, read wherever a command takes art and by the browser editor's Open control. Each CP437 glyph becomes its nearest printable ASCII character (box drawing `+`, `-`, `|` and `=`; shades `.`, `:` and `#`) and colour is dropped. A SAUCE record is not drawn: its width, when it gives one, sets the frame's, and reading stops at the end-of-file byte 0x1A. Art with escape sequences is drawn as libansilove draws it, on a screen 80 columns wide or the SAUCE width: cursor moves, save and restore and the `J` and `K` erase escapes apply, a row wraps when a byte arrives past its last column, and other escapes are skipped. Text with no escapes is read line by line, so an NFO line keeps its full width. Art wider than 512 columns or taller than 256 rows is refused, as is a file that draws nothing. `edit` does not open these files, since saving would replace the art with plain text; import one to `.txt` first.
 
 `image` accepts a named ramp (`standard`, `fine`, `simple`, `binary`) or a literal sequence ordered from light to dense. Quote literal ramps containing spaces or shell characters. `--cell-aspect` defaults to `0.5`; use `--height` to set rows explicitly. The background is a greyscale value from 0 to 255 for compositing transparency. Gamma and contrast accept 0.1 to 5.0. `--edges` maps edge strength through the ramp, tracing outlines. `--edge-glyphs` draws strong edges (at least a quarter of a full black-to-white step) as `|`, `/`, `-` or `\` along their direction: over the picture's own tones alone, or over the traced outlines with `--edges`. Animated GIF input retains each frame's delay, normalising zero delay to 100 ms and applying the format's 10 to 60,000 ms limits.
 
