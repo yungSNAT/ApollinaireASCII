@@ -1006,7 +1006,9 @@ fn asciicast_export_replays_each_frame_at_its_start_time() {
     let header: serde_json::Value = serde_json::from_str(lines.next().unwrap()).unwrap();
     assert_eq!(
         header,
-        serde_json::json!({"version": 2, "width": 2, "height": 2})
+        // Players such as agg shorten pauses over 5 seconds unless the header allows them;
+        // a frame may last 60 seconds.
+        serde_json::json!({"version": 2, "width": 2, "height": 2, "idle_time_limit": 60})
     );
     let events: Vec<(f64, String, String)> = lines
         .map(|line| serde_json::from_str(line).unwrap())

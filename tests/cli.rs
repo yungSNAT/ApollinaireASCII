@@ -543,6 +543,7 @@ fn a_cast_extension_or_format_writes_an_asciicast_recording() {
     assert_eq!(std::fs::read(&file).unwrap(), printed.stdout);
     assert!(printed.stdout.starts_with(b"{\"version\":2,"));
     let frame = cli(&["animate", "ghost", "--format", "cast", "--frame", "0"]);
+    assert!(!frame.status.success());
     assert!(text(&frame.stderr).contains("--frame applies only to text output"));
     std::fs::remove_dir_all(dir).unwrap();
 }
