@@ -16,6 +16,8 @@ import termios
 import time
 
 binary, work = sys.argv[1], sys.argv[2]
+import faulthandler
+faulthandler.dump_traceback_later(120, repeat=True)
 os.makedirs(work, exist_ok=True)
 failed = 0
 
@@ -54,7 +56,7 @@ def session(args, keys, rows=24, columns=80):
 def case(name, ok, detail=""):
     global failed
     failed += not ok
-    print(f"{'PASS' if ok else 'FAIL'} {name} {detail}")
+    print(f"{'PASS' if ok else 'FAIL'} {name} {detail}", flush=True)
 
 
 CTRL = lambda c: bytes([ord(c) - 96])
