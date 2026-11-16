@@ -57,11 +57,12 @@ const PICTURES: &str = "☺☻♥♦♣♠•◘○◙♂♀♪♫☼►◄↕�
 /// on. A character CP437 cannot draw, or text that is not UTF-8, is refused. The SAUCE record is
 /// read as bytes, as it need not be UTF-8.
 ///
-/// UTF-8 art is shown as a terminal shows it: on a screen reaching the rightmost glyph it draws
-/// (after LF, tabs and cursor moves) unless a SAUCE record gives a width, with moves stopping at
-/// the last column. A glyph that fills the last column leaves the cursor there and wraps only
-/// when another glyph follows, so the LF text0wnz writes after each full row ends that row and
-/// an erase escape before it reaches the last column. CR returns to the start of the row.
+/// UTF-8 art, with or without escape sequences, is shown as a terminal shows it: on a screen as
+/// wide as the SAUCE record says, or else 80 columns as text0wnz loads it, cropped to the
+/// rightmost glyph drawn, with moves stopping at the last column. A glyph that fills the last
+/// column leaves the cursor there and wraps only when another glyph follows, so the LF text0wnz
+/// writes after each full row ends that row and an erase escape before it reaches the last
+/// column. CR returns to the start of the row.
 pub fn read(name: &str, bytes: &[u8]) -> Result<Frame> {
     let lower = name.to_ascii_lowercase();
     if !lower.ends_with(".utf8.ans") {
@@ -151,16 +152,10 @@ fn render(art: &[u8], sauce_width: Option<usize>, wrap: Wrap) -> Result<Frame> {
             sauce_width.unwrap_or_default()
         ));
     }
-    let rows = if art.windows(2).any(|pair| pair == b"\x1b[") {
-        // With no SAUCE width, UTF-8 art plays on a screen wider than the limit and keeps the
-        // columns up to its rightmost glyph, so art too wide for the limit is refused below.
-        let (columns, crop) = match (sauce_width, wrap) {
-            (Some(width), _) => (width, false),
-            (None, Wrap::NextByte) => (DEFAULT_WIDTH, false),
-            (None, Wrap::NextGlyph) => (MAX_WIDTH + 1, true),
-        };
-        let (mut rows, drawn) = screen(art, columns, wrap)?;
-        if crop {
+    let rows = if wrap == Wrap::NextGlyph || art.windows(2).any(|pair| pair == b"\x1b[") {
+        let (mut rows, drawn) = screen(art, sauce_width.unwrap_or(DEFAULT_WIDTH), wrap)?;
+        // With no SAUCE width, UTF-8 art keeps the columns up to its rightmost glyph.
+        if wrap == Wrap::NextGlyph && sauce_width.is_none() {
             rows.iter_mut().for_each(|row| row.truncate(drawn));
         }
         rows
