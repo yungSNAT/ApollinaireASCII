@@ -187,9 +187,24 @@ Both wrapped the sentence into the same 4 lines. The outputs differ where the pr
 - For `你好`, and for `café` written with a combining accent, cowsay exited 0 but sized its bubble by bytes, so the border came out 2 columns wider than the text line. `say` refuses both, naming the first byte outside printable ASCII.
 - cowsay turned a tab into spaces and drew an empty bubble for empty stdin; `say` refuses both.
 
+## 3D model render budget
+
+On 17 November 2026 release builds (Rust 1.99.1) drew generated OBJ files on a Linux machine with 16 CPUs shared with other jobs (load average 3 to 10), so the times are indicative: natively with `apollinaire model`, and as WebAssembly built for `wasm32-unknown-unknown` and run in headless Chromium 157, one render a page load. Each time is the slowest of 3 runs. Native memory is the peak resident set size, including process start; WebAssembly memory is the linear memory after the render, which only grows.
+
+| Model and render | Native | Chromium |
+|---|--:|--:|
+| Sphere of 1,000 triangles, 72 x 24, 36 frames | 20 ms, 12 MiB | 19 ms, 1 MiB |
+| Sphere of 99,904 triangles, 72 x 24, 36 frames | 340 ms, 19 MiB | 366 ms, 13 MiB |
+| The same sphere, 512 x 256, 30 frames | 490 ms, 25 MiB | 525 ms, 13 MiB |
+| The same sphere, 160 x 80, 195 frames, near the budget in draws | 1.94 s, 19 MiB | 2.02 s, 13 MiB |
+| 155 triangles covering a 512 x 256 frame, 60 frames, near the budget in cell tests | 2.11 s, 36 MiB | 2.12 s, 10 MiB |
+| 120 covering triangles and 80,000 tiny ones, 512 x 256, 60 frames, near the budget in both | 2.12 s, 36 MiB | 2.00 s, 13 MiB |
+
+The first build allowed 50,000,000 draws and, separately, 1,000,000,000 cell tests: the sphere over 500 frames took 4.48 s and 350 covering triangles 4.91 s. Lowered to 20,000,000 and 400,000,000, each took 1.7 to 1.9 s alone, but a model near both, 140 covering triangles and 330,000 tiny ones, took 3.22 s, as their costs add. One budget now counts both: a triangle in a frame takes about as long as 20 cell tests (about 89 ns against 4.4 ns as WebAssembly at the separate edges), so 400,000,000 units of work hold every mix to about 2 seconds. A render over the budget is refused before drawing: the sphere over 200 frames in under 80 ms in Chromium, and 160 covering triangles in under 10 ms natively. A 1,000,000-triangle OBJ sphere is 36 MB and stops at the 16 MiB input limit; an OBJ file reaches the triangle limit only with short face lines. Fuzzing the reader and a small render (`fuzz/fuzz_targets/model.rs`) for 5 minutes on 4 workers, from one OBJ and one text STL seed, ran 17,433,892 inputs with no crash, timeout or out-of-memory failure.
+
 ## Deliberate limits
 
-The Rust code contains no video decoder: the browser decodes video, so supported formats vary by browser, and the CLI has no video or camera input. Only the CLI fetches media over the network, from `https://` image URLs. There is no ANSI-colour artwork mode, raster/vector artwork exporter or Unicode-art mode. GIF is the animated image import format; other image inputs use the image library's still-image decoding. Oversize inputs are refused. Browser work is synchronous Rust after the bounded file read, so the largest valid conversions hold the UI thread for up to about a second (see Conversion responsiveness), or about 4 seconds with shape matching at 512 by 256 cells (see Shape-matched characters against chafa). Resource limits bound accepted files and projects, not the browser process's total memory.
+The Rust code contains no video decoder: the browser decodes video, so supported formats vary by browser, and the CLI has no video or camera input. Only the CLI fetches media over the network, from `https://` image URLs. There is no ANSI-colour artwork mode, raster/vector artwork exporter or Unicode-art mode. GIF is the animated image import format; other image inputs use the image library's still-image decoding. Oversize inputs are refused. Browser work is synchronous Rust after the bounded file read, so the largest valid conversions hold the UI thread for up to about a second (see Conversion responsiveness), or about 4 seconds with shape matching at 512 by 256 cells (see Shape-matched characters against chafa), and a 3D model for up to about 2 seconds (see 3D model render budget). Resource limits bound accepted files and projects, not the browser process's total memory.
 
 The browser keeps 100 undo steps within a 16 million cell budget and has no automatic local persistence. A drag, a keyboard stroke or a run of typed characters is one step. Onion skin shows only the previous frame, so the first frame has none. On screens up to 760 pixels wide the drawing options start folded. Drawing tools disable touch scrolling over the grid; choose Select text to scroll it by touch. Save a JSON project to retain all frames and timing. Text export saves one selected frame. Closing or reloading a modified project requests the browser's unsaved-work prompt; downloads are reported as requested because the page cannot prove where the browser saved a file. Requesting a download does not clear the unsaved-work warning.
 

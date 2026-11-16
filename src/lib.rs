@@ -23,6 +23,7 @@ mod gif;
 pub mod image_renderer;
 pub mod layers;
 pub mod lettering;
+pub mod model;
 pub mod motion;
 mod project_json;
 pub mod video;

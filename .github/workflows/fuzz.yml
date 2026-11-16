@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [decode_media, font, project_json]
+        target: [decode_media, font, model, project_json]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -25,7 +25,7 @@ jobs:
           rustup toolchain install nightly --profile minimal
           cargo +nightly install cargo-fuzz --locked --version 0.13.2
       # The bundled fonts seed the font target and the test projects, with and without
-      # layers, seed project_json; decode_media starts from nothing.
+      # layers, seed project_json; decode_media and model start from nothing.
       - name: Fuzz for 5 minutes
         env:
           TARGET: ${{ matrix.target }}
