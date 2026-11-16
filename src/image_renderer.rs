@@ -9,6 +9,8 @@ use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader, Limits};
 use std::f64::consts::{FRAC_PI_4, PI};
 use std::io::Cursor;
 
+mod shapes;
+
 pub const RAMPS: &[(&str, &str)] = &[
     ("standard", " .:-=+*#%@"),
     (
@@ -18,6 +20,17 @@ pub const RAMPS: &[(&str, &str)] = &[
     ("simple", " .oO#"),
     ("binary", " #"),
 ];
+/// How each cell's character is chosen.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Glyphs {
+    /// The ramp character for the cell's brightness, as [`render_image`] draws it.
+    #[default]
+    Ramp,
+    /// The printable character whose shape best fits the cell's pixels. It chooses from all
+    /// 95 characters, so it refuses dithering, edge tracing, edge characters and a ramp other
+    /// than the standard one.
+    Shapes,
+}
 /// Edge strength, as a share of a full black-to-white step, that earns a direction character.
 const STRONG_EDGE: f64 = 0.25;
 #[derive(Clone, Debug)]
@@ -83,6 +96,17 @@ impl RenderOptions {
         })
     }
 }
+/// [`render_image`], or shape matching with [`Glyphs::Shapes`].
+pub fn render_image_as(
+    resource: &DynamicImage,
+    options: &RenderOptions,
+    glyphs: Glyphs,
+) -> Result<Frame> {
+    match glyphs {
+        Glyphs::Ramp => render_image(resource, options),
+        Glyphs::Shapes => shapes::render(resource, options),
+    }
+}
 pub fn render_image(resource: &DynamicImage, options: &RenderOptions) -> Result<Frame> {
     options.validate()?;
     let (source_w, source_h) = (resource.width(), resource.height());
@@ -98,11 +122,7 @@ pub fn render_image(resource: &DynamicImage, options: &RenderOptions) -> Result<
         .to_rgba8();
     let mut values: Vec<f64> = resized
         .pixels()
-        .map(|p| {
-            let alpha = p[3] as f64 / 255.0;
-            let gray = (p[0] as f64 * 0.299 + p[1] as f64 * 0.587 + p[2] as f64 * 0.114) / 255.0;
-            gray * alpha + options.background as f64 / 255.0 * (1.0 - alpha)
-        })
+        .map(|p| gray(p, options.background))
         .collect();
     let mut glyphs = vec![None; count];
     if options.edges || options.edge_glyphs {
@@ -132,12 +152,7 @@ pub fn render_image(resource: &DynamicImage, options: &RenderOptions) -> Result<
         }
     }
     for value in &mut values {
-        *value = ((*value - 0.5) * options.contrast + 0.5)
-            .clamp(0.0, 1.0)
-            .powf(1.0 / options.gamma);
-        if options.invert {
-            *value = 1.0 - *value;
-        }
+        *value = adjust(*value, options);
     }
     let ramp = options.ramp.as_bytes();
     let mut cells = Vec::with_capacity(count);
@@ -164,6 +179,19 @@ pub fn render_image(resource: &DynamicImage, options: &RenderOptions) -> Result<
         }
     }
     Frame::new(options.width, height, cells)
+}
+/// A pixel's brightness from 0 to 1, over the background where it is transparent.
+fn gray(p: &image::Rgba<u8>, background: u8) -> f64 {
+    let alpha = p[3] as f64 / 255.0;
+    let gray = (p[0] as f64 * 0.299 + p[1] as f64 * 0.587 + p[2] as f64 * 0.114) / 255.0;
+    gray * alpha + background as f64 / 255.0 * (1.0 - alpha)
+}
+/// A brightness with the contrast, gamma and inversion applied.
+fn adjust(value: f64, options: &RenderOptions) -> f64 {
+    let value = ((value - 0.5) * options.contrast + 0.5)
+        .clamp(0.0, 1.0)
+        .powf(1.0 / options.gamma);
+    if options.invert { 1.0 - value } else { value }
 }
 /// The character running along an edge, which lies across its brightness gradient.
 /// Angles stay in cells rather than pixels because `/` and `\` are the diagonals of a cell.
@@ -192,6 +220,10 @@ fn limits() -> Limits {
 }
 /// GIFs become timed text frames. Zero GIF delays use 100 ms.
 pub fn decode_media(bytes: &[u8], options: &RenderOptions) -> Result<Animation> {
+    decode_media_as(bytes, options, Glyphs::Ramp)
+}
+/// [`decode_media`], choosing characters as `glyphs` says.
+pub fn decode_media_as(bytes: &[u8], options: &RenderOptions, glyphs: Glyphs) -> Result<Animation> {
     options.validate()?;
     if bytes.is_empty() || bytes.len() > MAX_MEDIA_BYTES {
         return Err("Media must be 1 byte to 128 MiB".into());
@@ -211,7 +243,7 @@ pub fn decode_media(bytes: &[u8], options: &RenderOptions) -> Result<Animation> 
         {
             return Err("GIF exceeds frame, output cell or 64 million decoded pixel budget".into());
         }
-        decode_gif_frames(bytes, options, count)
+        decode_gif_frames(bytes, options, glyphs, count)
     } else {
         let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
         reader.limits(limits());
@@ -222,12 +254,17 @@ pub fn decode_media(bytes: &[u8], options: &RenderOptions) -> Result<Animation> 
         check_pixels(w, h)?;
         let image =
             DynamicImage::from_decoder(decoder).map_err(|e| format!("Image decode: {e}"))?;
-        Ok(Animation::still(render_image(&image, options)?))
+        Ok(Animation::still(render_image_as(&image, options, glyphs)?))
     }
 }
 
 /// Render the inspected frame count without exceeding the preflight budget.
-fn decode_gif_frames(bytes: &[u8], options: &RenderOptions, count: usize) -> Result<Animation> {
+fn decode_gif_frames(
+    bytes: &[u8],
+    options: &RenderOptions,
+    glyphs: Glyphs,
+    count: usize,
+) -> Result<Animation> {
     let mut frames = Vec::with_capacity(count);
     crate::gif::for_each_frame(bytes, |screen, delay_cs| {
         if frames.len() >= count {
@@ -241,7 +278,7 @@ fn decode_gif_frames(bytes: &[u8], options: &RenderOptions, count: usize) -> Res
         if !(10..=60_000).contains(&delay) {
             return Err("GIF frame delay is outside 10..=60000 ms".into());
         }
-        let frame = render_image(&DynamicImage::ImageRgba8(screen), options)?;
+        let frame = render_image_as(&DynamicImage::ImageRgba8(screen), options, glyphs)?;
         frames.push(TimedFrame {
             frame,
             duration_ms: delay,
@@ -345,11 +382,11 @@ fn gif_decoder_rejects_a_frame_count_that_disagrees_with_preflight() {
         ..RenderOptions::default()
     };
     assert_eq!(
-        decode_gif_frames(&bytes, &options, 1).unwrap_err(),
+        decode_gif_frames(&bytes, &options, Glyphs::Ramp, 1).unwrap_err(),
         "GIF frame count changed during decoding"
     );
     assert_eq!(
-        decode_gif_frames(&bytes, &options, 3).unwrap_err(),
+        decode_gif_frames(&bytes, &options, Glyphs::Ramp, 3).unwrap_err(),
         "GIF frame count does not match its container"
     );
 }
