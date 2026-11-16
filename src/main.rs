@@ -7,7 +7,7 @@ use apollinaire_ascii::{
     Animation, BorderStyle, Canvas, EffectOptions, Frame, Glyphs, Layered, MAX_INPUT_BYTES,
     MAX_MEDIA_BYTES, RenderOptions, Result, SceneOptions, TimedFrame, animation, ansi, art, bubble,
     diagram::{self, TableRules},
-    effects, export, generator, lettering, model,
+    effects, export, generator, lettering, model, rexpaint,
 };
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use std::{
@@ -497,10 +497,12 @@ enum Command {
         #[arg(long, default_value_t = 0)]
         source_frame: usize,
     },
-    /// Load .txt, an ApollinaireASCII .json project or ANSI art. Text CRLF is normalised to LF.
+    /// Load .txt, an ApollinaireASCII .json project, ANSI art or a REXPaint image. Text CRLF is
+    /// normalised to LF.
     Import {
-        /// A .txt or .json file, ANSI or CP437 art (.ans, .asc, .nfo or .diz) or XBIN, Artworx,
-        /// iCE Draw or TundraDraw art (.xb, .adf, .idf or .tnd), colour dropped, or `-` for stdin.
+        /// A .txt or .json file, ANSI or CP437 art (.ans, .asc, .nfo or .diz), XBIN, Artworx,
+        /// iCE Draw or TundraDraw art (.xb, .adf, .idf or .tnd) or a REXPaint image (.xp, layers
+        /// flattened), colour dropped, or `-` for stdin.
         input: PathBuf,
         /// Pad ragged text rows with spaces instead of refusing them.
         #[arg(long, conflicts_with = "bin")]
@@ -1012,7 +1014,7 @@ fn run(args: Args) -> Result<()> {
         Command::Check { input } => {
             no_export(&args.export, "Check")?;
             let bytes = read_bounded(&input, MAX_INPUT_BYTES)?;
-            if ansi_name(&input).is_none() && !is_json(&input, &bytes) {
+            if ansi_name(&input).is_none() && !is_rexpaint(&input) && !is_json(&input, &bytes) {
                 problems(&input, &bytes)?;
             }
             let project = parse(&input, bytes, false)?;
@@ -1232,6 +1234,11 @@ fn ansi_name(path: &Path) -> Option<&str> {
         .and_then(|n| n.to_str())
         .filter(|n| ansi::is_ansi_name(n))
 }
+/// Whether the input is named as a REXPaint image.
+fn is_rexpaint(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("xp"))
+}
 /// Whether input is a JSON project: a .json file, or any but a .txt file that is JSON with an
 /// object first.
 fn is_json(path: &Path, bytes: &[u8]) -> bool {
@@ -1243,6 +1250,9 @@ fn is_json(path: &Path, bytes: &[u8]) -> bool {
             }))
 }
 fn parse(path: &Path, bytes: Vec<u8>, pad: bool) -> Result<Animation> {
+    if is_rexpaint(path) {
+        return Ok(rexpaint::read(&bytes)?.flatten());
+    }
     if let Some(name) = ansi_name(path) {
         return Ok(Animation::still(ansi::read(name, &bytes)?));
     }

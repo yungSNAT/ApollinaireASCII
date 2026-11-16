@@ -1757,3 +1757,50 @@ fn binary_text_art_loads_by_name_and_bin_only_with_its_flag() {
         "cannot be used with",
     );
 }
+
+#[test]
+fn rexpaint_images_load_flattened_by_their_extension() {
+    let dir = scratch("rexpaint");
+    let fixture = include_bytes!("fixtures/rexpaint/mltest.xp");
+    for name in ["mltest.xp", "MLTEST.XP"] {
+        let path = dir.join(name);
+        std::fs::write(&path, fixture).unwrap();
+        let imported = cli(&["import", path.to_str().unwrap()]);
+        assert_eq!(
+            text(&imported.stdout),
+            "AAAAAAAA\nAABBBBAA\nAABBBBAA\nAAAAAAAA\n",
+            "{}",
+            text(&imported.stderr)
+        );
+        let check = cli(&["check", path.to_str().unwrap()]);
+        assert!(
+            text(&check.stdout).starts_with("Valid ASCII: 8 x 4, 1 frame(s)"),
+            "{}",
+            text(&check.stderr)
+        );
+    }
+    // Other commands that take art read it the same way.
+    let effect = cli(&[
+        "effect",
+        "scatter",
+        dir.join("mltest.xp").to_str().unwrap(),
+        "--duration",
+        "500",
+        "--fps",
+        "10",
+    ]);
+    assert!(effect.status.success(), "{}", text(&effect.stderr));
+    let effect = apollinaire_ascii::Animation::from_json(text(&effect.stdout)).unwrap();
+    assert_eq!(
+        effect.frames()[4].frame.text(),
+        "AAAAAAAA\nAABBBBAA\nAABBBBAA\nAAAAAAAA"
+    );
+    let broken = dir.join("broken.xp");
+    std::fs::write(&broken, b"not gzip").unwrap();
+    for command in ["import", "check"] {
+        refused(
+            &cli(&[command, broken.to_str().unwrap()]),
+            "Not a REXPaint .xp file",
+        );
+    }
+}

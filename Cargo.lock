@@ -73,6 +73,7 @@ dependencies = [
  "clap_complete",
  "clap_mangen",
  "crossterm",
+ "flate2",
  "image",
  "js-sys",
  "portable-pty",

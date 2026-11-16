@@ -18,6 +18,7 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 name = "apollinaire-ascii"
 version = "0.4.1"
 dependencies = [
+ "flate2",
  "image",
  "serde",
  "serde_json",
