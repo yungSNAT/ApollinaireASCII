@@ -3,3 +3,5 @@
 /dist/
 *.tmp
 /web/showroom/
+/tests/code_exports/node_modules/
+/tests/code_exports/out/

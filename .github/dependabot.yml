@@ -10,6 +10,19 @@ updates:
       # One pull request bumps a crate in both lockfiles, not one per directory.
       cargo:
         group-by: dependency-name
+  # The libraries the code exports are run against.
+  - package-ecosystem: npm
+    directory: /tests/code_exports
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+  - package-ecosystem: gomod
+    directory: /tests/code_exports/go
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
   - package-ecosystem: github-actions
     directory: /
     schedule:

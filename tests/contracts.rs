@@ -1083,6 +1083,55 @@ fn asciicast_export_of_a_still_lasts_its_one_frame() {
     assert_eq!(times, [0.0, 0.1]);
 }
 
+/// The JSON array after `prefix` on the line that starts with it, read back.
+fn literal<T: serde::de::DeserializeOwned>(code: &str, prefix: &str, open: char) -> T {
+    let line = code
+        .lines()
+        .find_map(|line| line.strip_prefix(prefix))
+        .unwrap_or_else(|| panic!("no {prefix} in\n{code}"));
+    let line = line.trim_end_matches(';');
+    let array = match open {
+        '{' => format!("[{}]", &line[1..line.len() - 1]),
+        _ => line.to_string(),
+    };
+    serde_json::from_str(&array).unwrap()
+}
+
+#[test]
+fn code_exports_carry_every_frame_as_a_literal_that_cannot_break_out() {
+    // Quotes, backslashes, template syntax and a closing script tag stay inside the strings.
+    let texts = ["`${a}`\n\"\\'/  ", "</scri\npt>   "];
+    let project = Animation::new(vec![timed(texts[0], 120), timed(texts[1], 30)], true).unwrap();
+    let shown: Vec<String> = project.frames().iter().map(|e| e.frame.text()).collect();
+    for code in [
+        export::react(&project),
+        export::ink(&project),
+        export::opentui(&project),
+    ] {
+        assert!(code.bytes().all(|b| b == b'\n' || (32..=126).contains(&b)));
+        assert_eq!(literal::<Vec<String>>(&code, "const frames = ", '['), shown);
+        assert_eq!(
+            literal::<Vec<u32>>(&code, "const durations = ", '['),
+            [120, 30]
+        );
+        assert!(code.contains("const loop = true;\n"));
+    }
+    let go = export::bubbletea(&project);
+    assert!(go.starts_with("// ApollinaireASCII artwork as a Bubble Tea program.\npackage main\n"));
+    assert_eq!(
+        literal::<Vec<String>>(&go, "var frames = []string", '{'),
+        shown
+    );
+    assert_eq!(
+        literal::<Vec<u32>>(&go, "var durations = []int", '{'),
+        [120, 30]
+    );
+    assert!(go.contains("\nconst loop = true\n"));
+    let once = Animation::new(vec![timed("a", 50)], false).unwrap();
+    assert!(export::react(&once).contains("const loop = false;\n"));
+    assert!(export::bubbletea(&once).contains("\nconst loop = false\n"));
+}
+
 #[test]
 fn speech_bubbles_bound_the_message_before_wrapping_it() {
     use apollinaire_ascii::bubble::say;
