@@ -43,11 +43,9 @@ fn video_options_need_a_video_and_video_needs_ffmpeg() {
         .unwrap();
     assert!(!output.status.success());
     assert!(
-        stderr(&output).contains(
-            "Video input needs ffmpeg and ffprobe on PATH (",
-        ) && stderr(&output).ends_with(
-            "); install ffmpeg, or convert the video in the browser editor\n"
-        ),
+        stderr(&output).contains("Video input needs ffmpeg and ffprobe on PATH (",)
+            && stderr(&output)
+                .ends_with("); install ffmpeg, or convert the video in the browser editor\n"),
         "{}",
         stderr(&output)
     );
@@ -72,7 +70,10 @@ mod with_ffmpeg {
             .arg("-version")
             .output()
             .is_ok_and(|o| o.status.success());
-        assert!(found || std::env::var_os("CI").is_none(), "ffmpeg is required on CI");
+        assert!(
+            found || std::env::var_os("CI").is_none(),
+            "ffmpeg is required on CI"
+        );
         if !found {
             eprintln!("skipped: ffmpeg is not on PATH");
         }
@@ -92,7 +93,8 @@ mod with_ffmpeg {
 
     fn project(output: &Output) -> apollinaire_ascii::Animation {
         assert!(output.status.success(), "{}", stderr(output));
-        apollinaire_ascii::Animation::from_json(std::str::from_utf8(&output.stdout).unwrap()).unwrap()
+        apollinaire_ascii::Animation::from_json(std::str::from_utf8(&output.stdout).unwrap())
+            .unwrap()
     }
 
     #[test]
@@ -104,15 +106,30 @@ mod with_ffmpeg {
         let dir = scratch("video");
         // One second of black, then one of white, 64 x 48 pixels.
         let halves = [
-            "-f", "lavfi", "-i", "color=c=black:s=64x48:r=25:d=1",
-            "-f", "lavfi", "-i", "color=c=white:s=64x48:r=25:d=1",
-            "-filter_complex", "[0][1]concat=n=2:v=1",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:s=64x48:r=25:d=1",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=white:s=64x48:r=25:d=1",
+            "-filter_complex",
+            "[0][1]concat=n=2:v=1",
         ];
         let clip = dir.join("clip.mp4");
-        make(&clip, &[&halves[..], &["-c:v", "mpeg4", "-q:v", "2"][..]].concat());
+        make(
+            &clip,
+            &[&halves[..], &["-c:v", "mpeg4", "-q:v", "2"][..]].concat(),
+        );
         let solid = |level: u8| {
-            render_rgba(64, 48, [level, level, level, 255].repeat(64 * 48), &RenderOptions::default())
-                .unwrap()
+            render_rgba(
+                64,
+                48,
+                [level, level, level, 255].repeat(64 * 48),
+                &RenderOptions::default(),
+            )
+            .unwrap()
         };
         let (black, white) = (solid(0), solid(255));
         let path = clip.to_str().unwrap();
@@ -127,7 +144,9 @@ mod with_ffmpeg {
                 _ => {}
             }
         }
-        let cut = project(&cli(&["image", path, "--fps", "5", "--start", "0.5", "--end", "1.5"]));
+        let cut = project(&cli(&[
+            "image", path, "--fps", "5", "--start", "0.5", "--end", "1.5",
+        ]));
         assert_eq!(cut.frames().len(), 5);
         assert!(cut.frames().iter().all(|f| f.duration_ms == 200));
         assert_eq!(cut.frames()[0].frame, black);
@@ -135,13 +154,25 @@ mod with_ffmpeg {
 
         // WebM goes through another demuxer; a name like an option or protocol is still a file.
         let webm = dir.join("-concat:a|b.webm");
-        make(&webm, &[&halves[..], &["-c:v", "libvpx", "-b:v", "1M"][..]].concat());
-        let named = project(&cli(&["image", "--width", "8", "--", webm.to_str().unwrap()]));
+        make(
+            &webm,
+            &[&halves[..], &["-c:v", "libvpx", "-b:v", "1M"][..]].concat(),
+        );
+        let named = project(&cli(&[
+            "image",
+            "--width",
+            "8",
+            "--",
+            webm.to_str().unwrap(),
+        ]));
         assert_eq!(named.frames().len(), 20);
 
         // Several inputs, images and videos alike, each to its own file.
         let picture = dir.join("still.png");
-        make(&picture, &["-f", "lavfi", "-i", "color=c=white:s=8x8", "-frames:v", "1"]);
+        make(
+            &picture,
+            &["-f", "lavfi", "-i", "color=c=white:s=8x8", "-frames:v", "1"],
+        );
         let out = dir.join("out");
         let batch = cli(&[
             "image",
@@ -155,7 +186,13 @@ mod with_ffmpeg {
         assert!(batch.status.success(), "{}", stderr(&batch));
         assert!(out.join("still.png.txt").is_file());
         let json = std::fs::read_to_string(out.join("clip.mp4.json")).unwrap();
-        assert_eq!(apollinaire_ascii::Animation::from_json(&json).unwrap().frames().len(), 4);
+        assert_eq!(
+            apollinaire_ascii::Animation::from_json(&json)
+                .unwrap()
+                .frames()
+                .len(),
+            4
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -171,9 +208,18 @@ mod with_ffmpeg {
         make(
             &short,
             &[
-                "-f", "lavfi", "-i", "testsrc=s=32x24:r=25:d=1",
-                "-f", "lavfi", "-i", "sine=d=2",
-                "-c:v", "mpeg4", "-c:a", "pcm_s16le",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc=s=32x24:r=25:d=1",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=d=2",
+                "-c:v",
+                "mpeg4",
+                "-c:a",
+                "pcm_s16le",
             ],
         );
         let path = short.to_str().unwrap();
@@ -223,8 +269,16 @@ mod with_ffmpeg {
         make(
             &whole,
             &[
-                "-f", "lavfi", "-i", "testsrc=s=320x240:r=25:d=2",
-                "-c:v", "mpeg4", "-q:v", "2", "-movflags", "+faststart",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc=s=320x240:r=25:d=2",
+                "-c:v",
+                "mpeg4",
+                "-q:v",
+                "2",
+                "-movflags",
+                "+faststart",
             ],
         );
         let bytes = std::fs::read(&whole).unwrap();

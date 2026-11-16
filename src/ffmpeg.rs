@@ -38,7 +38,10 @@ pub struct Sampling {
 }
 
 pub fn is_video(path: &Path) -> bool {
-    let extension = path.extension().and_then(|e| e.to_str()).unwrap_or_default();
+    let extension = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or_default();
     EXTENSIONS.iter().any(|v| v.eq_ignore_ascii_case(extension))
 }
 
@@ -54,7 +57,14 @@ pub fn convert(
     let shown = path.display();
     let mut probe = Command::new("ffprobe");
     probe
-        .args(["-v", "error", "-protocol_whitelist", "file", "-format_whitelist", DEMUXERS])
+        .args([
+            "-v",
+            "error",
+            "-protocol_whitelist",
+            "file",
+            "-format_whitelist",
+            DEMUXERS,
+        ])
         .args(["-select_streams", "v:0", "-of", "json", "-show_entries"])
         .arg("stream=width,height:stream_side_data=rotation:format=duration,format_name")
         .arg("-i")
@@ -64,8 +74,9 @@ pub fn convert(
     if !probe.status.success() {
         return Err(failed("ffprobe", &shown, &probe.stderr));
     }
-    let (width, height, duration_ms, demuxer) = probed(&probe.stdout)
-        .ok_or_else(|| format!("ffprobe found no video stream with a size and duration in {shown}"))?;
+    let (width, height, duration_ms, demuxer) = probed(&probe.stdout).ok_or_else(|| {
+        format!("ffprobe found no video stream with a size and duration in {shown}")
+    })?;
     let end_ms = sampling.end_ms.unwrap_or(duration_ms);
     let times = sample_times(duration_ms, sampling.start_ms, end_ms, sampling.fps)?;
     let (pixels_wide, pixels_high) = sample_size(width, height, options.width)?;
@@ -78,7 +89,14 @@ pub fn convert(
     let seconds = |ms: f64| format!("{:.3}", ms / 1000.0);
     let mut decode = Command::new("ffmpeg");
     decode
-        .args(["-nostdin", "-xerror", "-v", "error", "-protocol_whitelist", "file"])
+        .args([
+            "-nostdin",
+            "-xerror",
+            "-v",
+            "error",
+            "-protocol_whitelist",
+            "file",
+        ])
         .args(["-format_whitelist", DEMUXERS, "-f", &demuxer]);
     if demuxer == "mov" {
         // Never follow a QuickTime file's references to other files.
@@ -108,10 +126,18 @@ pub fn convert(
             kept
         })
     });
-    let frames = read_frames(&mut child, (pixels_wide, pixels_high), &times, options, glyphs);
+    let frames = read_frames(
+        &mut child,
+        (pixels_wide, pixels_high),
+        &times,
+        options,
+        glyphs,
+    );
     // Closing the pipe stops ffmpeg should any frames be left unread.
     drop(child.stdout.take());
-    let status = child.wait().map_err(|e| format!("ffmpeg did not finish: {e}"))?;
+    let status = child
+        .wait()
+        .map_err(|e| format!("ffmpeg did not finish: {e}"))?;
     let errors = errors.and_then(|e| e.join().ok()).unwrap_or_default();
     let frames = frames?;
     if !status.success() {
@@ -145,7 +171,13 @@ fn read_frames(
     let mut frames = Vec::with_capacity(times.len());
     let mut pixels = vec![0; width as usize * height as usize * 4];
     while frames.len() < times.len() && stdout.read_exact(&mut pixels).is_ok() {
-        frames.push(render_rgba_as(width, height, pixels.clone(), options, glyphs)?);
+        frames.push(render_rgba_as(
+            width,
+            height,
+            pixels.clone(),
+            options,
+            glyphs,
+        )?);
     }
     Ok(frames)
 }
@@ -159,12 +191,25 @@ fn probed(json: &[u8]) -> Option<(u32, u32, f64, String)> {
     let (width, height) = (size("width")?, size("height")?);
     let format = value.get("format")?;
     let duration: f64 = format.get("duration")?.as_str()?.parse().ok()?;
-    let demuxer = format.get("format_name")?.as_str()?.split(',').next()?.to_string();
+    let demuxer = format
+        .get("format_name")?
+        .as_str()?
+        .split(',')
+        .next()?
+        .to_string();
     let rotation = stream
         .get("side_data_list")
-        .and_then(|list| list.as_array()?.iter().find_map(|d| d.get("rotation")?.as_i64()))
+        .and_then(|list| {
+            list.as_array()?
+                .iter()
+                .find_map(|d| d.get("rotation")?.as_i64())
+        })
         .unwrap_or(0);
-    let (width, height) = if rotation % 180 == 0 { (width, height) } else { (height, width) };
+    let (width, height) = if rotation % 180 == 0 {
+        (width, height)
+    } else {
+        (height, width)
+    };
     Some((width, height, duration * 1000.0, demuxer))
 }
 
@@ -176,6 +221,11 @@ fn missing(error: std::io::Error) -> String {
 
 fn failed(program: &str, shown: &impl std::fmt::Display, errors: &[u8]) -> String {
     let errors = String::from_utf8_lossy(errors);
-    let detail: Vec<&str> = errors.lines().map(str::trim).filter(|l| !l.is_empty()).take(3).collect();
+    let detail: Vec<&str> = errors
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .take(3)
+        .collect();
     format!("{program} could not read {shown}: {}", detail.join("; "))
 }
