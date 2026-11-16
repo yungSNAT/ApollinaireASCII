@@ -24,6 +24,7 @@ pub mod layers;
 pub mod lettering;
 pub mod motion;
 mod project_json;
+pub mod rexpaint;
 pub mod video;
 
 #[cfg(all(target_arch = "wasm32", feature = "web"))]

@@ -5,7 +5,7 @@ use apollinaire_ascii::{
     Animation, BorderStyle, Canvas, EffectOptions, Frame, Layered, MAX_INPUT_BYTES,
     MAX_MEDIA_BYTES, RenderOptions, Result, SceneOptions, TimedFrame, animation, ansi, art, bubble,
     diagram::{self, TableRules},
-    effects, export, lettering,
+    effects, export, lettering, rexpaint,
 };
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use std::{
@@ -292,10 +292,12 @@ enum Command {
         #[arg(long, default_value_t = 0)]
         source_frame: usize,
     },
-    /// Load .txt, an ApollinaireASCII .json project or ANSI art. Text CRLF is normalised to LF.
+    /// Load .txt, an ApollinaireASCII .json project, ANSI art or a REXPaint image. Text CRLF is
+    /// normalised to LF.
     Import {
-        /// A .txt or .json file, ANSI or CP437 art (.ans, .asc, .nfo or .diz) or XBIN, Artworx,
-        /// iCE Draw or TundraDraw art (.xb, .adf, .idf or .tnd), colour dropped, or `-` for stdin.
+        /// A .txt or .json file, ANSI or CP437 art (.ans, .asc, .nfo or .diz), XBIN, Artworx,
+        /// iCE Draw or TundraDraw art (.xb, .adf, .idf or .tnd) or a REXPaint image (.xp, layers
+        /// flattened), colour dropped, or `-` for stdin.
         input: PathBuf,
         /// Pad ragged text rows with spaces instead of refusing them.
         #[arg(long, conflicts_with = "bin")]
@@ -911,6 +913,12 @@ fn read_text(path: &Path) -> Result<String> {
         .map_err(|_| "Text input must be UTF-8 containing printable ASCII".into())
 }
 fn load(path: &Path, pad: bool) -> Result<Animation> {
+    if path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("xp"))
+    {
+        return Ok(rexpaint::read(&read_bounded(path, MAX_INPUT_BYTES)?)?.flatten());
+    }
     if let Some(name) = path
         .file_name()
         .and_then(|n| n.to_str())

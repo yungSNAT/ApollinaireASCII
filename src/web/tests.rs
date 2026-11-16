@@ -1645,6 +1645,24 @@ async fn open_reads_binary_text_art_and_bin_only_when_asked() {
 }
 
 #[wasm_bindgen_test]
+async fn open_reads_a_rexpaint_image_into_one_layer_for_each_of_its_layers() {
+    blank(3, 1);
+    let image = include_bytes!("../../tests/fixtures/rexpaint/mltest.xp");
+    assert!(open("mltest.xp", image).await.contains("File opened"));
+    assert_eq!(layer_list(), ["Layer 2", "Layer 1"]);
+    assert_eq!(
+        art(),
+        rows(&["AAAAAAAA", "AABBBBAA", "AABBBBAA", "AAAAAAAA"])
+    );
+    assert!(
+        open("broken.xp", b"not gzip")
+            .await
+            .contains("Not a REXPaint .xp file")
+    );
+    assert_eq!(layer_list(), ["Layer 2", "Layer 1"]);
+}
+
+#[wasm_bindgen_test]
 async fn refused_and_cancelled_picture_imports_leave_the_project_and_history() {
     const PICTURE: &[u8] = b"P2\n4 1\n255\n0 0 255 255\n";
     blank(4, 1);

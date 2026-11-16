@@ -1370,3 +1370,26 @@ fn binary_text_art_loads_by_name_and_bin_only_with_its_flag() {
         "cannot be used with",
     );
 }
+
+#[test]
+fn rexpaint_images_load_flattened_by_their_extension() {
+    let dir = scratch("rexpaint");
+    let fixture = include_bytes!("fixtures/rexpaint/mltest.xp");
+    for name in ["mltest.xp", "MLTEST.XP"] {
+        let path = dir.join(name);
+        std::fs::write(&path, fixture).unwrap();
+        let imported = cli(&["import", path.to_str().unwrap()]);
+        assert_eq!(
+            text(&imported.stdout),
+            "AAAAAAAA\nAABBBBAA\nAABBBBAA\nAAAAAAAA\n",
+            "{}",
+            text(&imported.stderr)
+        );
+    }
+    let broken = dir.join("broken.xp");
+    std::fs::write(&broken, b"not gzip").unwrap();
+    refused(
+        &cli(&["import", broken.to_str().unwrap()]),
+        "Not a REXPaint .xp file",
+    );
+}
