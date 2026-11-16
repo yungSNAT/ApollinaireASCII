@@ -282,6 +282,7 @@ const TOOLS: &[Tool] = &[
             ("width", Integer),
             ("height", Integer),
             ("style", Text),
+            ("turns", Integer),
         ],
         require: &[],
         content: Some(Content {
@@ -760,6 +761,61 @@ fn skip_line(input: &mut impl BufRead) -> crate::Result<()> {
             None => {
                 let all = buffer.len();
                 input.consume(all);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Commands that are no tool: interactive ones, ones that print no artwork, and ones that
+    /// need a file name or 2 files, which a tool cannot pass.
+    const NOT_TOOLS: &[&str] = &[
+        "import",
+        "compose",
+        "play",
+        "edit",
+        "completions",
+        "man",
+        "mcp",
+    ];
+    /// Arguments no tool takes: files and directories, which the server never names.
+    const NOT_TAKEN: &[&str] = &["output", "output_dir", "font_file", "art_file"];
+
+    #[test]
+    fn every_command_and_argument_is_a_tool_or_left_out_on_purpose() {
+        let root = commands();
+        // clap adds a help command beside each set of commands.
+        for command in root.get_subcommands().filter(|c| c.get_name() != "help") {
+            let name = command.get_name();
+            let paths: Vec<Vec<&str>> = if command.has_subcommands() {
+                command
+                    .get_subcommands()
+                    .filter(|sub| sub.get_name() != "help")
+                    .map(|sub| vec![name, sub.get_name()])
+                    .collect()
+            } else {
+                vec![vec![name]]
+            };
+            for path in paths {
+                let Some(tool) = TOOLS.iter().find(|tool| tool.command == path) else {
+                    assert!(NOT_TOOLS.contains(&name), "{path:?} is no tool");
+                    continue;
+                };
+                for arg in tool.subcommand(&root).get_arguments() {
+                    let id = arg.get_id().as_str();
+                    let taken = tool
+                        .args
+                        .iter()
+                        .chain(&EXPORT)
+                        .any(|(known, _)| *known == id)
+                        || tool.content.as_ref().is_some_and(|c| c.replaces == id)
+                        || NOT_TAKEN.contains(&id)
+                        || matches!(id, "help" | "version");
+                    assert!(taken, "the {} tool does not take {id}", tool.name);
+                }
             }
         }
     }

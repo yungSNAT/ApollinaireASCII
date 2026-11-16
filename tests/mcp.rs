@@ -480,6 +480,14 @@ fn tools_return_what_their_commands_print() {
             call(17, "art", json!({"name": "ghost", "format": "json"})),
             printed(&["art", "ghost", "--format", "json"], b""),
         ),
+        (
+            call(
+                18,
+                "transform",
+                json!({"text": "ab/\ncd-", "operation": "rotate", "turns": 3}),
+            ),
+            printed(&["transform", "-", "rotate", "--turns", "3"], b"ab/\ncd-"),
+        ),
     ];
     let messages: Vec<_> = calls.iter().map(|(message, _)| message.clone()).collect();
     let replies = serve(&messages);
