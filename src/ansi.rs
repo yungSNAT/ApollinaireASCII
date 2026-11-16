@@ -56,6 +56,11 @@ const PICTURES: &str = "☺☻♥♦♣♠•◘○◙♂♀♪♫☼►◄↕�
 /// for a control byte becomes that picture's ASCII character, so it is drawn rather than acted
 /// on. A character CP437 cannot draw, or text that is not UTF-8, is refused. The SAUCE record is
 /// read as bytes, as it need not be UTF-8.
+///
+/// UTF-8 art is shown as a terminal shows it: on a screen as wide as its widest LF-delimited row
+/// (escape sequences and CR left out, a tab reaching the next multiple of 8) unless a SAUCE
+/// record gives a width, and a row filled to the last column wraps only when another glyph
+/// follows, so the LF text0wnz writes after each full row ends that row.
 pub fn read(name: &str, bytes: &[u8]) -> Result<Frame> {
     let lower = name.to_ascii_lowercase();
     if !lower.ends_with(".utf8.ans") {
@@ -81,7 +86,43 @@ pub fn read(name: &str, bytes: &[u8]) -> Result<Frame> {
             ));
         });
     }
-    render(&cp437, sauce_width)
+    render(&cp437, sauce_width, Wrap::NextGlyph)
+}
+
+/// When a screen wraps after a glyph is drawn in its last column.
+#[derive(Clone, Copy, PartialEq)]
+enum Wrap {
+    /// When the next byte of any kind arrives, as libansilove draws CP437 art.
+    NextByte,
+    /// When the next glyph is drawn, as a terminal shows UTF-8 art.
+    NextGlyph,
+}
+
+/// The widest LF-delimited row of `art` in cells, leaving out CR and escape sequences.
+fn widest_row(art: &[u8]) -> usize {
+    art.split(|b| *b == b'\n')
+        .map(|line| {
+            let (mut cells, mut index) = (0, 0);
+            while let Some(&byte) = line.get(index) {
+                index += 1;
+                if byte == 0x1b && line.get(index) == Some(&b'[') {
+                    while line
+                        .get(index + 1)
+                        .is_some_and(|b| !(0x40..=0x7e).contains(b))
+                    {
+                        index += 1;
+                    }
+                    index += 2;
+                } else if byte == b'\t' {
+                    cells = (cells / 8 + 1) * 8;
+                } else if byte != b'\r' && byte != 0x1b {
+                    cells += 1;
+                }
+            }
+            cells
+        })
+        .max()
+        .unwrap_or(0)
 }
 
 /// Split off a SAUCE record and its comment block, returning the art and the record's width
@@ -124,11 +165,12 @@ pub fn decode(bytes: &[u8]) -> Result<Frame> {
     render(
         &art[..art.iter().position(|b| *b == 0x1a).unwrap_or(art.len())],
         sauce_width,
+        Wrap::NextByte,
     )
 }
 
 /// Draw CP437 art that ends before any end-of-file byte, at least `sauce_width` columns wide.
-fn render(art: &[u8], sauce_width: Option<usize>) -> Result<Frame> {
+fn render(art: &[u8], sauce_width: Option<usize>, wrap: Wrap) -> Result<Frame> {
     if sauce_width.is_some_and(|w| w > MAX_WIDTH) {
         return Err(format!(
             "The SAUCE record gives a width of {}; the limit is {MAX_WIDTH} columns",
@@ -136,7 +178,14 @@ fn render(art: &[u8], sauce_width: Option<usize>) -> Result<Frame> {
         ));
     }
     let rows = if art.windows(2).any(|pair| pair == b"\x1b[") {
-        screen(art, sauce_width.unwrap_or(DEFAULT_WIDTH))?
+        let columns = sauce_width.unwrap_or_else(|| match wrap {
+            Wrap::NextByte => DEFAULT_WIDTH,
+            Wrap::NextGlyph => widest_row(art),
+        });
+        if columns > MAX_WIDTH {
+            return Err(format!("The art is wider than {MAX_WIDTH} columns"));
+        }
+        screen(art, columns, wrap)?
     } else {
         lines(art)
     };
@@ -187,13 +236,13 @@ fn lines(art: &[u8]) -> Vec<Vec<u8>> {
 }
 
 /// ANSI art on a screen `width` columns wide, growing downwards.
-fn screen(art: &[u8], width: usize) -> Result<Vec<Vec<u8>>> {
+fn screen(art: &[u8], width: usize, wrap: Wrap) -> Result<Vec<Vec<u8>>> {
     let mut rows: Vec<Vec<u8>> = Vec::new();
     let (mut x, mut y, mut saved) = (0usize, 0usize, (0usize, 0usize));
     let mut index = 0;
     while let Some(&byte) = art.get(index) {
         index += 1;
-        if x >= width {
+        if x >= width && wrap == Wrap::NextByte {
             (x, y) = (0, y.saturating_add(1));
         }
         match byte {
@@ -266,6 +315,9 @@ fn screen(art: &[u8], width: usize) -> Result<Vec<Vec<u8>>> {
             // A lone ESC is skipped; the byte after it is drawn.
             0x1b => {}
             _ => {
+                if x >= width {
+                    (x, y) = (0, y.saturating_add(1));
+                }
                 if y >= MAX_HEIGHT {
                     return Err(format!("The art is taller than {MAX_HEIGHT} rows"));
                 }
