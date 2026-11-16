@@ -4,7 +4,8 @@ mod fetch;
 
 use apollinaire_ascii::{
     Animation, BorderStyle, Canvas, EffectOptions, Frame, Glyphs, Layered, MAX_INPUT_BYTES,
-    MAX_MEDIA_BYTES, RenderOptions, Result, SceneOptions, TimedFrame, animation, ansi, art, bubble,
+    MAX_MEDIA_BYTES, RenderOptions, Result, SceneOptions, TimedFrame, animation, ansi, art, boxes,
+    bubble,
     diagram::{self, TableRules},
     effects, export, generator, lettering, model,
 };
@@ -547,6 +548,13 @@ enum Command {
         /// Border style for the `border` operation; plain `+-|` by default.
         #[arg(long, value_enum)]
         style: Option<Border>,
+        /// Border: draw a box design instead of a style, by name; `apollinaire list` names them.
+        #[arg(long, conflicts_with = "style")]
+        design: Option<String>,
+        /// Border: a design file in the format of the `boxes` program; `--design` picks one of
+        /// its designs, the first by default.
+        #[arg(long, conflicts_with = "style")]
+        design_file: Option<PathBuf>,
         /// Rotate: quarter turns clockwise, 1 (the default) to 3. Line characters turn too.
         #[arg(long, value_parser = clap::value_parser!(u8).range(1..=3))]
         turns: Option<u8>,
@@ -621,7 +629,7 @@ fn run(args: Args) -> Result<()> {
                 list += &format!("  {category}: {}\n", names.join(", "));
             }
             list += &format!(
-                "Fonts: {}\nScenes: {}\nPatterns: {}\nEffects: {}\nRamps: {}\n",
+                "Fonts: {}\nScenes: {}\nPatterns: {}\nEffects: {}\nRamps: {}\nBox designs: {}\n",
                 lettering::FONTS.join(", "),
                 animation::SCENES.join(", "),
                 generator::PATTERNS.join(", "),
@@ -629,6 +637,11 @@ fn run(args: Args) -> Result<()> {
                 apollinaire_ascii::image_renderer::RAMPS
                     .iter()
                     .map(|(n, _)| *n)
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                boxes::bundled()
+                    .iter()
+                    .map(boxes::Design::name)
                     .collect::<Vec<_>>()
                     .join(", ")
             );
@@ -917,11 +930,30 @@ fn run(args: Args) -> Result<()> {
             width,
             height,
             style,
+            design,
+            design_file,
             turns,
         } => {
             if style.is_some() && !matches!(operation, Transform::Border) {
                 return Err("Only the border operation takes --style".into());
             }
+            if (design.is_some() || design_file.is_some()) && !matches!(operation, Transform::Border)
+            {
+                return Err("Only the border operation takes --design and --design-file".into());
+            }
+            let design = match (design_file, design) {
+                (Some(file), name) => {
+                    let designs = boxes::parse(&read_text(&file)?)?;
+                    Some(match name {
+                        Some(name) => boxes::find(&designs, &name)
+                            .ok_or_else(|| format!("The design file has no design {name}"))?
+                            .clone(),
+                        None => designs[0].clone(),
+                    })
+                }
+                (None, Some(name)) => Some(boxes::design(&name)?),
+                (None, None) => None,
+            };
             if turns.is_some() && !matches!(operation, Transform::Rotate) {
                 return Err("Only the rotate operation takes --turns".into());
             }
@@ -931,9 +963,12 @@ fn run(args: Args) -> Result<()> {
                 let frame = match operation {
                     Transform::Horizontal => entry.frame.flip_horizontal(),
                     Transform::Vertical => entry.frame.flip_vertical(),
-                    Transform::Border => entry
-                        .frame
-                        .border_with(style.unwrap_or(Border::Plain).into())?,
+                    Transform::Border => match &design {
+                        Some(design) => design.draw(&entry.frame)?,
+                        None => entry
+                            .frame
+                            .border_with(style.unwrap_or(Border::Plain).into())?,
+                    },
                     Transform::Crop => entry.frame.crop(
                         x,
                         y,

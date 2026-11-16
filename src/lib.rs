@@ -12,6 +12,7 @@
 pub mod animation;
 pub mod ansi;
 pub mod art;
+pub mod boxes;
 pub mod bubble;
 pub mod canvas;
 pub mod diagram;
