@@ -145,11 +145,11 @@ On 17 November 2026 `image --shapes` was scored against the default ramp and [ch
 | Picture | Rows | MSE: ramp | shapes | chafa | SSIM: ramp | shapes | chafa |
 |---|--:|--:|--:|--:|--:|--:|--:|
 | hd.png, DejaVu | 23 | 0.0918 | **0.0768** | 0.0942 | 0.0124 | 0.0084 | **0.0139** |
-| hd.png, Liberation | 23 | 0.0901 | **0.0779** | 0.0786 | 0.0127 | 0.0084 | **0.0154** |
+| hd.png, Liberation | 23 | 0.0901 | **0.0779** | 0.0786 | 0.0127 | 0.0083 | **0.0154** |
 | big.jpg, DejaVu | 30 | 0.1220 | 0.1106 | **0.1009** | 0.0085 | 0.0048 | **0.0097** |
-| big.jpg, Liberation | 30 | 0.1206 | 0.1113 | **0.0900** | 0.0086 | 0.0048 | **0.0109** |
+| big.jpg, Liberation | 30 | 0.1206 | 0.1112 | **0.0900** | 0.0086 | 0.0048 | **0.0109** |
 | big.png, DejaVu | 30 | 0.0951 | **0.0829** | 0.0866 | 0.0091 | 0.0046 | **0.0105** |
-| big.png, Liberation | 30 | 0.0935 | 0.0830 | **0.0756** | 0.0093 | 0.0046 | **0.0118** |
+| big.png, Liberation | 30 | 0.0935 | 0.0830 | **0.0756** | 0.0093 | 0.0045 | **0.0118** |
 | lines, DejaVu | 30 | 0.0326 | 0.0266 | **0.0263** | 0.8568 | **0.8947** | 0.8895 |
 | lines, Liberation | 30 | 0.0322 | **0.0273** | 0.0281 | 0.8571 | **0.8930** | 0.8833 |
 | lettering, DejaVu | 15 | 0.1079 | 0.1016 | **0.0991** | 0.7635 | **0.7923** | 0.7816 |
@@ -157,7 +157,7 @@ On 17 November 2026 `image --shapes` was scored against the default ramp and [ch
 | grid, DejaVu | 30 | 0.0810 | 0.0597 | **0.0596** | 0.5632 | **0.7535** | 0.7333 |
 | grid, Liberation | 30 | 0.0794 | 0.0736 | **0.0707** | 0.5623 | 0.6767 | **0.6810** |
 
-Shape matching beat the ramp on every error figure and on SSIM for every line drawing. Against chafa it had the lower error in 4 of 12 rows and the higher SSIM in 5 of the 6 line-drawing rows; chafa led on the fractals' SSIM, where every figure is near 0 because a character's strokes are not a smooth gradient, and on most error figures. So `--shapes` is the better choice for line art and logos, and chafa keeps a small fidelity lead on photographs. Six pictures are a first check, not proof of a general ranking.
+Shape matching beat the ramp on every error figure and on SSIM for every line drawing. Against chafa it had the lower error in 4 of 12 rows and the higher SSIM in 5 of the 6 line-drawing rows; chafa led on the fractals' SSIM, where every figure is near 0 because a character's strokes are not a smooth gradient, and on most error figures. So `--shapes` is the better choice for line art and logos, and chafa keeps a small fidelity lead on photographs. Six pictures are a first check, not proof of a general ranking. At the largest size, 512 by 256 cells, `--shapes` took 2.2 s and 410 MiB at peak on the 4000 by 3000 PNG and 3.0 s and 165 MiB on the 1920 by 1080 one, against 0.5 s and 149 MiB, and 0.1 s and 37 MiB, for the ramp: it resizes the picture to 8 by 16 pixels a cell before matching.
 
 ## Speech bubbles against cowsay
 
