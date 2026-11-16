@@ -80,11 +80,8 @@ pub fn convert(
     let end_ms = sampling.end_ms.unwrap_or(duration_ms);
     let times = sample_times(duration_ms, sampling.start_ms, end_ms, sampling.fps)?;
     let (pixels_wide, pixels_high) = sample_size(width, height, options.width)?;
-    check_capture(
-        options.width,
-        options.output_height(pixels_wide, pixels_high),
-        times.len(),
-    )?;
+    let rows = options.output_height(pixels_wide, pixels_high);
+    check_capture(options.width, rows, times.len())?;
 
     let seconds = |ms: f64| format!("{:.3}", ms / 1000.0);
     let mut decode = Command::new("ffmpeg");
@@ -171,13 +168,8 @@ fn read_frames(
     let mut frames = Vec::with_capacity(times.len());
     let mut pixels = vec![0; width as usize * height as usize * 4];
     while frames.len() < times.len() && stdout.read_exact(&mut pixels).is_ok() {
-        frames.push(render_rgba_as(
-            width,
-            height,
-            pixels.clone(),
-            options,
-            glyphs,
-        )?);
+        let frame = render_rgba_as(width, height, pixels.clone(), options, glyphs)?;
+        frames.push(frame);
     }
     Ok(frames)
 }

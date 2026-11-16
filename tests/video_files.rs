@@ -193,6 +193,16 @@ mod with_ffmpeg {
                 .len(),
             4
         );
+
+        // A video marked to be shown turned a quarter is drawn upright, as ffmpeg shows it:
+        // 48 x 64 pixels give 54 rows at 80 columns.
+        let turned = dir.join("turned.mp4");
+        make(
+            &turned,
+            &["-display_rotation", "90", "-i", path, "-c", "copy"],
+        );
+        let upright = project(&cli(&["image", turned.to_str().unwrap(), "--fps", "1"]));
+        assert_eq!((upright.width(), upright.height()), (80, 54));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
