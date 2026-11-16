@@ -3,10 +3,10 @@ mod edit;
 mod fetch;
 
 use apollinaire_ascii::{
-    Animation, BorderStyle, Canvas, EffectOptions, Frame, Layered, MAX_INPUT_BYTES,
+    Animation, BorderStyle, Canvas, EffectOptions, Frame, Glyphs, Layered, MAX_INPUT_BYTES,
     MAX_MEDIA_BYTES, RenderOptions, Result, SceneOptions, TimedFrame, animation, ansi, art, bubble,
     diagram::{self, TableRules},
-    effects, export, generator, lettering,
+    effects, export, generator, lettering, model,
 };
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use std::{
@@ -102,6 +102,43 @@ fn separator(value: &str) -> Result<u8> {
         b"tab" | b"\t" => Ok(b'\t'),
         [byte @ 32..=126] => Ok(*byte),
         _ => Err("Use tab or one printable ASCII character".into()),
+    }
+}
+#[derive(Clone, Copy, ValueEnum)]
+enum Spin {
+    /// Upright, like a turntable.
+    Y,
+    /// Head over heels.
+    X,
+    /// Both at once.
+    Xy,
+}
+impl From<Spin> for model::Spin {
+    fn from(spin: Spin) -> Self {
+        match spin {
+            Spin::Y => Self::Y,
+            Spin::X => Self::X,
+            Spin::Xy => Self::XY,
+        }
+    }
+}
+#[derive(Clone, Copy, ValueEnum)]
+enum Light {
+    TopLeft,
+    Top,
+    Front,
+    Left,
+    Right,
+}
+impl From<Light> for model::Light {
+    fn from(light: Light) -> Self {
+        match light {
+            Light::TopLeft => Self::TopLeft,
+            Light::Top => Self::Top,
+            Light::Front => Self::Front,
+            Light::Left => Self::Left,
+            Light::Right => Self::Right,
+        }
     }
 }
 #[derive(Clone, Copy, ValueEnum)]
@@ -230,6 +267,7 @@ enum Transform {
     Vertical,
     Border,
     Crop,
+    Rotate,
 }
 #[derive(Subcommand)]
 enum Command {
@@ -348,6 +386,10 @@ enum Command {
         /// --edges, over the traced outlines.
         #[arg(long)]
         edge_glyphs: bool,
+        /// Give each cell the printable character whose shape best fits its pixels, from all 95,
+        /// instead of a ramp character for its brightness.
+        #[arg(long, conflicts_with_all = ["ramp", "dither", "edges", "edge_glyphs"])]
+        shapes: bool,
         /// Gamma correction, 0.1 to 5.0.
         #[arg(long, default_value_t = 1.0)]
         gamma: f64,
@@ -385,6 +427,33 @@ enum Command {
         /// Printable ASCII text for the reveal and scroll scenes, at most 512 characters.
         #[arg(long, default_value = "HELLO, FRIEND")]
         text: String,
+    },
+    /// A 3D model (.stl, binary or text, or .obj) turning a full circle, exported as timed JSON.
+    Model {
+        /// An .stl or .obj file.
+        input: PathBuf,
+        /// Columns, 1 to 512.
+        #[arg(long, default_value_t = 72)]
+        width: usize,
+        /// Rows, 1 to 256.
+        #[arg(long, default_value_t = 24)]
+        height: usize,
+        /// Frames for one full turn, 1 to 600.
+        #[arg(long, default_value_t = 36)]
+        frames: usize,
+        /// Frames per second, 1 to 60.
+        #[arg(long, default_value_t = 12)]
+        fps: u32,
+        /// The axis the model turns about.
+        #[arg(long, value_enum, default_value_t = Spin::Y)]
+        spin: Spin,
+        /// Where the light comes from, seen from the front.
+        #[arg(long, value_enum, default_value_t = Light::TopLeft)]
+        light: Light,
+        /// A named ramp (standard, fine, simple, binary) or a literal sequence ordered from light
+        /// to dense; lit surfaces take the dense end.
+        #[arg(long, default_value = "standard")]
+        ramp: String,
     },
     /// Deterministic still pictures built to a size: mazes, night skies and patterns.
     Generate {
@@ -447,7 +516,8 @@ enum Command {
     Transform {
         /// A .txt or .json project, or `-` for stdin.
         input: PathBuf,
-        /// Flip horizontally or vertically, add a border (see `--style`), or crop.
+        /// Flip horizontally or vertically, add a border (see `--style`), crop, or rotate
+        /// clockwise (see `--turns`).
         #[arg(value_enum)]
         operation: Transform,
         /// Crop: zero-based column of the left edge.
@@ -465,6 +535,9 @@ enum Command {
         /// Border style for the `border` operation; plain `+-|` by default.
         #[arg(long, value_enum)]
         style: Option<Border>,
+        /// Rotate: quarter turns clockwise, 1 (the default) to 3. Line characters turn too.
+        #[arg(long, value_parser = clap::value_parser!(u8).range(1..=3))]
+        turns: Option<u8>,
     },
     /// Play a project in a terminal. Escape codes are playback transport only.
     Play {
@@ -643,11 +716,13 @@ fn run(args: Args) -> Result<()> {
             dither,
             edges,
             edge_glyphs,
+            shapes,
             gamma,
             contrast,
             cell_aspect,
             background,
         } => {
+            let glyphs = if shapes { Glyphs::Shapes } else { Glyphs::Ramp };
             let ramp = apollinaire_ascii::image_renderer::RAMPS
                 .iter()
                 .find(|(n, _)| *n == ramp)
@@ -671,7 +746,7 @@ fn run(args: Args) -> Result<()> {
                     Some(url) => fetch::image(url)?,
                     None => read_bounded(input, MAX_MEDIA_BYTES)?,
                 };
-                apollinaire_ascii::decode_media(&bytes, &options)
+                apollinaire_ascii::decode_media_as(&bytes, &options, glyphs)
             };
             if let Some(dir) = output_dir {
                 return batch(&inputs, &dir, &args.export, convert);
@@ -731,6 +806,35 @@ fn run(args: Args) -> Result<()> {
                 text,
             },
         )?,
+        Command::Model {
+            input,
+            width,
+            height,
+            frames,
+            fps,
+            spin,
+            light,
+            ramp,
+        } => {
+            let name = input.to_string_lossy();
+            let mesh = model::read(&name, &read_bounded(&input, MAX_INPUT_BYTES)?)?;
+            let ramp = apollinaire_ascii::image_renderer::RAMPS
+                .iter()
+                .find(|(n, _)| *n == ramp)
+                .map_or(ramp.clone(), |(_, r)| r.to_string());
+            model::render(
+                &mesh,
+                &model::ModelOptions {
+                    width,
+                    height,
+                    frames,
+                    fps,
+                    spin: spin.into(),
+                    light: light.into(),
+                    ramp,
+                },
+            )?
+        }
         Command::Generate { generator } => Animation::still(match generator {
             Generator::Maze {
                 size,
@@ -798,9 +902,13 @@ fn run(args: Args) -> Result<()> {
             width,
             height,
             style,
+            turns,
         } => {
             if style.is_some() && !matches!(operation, Transform::Border) {
                 return Err("Only the border operation takes --style".into());
+            }
+            if turns.is_some() && !matches!(operation, Transform::Rotate) {
+                return Err("Only the rotate operation takes --turns".into());
             }
             let project = load(&input, false)?;
             let mut frames = Vec::with_capacity(project.frames().len());
@@ -817,6 +925,7 @@ fn run(args: Args) -> Result<()> {
                         width.ok_or("Crop needs --width")?,
                         height.ok_or("Crop needs --height")?,
                     )?,
+                    Transform::Rotate => entry.frame.rotate(turns.unwrap_or(1), false)?,
                 };
                 frames.push(TimedFrame {
                     frame,

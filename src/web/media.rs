@@ -4,7 +4,7 @@
 //! Video files and the camera become timed text frames. Pixels are read through an
 //! offscreen canvas that is never shown or exported; only characters reach the page.
 use super::{
-    App, document, input, listen, node, now, number, render_options, report, state, status,
+    App, Conversion, conversion, document, input, listen, node, now, number, report, state, status,
 };
 use crate::{Animation, Frame, RenderOptions, Result, TimedFrame, video};
 use js_sys::{Function, Object, Promise, Reflect};
@@ -37,7 +37,7 @@ pub(super) struct Camera {
     video: HtmlVideoElement,
     /// Created once the camera reports its picture size.
     reader: Option<Reader>,
-    options: RenderOptions,
+    options: Conversion,
     fps: u32,
     timer: i32,
     recording: Option<Recording>,
@@ -80,7 +80,7 @@ impl Reader {
     fn rows(&self, options: &RenderOptions) -> usize {
         options.output_height(self.width, self.height)
     }
-    fn read(&self, video: &HtmlVideoElement, options: &RenderOptions) -> Result<Frame> {
+    fn read(&self, video: &HtmlVideoElement, options: &Conversion) -> Result<Frame> {
         let (width, height) = (f64::from(self.width), f64::from(self.height));
         self.context
             .draw_image_with_html_video_element_and_dw_and_dh(video, 0.0, 0.0, width, height)
@@ -89,7 +89,13 @@ impl Reader {
             .context
             .get_image_data(0.0, 0.0, width, height)
             .map_err(|_| "The video frame could not be read")?;
-        video::render_rgba(self.width, self.height, pixels.data().0, options)
+        video::render_rgba_as(
+            self.width,
+            self.height,
+            pixels.data().0,
+            &options.render,
+            options.glyphs,
+        )
     }
 }
 
@@ -299,7 +305,7 @@ fn convert_video() {
             .files()
             .and_then(|files| files.get(0))
             .ok_or("Choose a video file first")?;
-        let options = render_options()?;
+        let options = conversion()?;
         let fps = fps()?;
         let start = milliseconds("video-start")?.unwrap_or(0.0);
         let end = milliseconds("video-end")?;
@@ -346,7 +352,7 @@ async fn sample(
     video: &HtmlVideoElement,
     url: &str,
     ticket: u32,
-    options: &RenderOptions,
+    options: &Conversion,
     fps: u32,
     start_ms: f64,
     end_ms: Option<f64>,
@@ -363,8 +369,12 @@ async fn sample(
     let end = end_ms.unwrap_or(duration);
     let times = video::sample_times(duration, start_ms, end, fps)?;
     let durations = video::frame_durations(&times, end)?;
-    let reader = Reader::new(video, options.width)?;
-    video::check_capture(options.width, reader.rows(options), times.len())?;
+    let reader = Reader::new(video, options.render.width)?;
+    video::check_capture(
+        options.render.width,
+        reader.rows(&options.render),
+        times.len(),
+    )?;
     let mut frames = Vec::with_capacity(times.len());
     for (index, (time, duration_ms)) in times.iter().zip(durations).enumerate() {
         if !current(ticket) {
@@ -388,7 +398,7 @@ async fn sample(
 fn start_camera() {
     let prepare = state(|app| {
         app.clean()?;
-        let options = render_options()?;
+        let options = conversion()?;
         let fps = fps()?;
         let devices: MediaDevices = Reflect::get(&window().navigator(), &"mediaDevices".into())
             .ok()
@@ -540,7 +550,11 @@ fn record() -> Result<()> {
             .reader
             .as_ref()
             .ok_or("Wait for the camera picture to appear")?;
-        video::check_capture(camera.options.width, reader.rows(&camera.options), limit)?;
+        video::check_capture(
+            camera.options.render.width,
+            reader.rows(&camera.options.render),
+            limit,
+        )?;
         camera.recording = Some(Recording {
             seconds,
             limit,
@@ -565,12 +579,12 @@ fn tick() -> Result<()> {
             if camera.video.video_width() == 0 {
                 return Ok(());
             }
-            match Reader::new(&camera.video, camera.options.width) {
+            match Reader::new(&camera.video, camera.options.render.width) {
                 Ok(reader) => {
                     node::<Element>("dimensions")?.set_text_content(Some(&format!(
                         "{} columns x {} rows, live camera",
-                        camera.options.width,
-                        reader.rows(&camera.options)
+                        camera.options.render.width,
+                        reader.rows(&camera.options.render)
                     )));
                     camera.reader = Some(reader);
                     return controls(app);

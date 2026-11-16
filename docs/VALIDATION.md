@@ -139,6 +139,38 @@ The 16 MiB input limit arrived with the first build on 1 November 2026 as one bu
 
 Peak memory was 2.1 to 3.5 times the file's size, 263 MiB at most, and every output was printable ASCII; the highest ratio was the GIF's. So `image` files and stdin now take up to 128 MiB, matching the decoder's allocation limit; text and project inputs, URL downloads and the browser editor keep 16 MiB. The 125.1 MiB PNG on stdin took 596 ms and 263 MiB. A 128 MiB + 1 byte file was refused with 'Input exceeds 128 MiB' only after reading it, in 183 ms and 132 MiB. A file is now refused from its size before any of it is read: in a later run that day the same refusal took 2 ms and 12.5 MiB, against 74 ms and 132 MiB for the build before. ascii-image-converter plays a GIF in a loop, so it was not given one; chafa printed only 2 bytes for the GIF with `--animate off`, so that row has no comparison. The other programs' figures for the first 2 pictures come from an earlier run that day, in which a build of master with the limit lifted took 343 ms and 139 MiB, and 650 ms and 228 MiB.
 
+## Shape-matched characters against chafa
+
+On 17 November 2026 `image --shapes` was scored against the default ramp and [chafa](https://hpjansson.org/chafa/) 1.18.3 (`--format symbols --symbols ascii --colors none --size 80x<rows> --stretch --animate off`) on 6 pictures drawn by ImageMagick 7.1.2-35: the 3 plasma fractals of the speed run, and 3 white line drawings on black (a circle, a diagonal and a rectangle; the word ASCII in DejaVu Sans Bold; a grid). Each converter wrote 80 columns and the rows the ramp chose. Each output was drawn back to pixels, light ink on black at 8 by 16 pixels a cell, in 2 fonts that no converter chooses characters with: DejaVu Sans Mono and Liberation Mono at 13 pixels. Each drawing was compared with the picture in grey, resized to the same pixels: mean squared error on a 0 to 1 scale, lower is better, and mean SSIM with an 11-tap Gaussian window (sigma 1.5), higher is better. The machine ran Linux 7.3.3 with Python 3.15.0, Pillow 13.0.0 and NumPy 2.5.5.
+
+| Picture | Rows | MSE: ramp | shapes | chafa | SSIM: ramp | shapes | chafa |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| hd.png, DejaVu | 23 | 0.0918 | **0.0768** | 0.0942 | 0.0124 | 0.0084 | **0.0139** |
+| hd.png, Liberation | 23 | 0.0901 | **0.0779** | 0.0786 | 0.0127 | 0.0083 | **0.0154** |
+| big.jpg, DejaVu | 30 | 0.1220 | 0.1106 | **0.1009** | 0.0085 | 0.0048 | **0.0097** |
+| big.jpg, Liberation | 30 | 0.1206 | 0.1112 | **0.0900** | 0.0086 | 0.0048 | **0.0109** |
+| big.png, DejaVu | 30 | 0.0951 | **0.0829** | 0.0866 | 0.0091 | 0.0046 | **0.0105** |
+| big.png, Liberation | 30 | 0.0935 | 0.0830 | **0.0756** | 0.0093 | 0.0045 | **0.0118** |
+| lines, DejaVu | 30 | 0.0326 | 0.0266 | **0.0263** | 0.8568 | **0.8947** | 0.8895 |
+| lines, Liberation | 30 | 0.0322 | **0.0273** | 0.0281 | 0.8571 | **0.8930** | 0.8833 |
+| lettering, DejaVu | 15 | 0.1079 | 0.1016 | **0.0991** | 0.7635 | **0.7923** | 0.7816 |
+| lettering, Liberation | 15 | 0.1085 | 0.1065 | **0.0981** | 0.7612 | **0.7982** | 0.7829 |
+| grid, DejaVu | 30 | 0.0810 | 0.0597 | **0.0596** | 0.5632 | **0.7535** | 0.7333 |
+| grid, Liberation | 30 | 0.0794 | 0.0736 | **0.0707** | 0.5623 | 0.6767 | **0.6810** |
+
+Shape matching beat the ramp on every error figure and on SSIM for every line drawing. Against chafa it had the lower error in 4 of 12 rows and the higher SSIM in 5 of the 6 line-drawing rows; chafa led on the fractals' SSIM, where every figure is near 0 because a character's strokes are not a smooth gradient, and on most error figures. So `--shapes` is the better choice for line art and logos, and chafa keeps a small fidelity lead on photographs. Six pictures are a first check, not proof of a general ranking. At the largest size, 512 by 256 cells, `--shapes` took 2.2 s and 410 MiB at peak on the 4000 by 3000 PNG and 3.0 s and 165 MiB on the 1920 by 1080 one, against 0.5 s and 149 MiB, and 0.1 s and 37 MiB, for the ramp: it resizes the picture to 8 by 16 pixels a cell before matching.
+
+The browser editor runs the same conversion as WebAssembly. Built for `wasm32-unknown-unknown` (Rust 1.99.1) and run in headless Chromium 157 on the same machine, one page load a conversion so each started with fresh memory, at 512 by 256 cells, it took (slowest of 3) with the WebAssembly memory at its end, which only grows, as the peak:
+
+| Picture | Ramp | Shapes |
+|---|--:|--:|
+| 1920 x 1080 PNG, 10.2 MiB | 161 ms, 32 MiB | 3.67 s, 170 MiB |
+| 4000 x 3000 JPEG, 3.2 MiB | 541 ms, 58 MiB | 2.63 s, 349 MiB |
+| 4096 x 4096 8-bit RGB gradient PNG | 196 ms, 66 MiB | 666 ms, 130 MiB |
+| 4096 x 4096 16-bit RGBA gradient PNG, the largest decoded picture | not run | 1.20 s, 210 MiB |
+
+Every conversion succeeded. So shape matching at the largest size holds the editor for up to about 4 seconds and needs up to about 350 MiB; it is off unless chosen.
+
 ## Speech bubbles against cowsay
 
 On 14 November 2026 a release build of `apollinaire say` (Rust 1.99.1) and [cowsay](https://github.com/cowsay-org/cowsay) 3.8.4 (its source release, run with Perl 5.44.0 in a UTF-8 locale) were given the same messages at each program's default width of 40. Each time is the fastest and the median of 20 runs, including process start, on the same shared Linux machine as the conversion timings (load average about 7), so the times are indicative.
@@ -156,9 +188,24 @@ Both wrapped the sentence into the same 4 lines. The outputs differ where the pr
 - For `你好`, and for `café` written with a combining accent, cowsay exited 0 but sized its bubble by bytes, so the border came out 2 columns wider than the text line. `say` refuses both, naming the first byte outside printable ASCII.
 - cowsay turned a tab into spaces and drew an empty bubble for empty stdin; `say` refuses both.
 
+## 3D model render budget
+
+On 17 November 2026 release builds (Rust 1.99.1) drew generated OBJ files on a Linux machine with 16 CPUs shared with other jobs (load average 3 to 10), so the times are indicative: natively with `apollinaire model`, and as WebAssembly built for `wasm32-unknown-unknown` and run in headless Chromium 157, one render a page load. Each time is the slowest of 3 runs. Native memory is the peak resident set size, including process start; WebAssembly memory is the linear memory after the render, which only grows.
+
+| Model and render | Native | Chromium |
+|---|--:|--:|
+| Sphere of 1,000 triangles, 72 x 24, 36 frames | 20 ms, 12 MiB | 19 ms, 1 MiB |
+| Sphere of 99,904 triangles, 72 x 24, 36 frames | 340 ms, 19 MiB | 366 ms, 13 MiB |
+| The same sphere, 512 x 256, 30 frames | 490 ms, 25 MiB | 525 ms, 13 MiB |
+| The same sphere, 160 x 80, 195 frames, near the budget in draws | 1.94 s, 19 MiB | 2.02 s, 13 MiB |
+| 155 triangles covering a 512 x 256 frame, 60 frames, near the budget in cell tests | 2.11 s, 36 MiB | 2.12 s, 10 MiB |
+| 120 covering triangles and 80,000 tiny ones, 512 x 256, 60 frames, near the budget in both | 2.12 s, 36 MiB | 2.00 s, 13 MiB |
+
+The first build allowed 50,000,000 draws and, separately, 1,000,000,000 cell tests: the sphere over 500 frames took 4.48 s and 350 covering triangles 4.91 s. Lowered to 20,000,000 and 400,000,000, each took 1.7 to 1.9 s alone, but a model near both, 140 covering triangles and 330,000 tiny ones, took 3.22 s, as their costs add. One budget now counts both: a triangle in a frame takes about as long as 20 cell tests (about 89 ns against 4.4 ns as WebAssembly at the separate edges), so 400,000,000 units of work hold every mix to about 2 seconds. A render over the budget is refused before drawing: the sphere over 200 frames in under 80 ms in Chromium, and 160 covering triangles in under 10 ms natively. A 1,000,000-triangle OBJ sphere is 36 MB and stops at the 16 MiB input limit; an OBJ file reaches the triangle limit only with short face lines. Fuzzing the reader and a small render (`fuzz/fuzz_targets/model.rs`) for 5 minutes on 4 workers, from one OBJ and one text STL seed, ran 17,433,892 inputs with no crash, timeout or out-of-memory failure.
+
 ## Deliberate limits
 
-The Rust code contains no video decoder: the browser decodes video, so supported formats vary by browser, and the CLI has no video or camera input. Only the CLI fetches media over the network, from `https://` image URLs. There is no ANSI-colour artwork mode, raster/vector artwork exporter or Unicode-art mode. GIF is the animated image import format; other image inputs use the image library's still-image decoding. Oversize inputs are refused. Browser work is synchronous Rust after the bounded file read, so the largest valid conversions hold the UI thread for up to about a second (see Conversion responsiveness). Resource limits bound accepted files and projects, not the browser process's total memory.
+The Rust code contains no video decoder: the browser decodes video, so supported formats vary by browser, and the CLI has no video or camera input. Only the CLI fetches media over the network, from `https://` image URLs. There is no ANSI-colour artwork mode, raster/vector artwork exporter or Unicode-art mode. GIF is the animated image import format; other image inputs use the image library's still-image decoding. Oversize inputs are refused. Browser work is synchronous Rust after the bounded file read, so the largest valid conversions hold the UI thread for up to about a second (see Conversion responsiveness), or about 4 seconds with shape matching at 512 by 256 cells (see Shape-matched characters against chafa), and a 3D model for up to about 2 seconds (see 3D model render budget). Resource limits bound accepted files and projects, not the browser process's total memory.
 
 The browser keeps 100 undo steps within a 16 million cell budget and has no automatic local persistence. A drag, a keyboard stroke or a run of typed characters is one step. Onion skin shows only the previous frame, so the first frame has none. On screens up to 760 pixels wide the drawing options start folded. Drawing tools disable touch scrolling over the grid; choose Select text to scroll it by touch. Save a JSON project to retain all frames and timing. Text export saves one selected frame. Closing or reloading a modified project requests the browser's unsaved-work prompt; downloads are reported as requested because the page cannot prove where the browser saved a file. Requesting a download does not clear the unsaved-work warning.
 

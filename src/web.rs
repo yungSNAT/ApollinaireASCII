@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: MIT
 
 use crate::{
-    Animation, BorderStyle, Canvas, EffectOptions, Frame, Layer, Layered, MAX_INPUT_BYTES,
-    RenderOptions, Result, SceneOptions, TimedFrame, animation, ansi, art, decode_media, effects,
-    export, generator, image_renderer::RAMPS, lettering,
+    Animation, BorderStyle, Canvas, EffectOptions, Frame, Glyphs, Layer, Layered, MAX_INPUT_BYTES,
+    RenderOptions, Result, SceneOptions, TimedFrame, animation, ansi, art, decode_media_as,
+    effects, export, generator, image_renderer::RAMPS, lettering, model,
 };
 use js_sys::{Array, Uint8Array};
 use std::cell::RefCell;
@@ -20,6 +20,7 @@ mod draw;
 mod keyframe_panel;
 mod layer_panel;
 mod media;
+mod picker;
 mod recovery;
 #[cfg(test)]
 mod tests;
@@ -520,6 +521,7 @@ pub fn start() -> std::result::Result<(), JsValue> {
         "dither",
         "edges",
         "edge-glyphs",
+        "shapes",
         "gamma",
         "contrast",
     ] {
@@ -529,6 +531,7 @@ pub fn start() -> std::result::Result<(), JsValue> {
     }
     media::start()?;
     layer_panel::start()?;
+    picker::start()?;
     keyframe_panel::start()?;
     let fonts = node::<Element>("font").map_err(|e| JsValue::from_str(&e))?;
     let uploaded = node::<Element>("custom-option").map_err(|e| JsValue::from_str(&e))?;
@@ -1120,7 +1123,7 @@ fn begin_file(id: &'static str) {
             ));
         }
         let options = if id == "media-file" {
-            Some(render_options()?)
+            Some(conversion()?)
         } else {
             None
         };
@@ -1163,8 +1166,32 @@ fn begin_file(id: &'static str) {
                 status("Font loaded. Generate lettering to use it.", false);
             } else {
                 if let Some(options) = options {
+                    let name = file.name();
+                    let lower = name.to_ascii_lowercase();
+                    let art = if lower.ends_with(".stl") || lower.ends_with(".obj") {
+                        if options.glyphs == Glyphs::Shapes {
+                            return Err("Shape matching applies to pictures; a 3D model is \
+                                        shaded with a ramp"
+                                .into());
+                        }
+                        // A model turns once over 36 frames at 12 per second; without a
+                        // fixed height, the rows follow the cell aspect, as a round shape's do.
+                        let render = &options.render;
+                        let height = render.height.unwrap_or_else(|| {
+                            ((render.width as f64 * render.cell_aspect).ceil() as usize).max(1)
+                        });
+                        let settings = model::ModelOptions {
+                            width: render.width,
+                            height,
+                            ramp: render.ramp.clone(),
+                            ..Default::default()
+                        };
+                        model::render(&model::read(&name, &bytes)?, &settings)?
+                    } else {
+                        decode_media_as(&bytes, &options.render, options.glyphs)?
+                    };
                     // Opening a file or picture replaces every layer.
-                    app.replace_layers(Layered::single(decode_media(&bytes, &options)?), 0);
+                    app.replace_layers(Layered::single(art), 0);
                 } else {
                     let name = file.name();
                     let project = if ansi::is_ansi_name(&name) {
@@ -1213,6 +1240,7 @@ fn apply_preset() -> Result<()> {
     input("dither")?.set_checked(dither);
     input("edges")?.set_checked(lines);
     input("edge-glyphs")?.set_checked(lines);
+    input("shapes")?.set_checked(false);
     input("gamma")?.set_value("1");
     input("contrast")?.set_value(contrast);
     status(
@@ -1221,8 +1249,13 @@ fn apply_preset() -> Result<()> {
     );
     Ok(())
 }
+/// Conversion settings: the render options and how each cell's character is chosen.
+struct Conversion {
+    render: RenderOptions,
+    glyphs: Glyphs,
+}
 /// Validated conversion settings shared by image, video and camera input.
-fn render_options() -> Result<RenderOptions> {
+fn conversion() -> Result<Conversion> {
     let options = RenderOptions {
         width: number("width")?,
         height: if checked("auto-height")? {
@@ -1240,7 +1273,14 @@ fn render_options() -> Result<RenderOptions> {
         ..RenderOptions::default()
     };
     options.validate()?;
-    Ok(options)
+    Ok(Conversion {
+        render: options,
+        glyphs: if checked("shapes")? {
+            Glyphs::Shapes
+        } else {
+            Glyphs::Ramp
+        },
+    })
 }
 fn download(content: &str, name: &str, mime: &str) -> Result<()> {
     let parts = Array::new();
