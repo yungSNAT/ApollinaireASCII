@@ -431,6 +431,10 @@ EOC
         ),
         ("$the_cow = <<EOC;\nx\n", "The art has no closing line EOC"),
         (
+            "$the_cow = <<EOC;\nx \\\nEOC\n",
+            "Line 2: a backslash ends the line",
+        ),
+        (
             "## no art\n",
             "The cow file has no art: no line such as $the_cow = <<\"EOC\";",
         ),
@@ -441,4 +445,15 @@ EOC
             "{cow}"
         );
     }
+    // Art that fits on its own can still be too tall under the bubble.
+    let tall = format!("$the_cow = <<EOC;\n{}EOC\n", "x\n".repeat(254));
+    assert_eq!(
+        cowsay("Hoo", 40, BorderStyle::Plain, &tall).unwrap_err(),
+        "Dimensions must be 1..=512 columns and 1..=256 rows"
+    );
+    let huge = "#".repeat(apollinaire_ascii::MAX_INPUT_BYTES + 1);
+    assert_eq!(
+        cowsay("Hoo", 40, BorderStyle::Plain, &huge).unwrap_err(),
+        "The cow file exceeds the 16 MiB input limit"
+    );
 }
