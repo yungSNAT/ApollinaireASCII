@@ -156,8 +156,8 @@ pub(super) fn idf(bytes: &[u8]) -> Result<Frame> {
             codes.push(body[index]);
             index += 2;
         }
-        // Stop early once the art is too tall to load, so a long run allocates nothing more.
-        if codes.len() > limit {
+        // Stop once the art is a row too tall to load, so further runs allocate nothing more.
+        if codes.len() >= limit {
             break;
         }
     }

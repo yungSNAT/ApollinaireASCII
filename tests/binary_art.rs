@@ -55,6 +55,7 @@ fn bin_fills_160_columns_or_the_sauce_width() {
     // Without a SAUCE record, 0x1A is a glyph like any other code.
     let art = pairs(&[0x1a, b'z']);
     assert_eq!(read_bin(&art).unwrap().text().trim_end(), ">z");
+    assert_eq!(read_bin(&[]).unwrap_err(), "The file draws no characters");
     // Another SAUCE type keeps the default width.
     let mut art = pairs(b"x");
     art.extend(sauce(1, 1, 40));
