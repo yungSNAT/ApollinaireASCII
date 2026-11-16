@@ -50,7 +50,7 @@ apollinaire man | man -l -
 
 Borders come in 4 styles: `plain` (`+-|`, the default), `rounded` (`.-'|`), `dotted` (`.:`) and `heavy` (`#=`). `art` takes one as `--border=<style>` (with the `=`, so `--border` alone still works before the piece's name), and `transform ... border` and `say` as `--style <style>`.
 
-`--format text|json|html|cast` overrides extension/default inference. `.json`, `.html` and `.cast` output extensions select those formats; otherwise a still defaults to text and an animation to JSON. Animated text export requires an explicit zero-based `--frame`. `--frame` is valid only with text export.
+`--format text|json|html|cast|react|ink|opentui|bubbletea` overrides extension/default inference. `.json`, `.html` and `.cast` output extensions select those formats and `.go` selects `bubbletea`; the 3 JavaScript formats share `.js`, so they need `--format`. [The format notes](FORMAT.md) describe each code export. Otherwise a still defaults to text and an animation to JSON. Animated text export requires an explicit zero-based `--frame`. `--frame` is valid only with text export.
 
 Use `-` as the input path for stdin. `.json` input is always parsed as a project and `.txt` as text. A project with layers or keyframes (versions 2 and 3 in [the format notes](FORMAT.md)) is read flattened to its visible layers, each drawn through its keys. Ambiguous input, including stdin, is treated as JSON when it begins with `{` and is syntactically JSON; otherwise it is text. Give literal artwork that is also valid JSON a `.txt` filename to force text interpretation. CRLF is normalised to LF for text imports. `--pad` explicitly pads ragged rows; the browser pads text imports automatically.
 

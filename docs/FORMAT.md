@@ -78,3 +78,12 @@ Horizontal layout and word wrap follow figlet 2.2.5. Vertical layout follows the
 JSON stores characters and timing, not pixels. HTML exports embed the JSON safely and put each frame into a `<pre>` using `textContent`; they contain a small standalone JavaScript player. Neither format includes raster or vector artwork. The player starts paused, supports stepping and pauses on a hidden page or a change to reduced motion.
 
 Cast exports are [asciicast v2](https://docs.asciinema.org/manual/asciicast/v2/) recordings sized to the frame, for `asciinema play` and asciinema's web player. Each frame is one output event at its start time that moves the cursor home and rewrites every row; the first also hides the cursor and clears the screen, and a last event at the end of the final frame shows the cursor again. No colour or other escape sequence is written. The header's `idle_time_limit` is 60 seconds, the longest a frame may last, so players that shorten long pauses, such as `agg` (5 seconds unless told otherwise), show each frame for its full duration. A recording plays once; looping is left to the player.
+
+Code exports are source files that play the artwork inside another program. Each holds every frame (layers and keys applied) as a string literal, each frame's duration in milliseconds and the loop flag, and plays the frames with a timer, stopping on the last frame unless the artwork loops:
+
+- `react`: an ES module whose default export is the React component `ApollinaireArt({ paused, className, label })`. It renders one `<pre>` with the image role and `label` (default 'ASCII artwork') as its name, built with `createElement`, so no JSX transform is needed. It starts paused, and pauses, while the reader asks for reduced motion.
+- `ink`: an ES module whose default export is the Ink component `ApollinaireArt({ paused })`, one `<Text>` a row, truncated rather than wrapped in a narrow terminal.
+- `opentui`: an ES module exporting `addApollinaireArt(renderer)`, which adds one unwrapped `TextRenderable` to `renderer.root` and returns `{ renderable, stop }`.
+- `bubbletea`: a Go `package main` for Bubble Tea v2 (`charm.land/bubbletea/v2`) with the model `Art` and a `main` that plays it until `q` or Ctrl+C. To use `Art` in another program, change the package line and delete `main`.
+
+CI runs each export at the versions pinned in `tests/code_exports`: React 19 in a DOM, Ink 8, OpenTUI 0.9 under Bun and Bubble Tea 2.1 under `go vet` and `go test`.

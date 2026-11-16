@@ -308,6 +308,7 @@ impl App {
             "download-text",
             "download-json",
             "download-html",
+            "download-code",
             "apply",
             "discard",
             "editor",
@@ -426,6 +427,7 @@ pub fn start() -> std::result::Result<(), JsValue> {
         "download-text",
         "download-json",
         "download-html",
+        "download-code",
         "apply-effect",
     ] {
         listen(id, "click", move |_| report(action(id)))?;
@@ -899,6 +901,22 @@ fn action(id: &str) -> Result<()> {
                 "artwork.html",
                 "text/html;charset=utf-8",
             )?,
+            "download-code" => {
+                let project = app.layers.flatten();
+                let (code, name) = match select("code-format")?.as_str() {
+                    "react" => (export::react(&project), "artwork-react.js"),
+                    "ink" => (export::ink(&project), "artwork-ink.js"),
+                    "opentui" => (export::opentui(&project), "artwork-opentui.js"),
+                    "bubbletea" => (export::bubbletea(&project), "artwork.go"),
+                    _ => return Err("Unknown code format".into()),
+                };
+                let mime = if name.ends_with(".go") {
+                    "text/x-go;charset=utf-8"
+                } else {
+                    "text/javascript;charset=utf-8"
+                };
+                download(&code, name, mime)?;
+            }
             "apply-effect" => apply_effect(app)?,
             _ => return Err("Unknown editor action".into()),
         }

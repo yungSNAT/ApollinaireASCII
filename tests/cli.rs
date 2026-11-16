@@ -552,15 +552,43 @@ fn a_cast_extension_or_format_writes_an_asciicast_recording() {
 }
 
 #[test]
+fn code_formats_write_components_and_a_go_name_writes_bubble_tea() {
+    let dir = scratch("code");
+    let file = dir.join("ghost.go");
+    let saved = cli(&["animate", "ghost", "--output", file.to_str().unwrap()]);
+    assert!(saved.status.success(), "{}", text(&saved.stderr));
+    let printed = cli(&["animate", "ghost", "--format", "bubbletea"]);
+    assert_eq!(std::fs::read(&file).unwrap(), printed.stdout);
+    assert!(text(&printed.stdout).contains("tea \"charm.land/bubbletea/v2\""));
+    for (format, signature) in [
+        ("react", "from 'react';"),
+        ("ink", "from 'ink';"),
+        ("opentui", "from '@opentui/core';"),
+    ] {
+        let printed = cli(&["animate", "ghost", "--format", format]);
+        assert!(printed.status.success(), "{}", text(&printed.stderr));
+        assert!(text(&printed.stdout).contains(signature), "{format}");
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn image_batches_use_safe_names_and_the_requested_export_format() {
     let dir = scratch("batch-formats");
     let input = dir.join("two words.pgm");
     std::fs::write(&input, b"P2\n2 1\n255\n0 255\n").unwrap();
     let input = input.to_str().unwrap();
-    for (format, signature) in [
-        ("json", "{"),
-        ("html", "<!doctype html>"),
-        ("cast", "{\"version\":2,"),
+    for (format, extension, signature) in [
+        ("json", "json", "{"),
+        ("html", "html", "<!doctype html>"),
+        ("cast", "cast", "{\"version\":2,"),
+        ("react", "js", "// ApollinaireASCII artwork as a React"),
+        ("opentui", "js", "// ApollinaireASCII artwork for OpenTUI"),
+        (
+            "bubbletea",
+            "go",
+            "// ApollinaireASCII artwork as a Bubble Tea",
+        ),
     ] {
         let output = dir.join(format);
         let result = cli(&[
@@ -575,7 +603,7 @@ fn image_batches_use_safe_names_and_the_requested_export_format() {
         ]);
         assert!(result.status.success(), "{}", text(&result.stderr));
         let contents =
-            std::fs::read_to_string(output.join(format!("two_words.pgm.{format}"))).unwrap();
+            std::fs::read_to_string(output.join(format!("two_words.pgm.{extension}"))).unwrap();
         assert!(contents.starts_with(signature));
     }
 
