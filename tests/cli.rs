@@ -1436,6 +1436,126 @@ fn ansi_and_cp437_art_files_load_as_ascii_by_their_extension() {
 }
 
 #[test]
+fn model_draws_an_obj_or_stl_file_turning() {
+    let dir = scratch("model");
+    let cube = dir.join("cube.obj");
+    let mut obj = String::new();
+    for corner in 0..8 {
+        let [x, y, z] = [corner & 1, (corner >> 1) & 1, (corner >> 2) & 1];
+        obj += &format!("v {x} {y} {z}\n");
+    }
+    obj += "f 1 2 4 3\nf 5 6 8 7\nf 1 2 6 5\nf 3 4 8 7\nf 1 3 7 5\nf 2 4 8 6\n";
+    std::fs::write(&cube, obj).unwrap();
+    let path = cube.to_str().unwrap();
+    let json = cli(&[
+        "model", path, "--width", "20", "--height", "10", "--frames", "4",
+    ]);
+    let project = apollinaire_ascii::Animation::from_json(text(&json.stdout)).unwrap();
+    assert_eq!(project.frames().len(), 4, "{}", text(&json.stderr));
+    let frame = cli(&[
+        "model", path, "--width", "20", "--height", "10", "--frames", "4", "--spin", "xy",
+        "--light", "front", "--ramp", "simple", "--format", "text", "--frame", "1",
+    ]);
+    let drawn = text(&frame.stdout);
+    assert_eq!(drawn.lines().count(), 10, "{}", text(&frame.stderr));
+    assert!(drawn.bytes().all(|b| b" .oO#\n".contains(&b)) && drawn.contains('#'));
+    // Every spin and light named on the command line reaches the library's own.
+    use apollinaire_ascii::model::{self, ModelOptions};
+    let mesh = model::read("cube.obj", &std::fs::read(&cube).unwrap()).unwrap();
+    let spins = [
+        ("y", model::Spin::Y),
+        ("x", model::Spin::X),
+        ("xy", model::Spin::XY),
+    ];
+    let lights = [
+        ("top-left", model::Light::TopLeft),
+        ("top", model::Light::Top),
+        ("front", model::Light::Front),
+        ("left", model::Light::Left),
+        ("right", model::Light::Right),
+    ];
+    let choices = spins
+        .map(|(name, spin)| {
+            (
+                ["--spin", name],
+                ModelOptions {
+                    spin,
+                    ..Default::default()
+                },
+            )
+        })
+        .into_iter()
+        .chain(lights.map(|(name, light)| {
+            (
+                ["--light", name],
+                ModelOptions {
+                    light,
+                    ..Default::default()
+                },
+            )
+        }));
+    for (flag, options) in choices {
+        let options = ModelOptions {
+            width: 20,
+            height: 10,
+            frames: 4,
+            ..options
+        };
+        let output = cli(&[
+            &[
+                "model", path, "--width", "20", "--height", "10", "--frames", "4",
+            ][..],
+            &flag[..],
+        ]
+        .concat());
+        assert_eq!(
+            apollinaire_ascii::Animation::from_json(text(&output.stdout)).unwrap(),
+            model::render(&mesh, &options).unwrap(),
+            "{flag:?}"
+        );
+    }
+    refused(
+        &cli(&["model", path, "--frames", "601"]),
+        "Animation exceeds frame or cell limits",
+    );
+    let gltf = dir.join("cube.gltf");
+    std::fs::write(&gltf, "{}").unwrap();
+    refused(&cli(&["model", gltf.to_str().unwrap()]), ".stl or .obj");
+    refused(&cli(&["model", path, "--spin", "z"]), "invalid value");
+}
+
+#[test]
+fn image_shapes_match_each_cell_and_refuse_ramp_options() {
+    let dir = scratch("shapes");
+    // font8x8's A, each bitmap row drawn twice, as a plain PGM.
+    let a: [u8; 8] = [0x0C, 0x1E, 0x33, 0x33, 0x3F, 0x33, 0x33, 0x00];
+    let mut pgm = String::from("P2\n8 16\n1\n");
+    for y in 0..16 {
+        for x in 0..8 {
+            pgm.push_str(if a[y / 2] >> x & 1 == 1 { "1 " } else { "0 " });
+        }
+        pgm.push('\n');
+    }
+    let picture = dir.join("a.pgm");
+    std::fs::write(&picture, pgm).unwrap();
+    let path = picture.to_str().unwrap();
+    let shaped = cli(&["image", path, "--shapes", "--width", "1", "--height", "1"]);
+    assert!(shaped.status.success(), "{}", text(&shaped.stderr));
+    assert_eq!(text(&shaped.stdout), "A\n");
+    for option in ["--dither", "--edges", "--edge-glyphs"] {
+        refused(
+            &cli(&["image", path, "--shapes", option]),
+            "cannot be used with",
+        );
+    }
+    refused(
+        &cli(&["image", path, "--shapes", "--ramp", "simple"]),
+        "cannot be used with",
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn generate_builds_mazes_skies_and_patterns_from_the_library() {
     let maze = cli(&[
         "generate", "maze", "--width", "9", "--height", "5", "--seed", "7",
