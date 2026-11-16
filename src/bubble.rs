@@ -201,7 +201,7 @@ fn perl_line(line: &str) -> Result<String> {
                             });
                         if let Some(mark) = joined {
                             return Err(format!(
-                                "${name} followed by {mark} would be read by Perl as another variable"
+                                "${name} followed by {mark} would be read by Perl as part of a larger variable expression"
                             ));
                         }
                     }

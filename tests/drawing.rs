@@ -400,6 +400,12 @@ EOC
         cowsay("Hoo", 40, BorderStyle::Plain, raw).unwrap().text(),
         "+-----+     \n| Hoo |     \n+-----+     \n$thoughts \\\\"
     );
+    // Perl ends the variable before these, as the drawing does.
+    let ends = "$the_cow = <<EOC;\n$eyes-x\n$eyes'\n$eyes-> |\nEOC\n";
+    assert_eq!(
+        cowsay("Hoo", 40, BorderStyle::Plain, ends).unwrap().text(),
+        "+-----+\n| Hoo |\n+-----+\noo-x   \noo'    \noo-> | "
+    );
     for (cow, error) in [
         (
             "$eyes = \"..\" unless ($eyes);\n$the_cow = <<EOC;\nx\nEOC\n",
@@ -429,27 +435,27 @@ EOC
         // @- and @+ as its match arrays.
         (
             "$the_cow = <<EOC;\n$eyes[0]\nEOC\n",
-            "Line 2: $eyes followed by [ would be read by Perl as another variable",
+            "Line 2: $eyes followed by [ would be read by Perl as part of a larger variable expression",
         ),
         (
             "$the_cow = <<EOC;\n${eyes}[0]\nEOC\n",
-            "Line 2: $eyes followed by [ would be read by Perl as another variable",
+            "Line 2: $eyes followed by [ would be read by Perl as part of a larger variable expression",
         ),
         (
             "$the_cow = <<EOC;\n$thoughts{key}\nEOC\n",
-            "Line 2: $thoughts followed by { would be read by Perl as another variable",
+            "Line 2: $thoughts followed by { would be read by Perl as part of a larger variable expression",
         ),
         (
             "$the_cow = <<EOC;\n$tongue::x\nEOC\n",
-            "Line 2: $tongue followed by :: would be read by Perl as another variable",
+            "Line 2: $tongue followed by :: would be read by Perl as part of a larger variable expression",
         ),
         (
             "$the_cow = <<EOC;\n$eyes'x\nEOC\n",
-            "Line 2: $eyes followed by ' would be read by Perl as another variable",
+            "Line 2: $eyes followed by ' would be read by Perl as part of a larger variable expression",
         ),
         (
             "$the_cow = <<EOC;\n$eyes->[0]\nEOC\n",
-            "Line 2: $eyes followed by ->[ would be read by Perl as another variable",
+            "Line 2: $eyes followed by ->[ would be read by Perl as part of a larger variable expression",
         ),
         (
             "$the_cow = <<EOC;\n(@-@)\nEOC\n",
