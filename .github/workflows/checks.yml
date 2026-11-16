@@ -118,8 +118,8 @@ jobs:
           disable_search: true
           fail_ci_if_error: true
 
-  # Formula/ makes this repository a Homebrew tap, as the README says: install the release its
-  # formula names and run the formula's test.
+  # Formula/ makes this repository a Homebrew tap, as the README says: check it is the latest
+  # release's formula, install the release it names and run the formula's test.
   homebrew:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -130,6 +130,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # The tap serves the latest release: after each release, a pull request copies the
+      # release's apollinaire.rb into Formula/. Until that merges, this check fails.
+      - name: Formula/ is the latest release's formula
+        run: |
+          curl --proto '=https' --tlsv1.2 -fsSLo "$RUNNER_TEMP/latest.rb" "https://github.com/$GITHUB_REPOSITORY/releases/latest/download/apollinaire.rb"
+          if ! cmp -s "$RUNNER_TEMP/latest.rb" Formula/apollinaire.rb; then
+            echo "::error file=Formula/apollinaire.rb::Not the latest release's apollinaire.rb: copy it from https://github.com/$GITHUB_REPOSITORY/releases/latest"
+            diff "$RUNNER_TEMP/latest.rb" Formula/apollinaire.rb
+            exit 1
+          fi
       - run: |
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
           brew tap yungsnat/apollinaire "$GITHUB_WORKSPACE"
