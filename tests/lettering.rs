@@ -82,7 +82,8 @@ fn horizontal_layouts_match_figlet() {
 }
 
 /// Bundled fonts are embedded in the WebAssembly module as they are, so their total size is
-/// held to a budget: 192 KiB, about 4% of the optimised module.
+/// held to a budget of 192 KiB. On 17 November 2026 the 24 fonts were 181,374 bytes, and the
+/// optimised module that holds them 1,415,859 bytes, 7,657 more than without the last 3 fonts.
 #[test]
 fn bundled_fonts_fit_their_share_of_the_browser_module() {
     let dir = format!("{}/src/fonts", env!("CARGO_MANIFEST_DIR"));

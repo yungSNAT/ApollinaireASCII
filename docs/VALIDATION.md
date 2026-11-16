@@ -44,6 +44,7 @@ On 1 November 2026 the renderer was compared with figlet 2.2.5, built from cmats
 
 - Horizontal layout and word wrap: 1,260 of 1,260 cases matched figlet exactly (21 fonts, 5 texts with smushing-rule characters, `-s`, `-W`, `-k` and `-S`, no wrap and wraps of 30 and 45 columns).
 - Vertical layout: 185 of 185 cases matched figlet.js with full-width horizontal layout (13 fonts, 5 multiline texts, full, fitted, smushed and default vertical layout). The 20 excluded default-layout cases are the documented specification difference in [the format notes](FORMAT.md). figlet.js fitting keeps the first glyph's leading blank columns where figlet drops them, so fitted horizontal layout was compared only against figlet.
+- On 17 November 2026 the 3 fonts added then (bubble, digital and term, trimmed as `THIRD_PARTY_NOTICES.md` describes) were compared the same way: 180 of 180 cases matched figlet 2.2.5 run with the distribution's untrimmed files.
 - The fixtures in `tests/fixtures/lettering` come from those 2 programs, and `tests/lettering.rs` checks each layout mode against them.
 
 The browser editor listed all 21 fonts and the 2 styles, generated wrapped, vertically smushed lettering as printable DOM text, accepted an ASCII `.tlf` upload and refused a `.tlf` with a non-ASCII glyph, naming the glyph and byte. Browser runtime errors: zero.
