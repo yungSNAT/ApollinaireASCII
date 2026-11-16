@@ -61,7 +61,7 @@ const PICTURES: &str = "☺☻♥♦♣♠•◘○◙♂♀♪♫☼►◄↕�
 /// (after LF, tabs and cursor moves) unless a SAUCE record gives a width, with moves stopping at
 /// the last column. A glyph that fills the last column leaves the cursor there and wraps only
 /// when another glyph follows, so the LF text0wnz writes after each full row ends that row and
-/// an erase escape before it reaches the last column.
+/// an erase escape before it reaches the last column. CR returns to the start of the row.
 pub fn read(name: &str, bytes: &[u8]) -> Result<Frame> {
     let lower = name.to_ascii_lowercase();
     if !lower.ends_with(".utf8.ans") {
@@ -218,9 +218,10 @@ fn lines(art: &[u8]) -> Vec<Vec<u8>> {
 fn screen(art: &[u8], width: usize, wrap: Wrap) -> Result<(Vec<Vec<u8>>, usize)> {
     let mut rows: Vec<Vec<u8>> = Vec::new();
     let mut drawn = 0;
-    let (mut x, mut y, mut saved) = (0usize, 0usize, (0usize, 0usize));
+    let (mut x, mut y, mut saved) = (0usize, 0usize, (0usize, 0usize, false));
     // Under `Wrap::NextGlyph` the cursor stays in the last column after a glyph fills it, and
-    // the wrap waits here until the next glyph arrives.
+    // the wrap waits here until the next glyph arrives. Erasing, colour and a tab, which cannot
+    // pass the last column, leave it waiting; CR, LF and cursor moves cancel it.
     let mut pending = false;
     let mut index = 0;
     while let Some(&byte) = art.get(index) {
@@ -229,10 +230,13 @@ fn screen(art: &[u8], width: usize, wrap: Wrap) -> Result<(Vec<Vec<u8>>, usize)>
             (x, y) = (0, y.saturating_add(1));
         }
         match byte {
-            // libansilove ignores CR: LF alone starts the next row.
+            // A terminal returns to the row's start on CR; libansilove ignores it, so LF alone
+            // starts the next row.
+            b'\r' if wrap == Wrap::NextGlyph => (x, pending) = (0, false),
             b'\r' => {}
             b'\n' => (x, y, pending) = (0, y.saturating_add(1), false),
-            b'\t' => (x, pending) = (((x / 8 + 1) * 8).min(width), false),
+            b'\t' if !pending => x = ((x / 8 + 1) * 8).min(width),
+            b'\t' => {}
             0x1b if art.get(index) == Some(&b'[') => {
                 let parameters = index + 1;
                 index = parameters;
@@ -256,8 +260,7 @@ fn screen(art: &[u8], width: usize, wrap: Wrap) -> Result<(Vec<Vec<u8>>, usize)>
                             v.saturating_mul(10).saturating_add(usize::from(d - b'0'))
                         })
                 });
-                // Every escape the screen acts on cancels a pending wrap; colour does not.
-                pending &= !b"ABCDHfJKsu".contains(&command);
+                pending &= !b"ABCDHf".contains(&command);
                 let first = numbers.next().unwrap_or(0);
                 let count = first.max(1);
                 let erase = match first {
@@ -278,7 +281,7 @@ fn screen(art: &[u8], width: usize, wrap: Wrap) -> Result<(Vec<Vec<u8>>, usize)>
                     }
                     b'J' if first == 2 => {
                         rows.clear();
-                        (x, y) = (0, 0);
+                        (x, y, pending) = (0, 0, false);
                     }
                     b'J' | b'K' => {
                         if let Some(cells) = erase {
@@ -292,8 +295,8 @@ fn screen(art: &[u8], width: usize, wrap: Wrap) -> Result<(Vec<Vec<u8>>, usize)>
                             }
                         }
                     }
-                    b's' => saved = (x, y),
-                    b'u' => (x, y) = saved,
+                    b's' => saved = (x, y, pending),
+                    b'u' => (x, y, pending) = saved,
                     _ => {}
                 }
             }
