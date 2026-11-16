@@ -254,6 +254,9 @@ impl Motion {
                 range.end()
             ));
         }
+        if let Easing::Curve(points) = key.easing {
+            Easing::curve(points)?;
+        }
         // -0.0 becomes 0.0, so equal keys compare equal.
         key.value += 0.0;
         let track = &mut self.tracks[property as usize];
@@ -282,8 +285,8 @@ impl Motion {
             .map(|k| k.frame)
             .max()
     }
-    /// Move every key to `map(frame)`, dropping keys it maps to `None`. `map` must keep frames
-    /// in order and distinct, as moving whole frames does.
+    /// Move every key to `map(frame)`, dropping keys it maps to `None`, then sort each track.
+    /// `map` must send distinct frames to distinct frames, as moving whole frames does.
     pub(crate) fn remap(&mut self, map: impl Fn(usize) -> Option<usize>) {
         for track in &mut self.tracks {
             *track = track

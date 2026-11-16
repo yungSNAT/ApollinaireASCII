@@ -99,6 +99,15 @@ fn custom_curves_are_checked_and_compared_exactly() {
             Easing::curve(bad).unwrap_err().contains("easing curve"),
             "{bad:?}"
         );
+        // A curve built directly is checked when it is keyed, so a project never holds a key
+        // its saved JSON could not reopen.
+        let key = Key {
+            frame: 0,
+            value: 0.0,
+            easing: Easing::Curve(bad),
+        };
+        let error = Motion::default().set_key(Property::X, key).unwrap_err();
+        assert!(error.contains("easing curve"), "{bad:?}");
     }
 }
 

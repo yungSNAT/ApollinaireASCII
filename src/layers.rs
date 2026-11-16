@@ -125,8 +125,8 @@ impl Layered {
         let names: usize = self
             .layers
             .iter()
-            // A key is at most about 140 bytes (a frame, a value and a curve of 4 long
-            // decimals); the layer's other fields and its track names fit in 160.
+            // A key is at most 158 bytes (a 3-digit frame, and a value and 4 curve points of
+            // up to 24 characters each); the layer's other fields and track names fit in 160.
             .map(|layer| 2 * layer.name.len() + 160 + 160 * layer.motion.len())
             .sum();
         // Per frame: {"duration_ms":60000,"layers":[]}, and the header with its brackets.
@@ -362,4 +362,67 @@ pub(crate) fn stack<'a>(
         }
     }
     Frame::new(width, height, cells).expect("Stacked frames stay printable ASCII")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        MAX_FRAMES,
+        motion::{Easing, Key},
+    };
+
+    /// The longest numbers serde_json writes in range, a key on every frame of every track.
+    #[test]
+    fn the_json_bound_covers_the_longest_keys() {
+        let frames = vec![
+            TimedFrame {
+                frame: Frame::blank(1, 1).unwrap(),
+                duration_ms: 6_000,
+            };
+            MAX_FRAMES
+        ];
+        let art = Animation::new(frames, true).unwrap();
+        let tiny = 1.234_567_890_123_456_7e-300;
+        let mut motion = Motion::default();
+        for property in Property::ALL {
+            let value = if property.range().contains(&-tiny) {
+                -tiny
+            } else {
+                tiny
+            };
+            for frame in 0..MAX_FRAMES {
+                let easing = Easing::curve([tiny, -tiny, tiny, -tiny]).unwrap();
+                motion
+                    .set_key(
+                        property,
+                        Key {
+                            frame,
+                            value,
+                            easing,
+                        },
+                    )
+                    .unwrap();
+            }
+        }
+        let layer = Layer {
+            name: "\"".repeat(32),
+            visible: false,
+            art,
+            motion,
+        };
+        let project = Layered::new(vec![layer.clone(), layer]).unwrap();
+        let json = project.to_json();
+        assert!(
+            json.contains("-1.2345678901234568e-300"),
+            "{}",
+            &json[json.find("\"motion\"").unwrap()..][..300]
+        );
+        assert!(
+            project.json_bound() >= json.len(),
+            "{} < {}",
+            project.json_bound(),
+            json.len()
+        );
+    }
 }
