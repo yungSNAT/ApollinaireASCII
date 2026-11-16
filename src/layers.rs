@@ -413,16 +413,9 @@ mod tests {
         };
         let project = Layered::new(vec![layer.clone(), layer]).unwrap();
         let json = project.to_json();
-        assert!(
-            json.contains("-1.2345678901234568e-300"),
-            "{}",
-            &json[json.find("\"motion\"").unwrap()..][..300]
-        );
-        assert!(
-            project.json_bound() >= json.len(),
-            "{} < {}",
-            project.json_bound(),
-            json.len()
-        );
+        let motion = &json[json.find("\"motion\"").unwrap()..][..300];
+        assert!(motion.contains("-1.2345678901234568e-300"), "{motion}");
+        let (bound, len) = (project.json_bound(), json.len());
+        assert!(bound >= len, "{bound} < {len}");
     }
 }
