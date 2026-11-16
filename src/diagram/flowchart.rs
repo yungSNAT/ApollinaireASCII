@@ -951,11 +951,11 @@ fn layout(chart: &Chart) -> Result<Frame> {
     let mut canvas = Canvas::new(width as usize, height as usize)?;
     for slot in &slots {
         if let Kind::Node(node) = slot.kind {
-            canvas.diagram_box(
+            let corners = (
                 at(slot.minor, top(slot)),
                 at(slot.minor + slot.size - 1, bottom(slot)),
-                &chart.labels[node],
-            )?;
+            );
+            canvas.diagram_box(corners.0, corners.1, &chart.labels[node])?;
         }
     }
     // Links go on a layer of their own, so a crossing keeps its vertical line and only a
