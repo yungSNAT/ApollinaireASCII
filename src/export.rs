@@ -34,6 +34,206 @@ pub fn asciicast(project: &Animation) -> String {
     result
 }
 
+/// The frames, their durations in milliseconds and the loop flag as JavaScript declarations.
+/// JSON strings are valid JavaScript and Go literals, and frames hold only printable ASCII and
+/// line feeds.
+fn script_data(project: &Animation) -> String {
+    let frames: Vec<String> = project.frames().iter().map(|e| e.frame.text()).collect();
+    let durations: Vec<u32> = project.frames().iter().map(|e| e.duration_ms).collect();
+    format!(
+        "const frames = {};\nconst durations = {};\nconst loop = {};\n",
+        serde_json::to_string(&frames).expect("strings always serialise"),
+        serde_json::to_string(&durations).expect("numbers always serialise"),
+        project.looping()
+    )
+}
+
+/// The React hook both JavaScript components play with: the frame index, advanced by a timer
+/// that stops while paused and, unless the artwork loops, on its last frame.
+const USE_FRAME: &str = "
+function useFrame(paused) {
+  const [index, setIndex] = useState(0);
+  useEffect(() => {
+    if (paused || frames.length < 2 || (!loop && index === frames.length - 1)) return undefined;
+    const timer = setTimeout(() => setIndex((index + 1) % frames.length), durations[index]);
+    return () => clearTimeout(timer);
+  }, [index, paused]);
+  return index;
+}
+";
+
+/// A React component, as an ES module that needs no JSX transform:
+/// `<ApollinaireArt paused={false} className="art" label="ASCII artwork" />`. It renders one
+/// `<pre>` with the image role and plays the frames, starting paused when the reader asks for
+/// reduced motion.
+pub fn react(project: &Animation) -> String {
+    format!(
+        "// ApollinaireASCII artwork as a React component.
+import {{ createElement, useEffect, useState }} from 'react';
+
+{}{USE_FRAME}
+const motionQuery = '(prefers-reduced-motion: reduce)';
+function prefersReducedMotion() {{
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    && window.matchMedia(motionQuery).matches;
+}}
+
+export default function ApollinaireArt({{ paused = false, className, label = 'ASCII artwork' }}) {{
+  const [still, setStill] = useState(prefersReducedMotion);
+  useEffect(() => {{
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
+    const query = window.matchMedia(motionQuery);
+    const change = () => setStill(query.matches);
+    query.addEventListener('change', change);
+    // The preference may have changed since rendering, with no event to say so.
+    change();
+    return () => query.removeEventListener('change', change);
+  }}, []);
+  const index = useFrame(paused || still);
+  return createElement('pre', {{ className, role: 'img', 'aria-label': label }}, frames[index]);
+}}
+",
+        script_data(project)
+    )
+}
+
+/// An Ink component for terminal apps, as an ES module: `render(<ApollinaireArt />)`. Each row
+/// is its own `<Text>`, truncated rather than wrapped in a narrow terminal.
+pub fn ink(project: &Animation) -> String {
+    format!(
+        "// ApollinaireASCII artwork as an Ink component.
+import {{ createElement, useEffect, useState }} from 'react';
+import {{ Box, Text }} from 'ink';
+
+{}{USE_FRAME}
+export default function ApollinaireArt({{ paused = false }}) {{
+  const index = useFrame(paused);
+  return createElement(
+    Box,
+    {{ flexDirection: 'column' }},
+    frames[index].split('\\n').map((row, key) => createElement(Text, {{ key, wrap: 'truncate' }}, row)),
+  );
+}}
+",
+        script_data(project)
+    )
+}
+
+/// An OpenTUI function, as an ES module: `addApollinaireArt(renderer)` adds one unwrapped
+/// `TextRenderable` to `renderer.root`, plays the frames and returns `{ renderable, stop }`.
+pub fn opentui(project: &Animation) -> String {
+    format!(
+        "// ApollinaireASCII artwork for OpenTUI.
+import {{ TextRenderable }} from '@opentui/core';
+
+{}
+export function addApollinaireArt(renderer) {{
+  const renderable = new TextRenderable(renderer, {{ content: frames[0], wrapMode: 'none' }});
+  renderer.root.add(renderable);
+  let index = 0;
+  let timer;
+  const next = () => {{
+    if (frames.length < 2 || (!loop && index === frames.length - 1)) return;
+    timer = setTimeout(() => {{
+      index = (index + 1) % frames.length;
+      renderable.content = frames[index];
+      next();
+    }}, durations[index]);
+  }};
+  next();
+  return {{ renderable, stop: () => clearTimeout(timer) }};
+}}
+",
+        script_data(project)
+    )
+}
+
+/// A Bubble Tea v2 program in Go: the `Art` model and a `main` that plays it until `q` or
+/// Ctrl+C. To embed `Art`, change the package line and delete `main`.
+pub fn bubbletea(project: &Animation) -> String {
+    let list = |items: Vec<String>| items.join(", ");
+    let frames = list(
+        project
+            .frames()
+            .iter()
+            .map(|e| serde_json::to_string(&e.frame.text()).expect("a string always serialises"))
+            .collect(),
+    );
+    let durations = list(
+        project
+            .frames()
+            .iter()
+            .map(|e| e.duration_ms.to_string())
+            .collect(),
+    );
+    let looping = project.looping();
+    format!(
+        "// ApollinaireASCII artwork as a Bubble Tea program.
+package main
+
+import (
+\t\"fmt\"
+\t\"os\"
+\t\"time\"
+
+\ttea \"charm.land/bubbletea/v2\"
+)
+
+var frames = []string{{{frames}}}
+
+// Milliseconds each frame shows for.
+var durations = []int{{{durations}}}
+
+const loop = {looping}
+
+type artTick struct{{}}
+
+// Art plays the frames.
+type Art struct {{
+\tindex int
+}}
+
+// NewArt starts on the first frame.
+func NewArt() Art {{ return Art{{}} }}
+
+func (a Art) next() tea.Cmd {{
+\tif len(frames) < 2 || (!loop && a.index == len(frames)-1) {{
+\t\treturn nil
+\t}}
+\treturn tea.Tick(time.Duration(durations[a.index])*time.Millisecond, func(time.Time) tea.Msg {{ return artTick{{}} }})
+}}
+
+// Init starts the timer.
+func (a Art) Init() tea.Cmd {{ return a.next() }}
+
+// Update moves to the next frame on each tick and quits on q or Ctrl+C.
+func (a Art) Update(msg tea.Msg) (tea.Model, tea.Cmd) {{
+\tswitch msg := msg.(type) {{
+\tcase artTick:
+\t\ta.index = (a.index + 1) % len(frames)
+\t\treturn a, a.next()
+\tcase tea.KeyPressMsg:
+\t\tswitch msg.String() {{
+\t\tcase \"q\", \"ctrl+c\":
+\t\t\treturn a, tea.Quit
+\t\t}}
+\t}}
+\treturn a, nil
+}}
+
+// View shows the current frame.
+func (a Art) View() tea.View {{ return tea.NewView(frames[a.index]) }}
+
+func main() {{
+\tif _, err := tea.NewProgram(NewArt()).Run(); err != nil {{
+\t\tfmt.Fprintln(os.Stderr, err)
+\t\tos.Exit(1)
+\t}}
+}}
+"
+    )
+}
+
 /// Portable HTML uses a small JS text player because it has no WASM dependency.
 pub fn html(project: &Animation) -> String {
     let data = project

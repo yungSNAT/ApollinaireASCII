@@ -1,0 +1,12 @@
+{
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@opentui/core": "0.9.1",
+    "ink": "8.0.0",
+    "ink-testing-library": "4.0.0",
+    "jsdom": "31.0.1",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  }
+}
