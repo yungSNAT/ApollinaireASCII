@@ -629,7 +629,7 @@ fn flowcharts_refuse_what_they_cannot_draw_with_its_line() {
             "Line 2: circle and cross link ends are not drawn",
         ),
         (
-            "graph TD\nA <-- B",
+            "graph TD\nA <--- B",
             "Line 2: the link at column 3 has an arrowhead at its start only",
         ),
         (
