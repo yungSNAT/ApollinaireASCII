@@ -4,7 +4,7 @@ mod fetch;
 mod mcp;
 
 use apollinaire_ascii::{
-    Animation, BorderStyle, Canvas, EffectOptions, Frame, Layered, MAX_INPUT_BYTES,
+    Animation, BorderStyle, Canvas, EffectOptions, Frame, Glyphs, Layered, MAX_INPUT_BYTES,
     MAX_MEDIA_BYTES, RenderOptions, Result, SceneOptions, TimedFrame, animation, ansi, art, bubble,
     diagram::{self, TableRules},
     effects, export, generator, lettering,
@@ -350,6 +350,10 @@ enum Command {
         /// --edges, over the traced outlines.
         #[arg(long)]
         edge_glyphs: bool,
+        /// Give each cell the printable character whose shape best fits its pixels, from all 95,
+        /// instead of a ramp character for its brightness.
+        #[arg(long, conflicts_with_all = ["ramp", "dither", "edges", "edge_glyphs"])]
+        shapes: bool,
         /// Gamma correction, 0.1 to 5.0.
         #[arg(long, default_value_t = 1.0)]
         gamma: f64,
@@ -651,11 +655,13 @@ fn run(args: Args) -> Result<()> {
             dither,
             edges,
             edge_glyphs,
+            shapes,
             gamma,
             contrast,
             cell_aspect,
             background,
         } => {
+            let glyphs = if shapes { Glyphs::Shapes } else { Glyphs::Ramp };
             let ramp = apollinaire_ascii::image_renderer::RAMPS
                 .iter()
                 .find(|(n, _)| *n == ramp)
@@ -679,7 +685,7 @@ fn run(args: Args) -> Result<()> {
                     Some(url) => fetch::image(url)?,
                     None => read_bounded(input, MAX_MEDIA_BYTES)?,
                 };
-                apollinaire_ascii::decode_media(&bytes, &options)
+                apollinaire_ascii::decode_media_as(&bytes, &options, glyphs)
             };
             if let Some(dir) = output_dir {
                 return batch(&inputs, &dir, &args.export, convert);

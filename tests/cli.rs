@@ -1436,6 +1436,37 @@ fn ansi_and_cp437_art_files_load_as_ascii_by_their_extension() {
 }
 
 #[test]
+fn image_shapes_match_each_cell_and_refuse_ramp_options() {
+    let dir = scratch("shapes");
+    // font8x8's A, each bitmap row drawn twice, as a plain PGM.
+    let a: [u8; 8] = [0x0C, 0x1E, 0x33, 0x33, 0x3F, 0x33, 0x33, 0x00];
+    let mut pgm = String::from("P2\n8 16\n1\n");
+    for y in 0..16 {
+        for x in 0..8 {
+            pgm.push_str(if a[y / 2] >> x & 1 == 1 { "1 " } else { "0 " });
+        }
+        pgm.push('\n');
+    }
+    let picture = dir.join("a.pgm");
+    std::fs::write(&picture, pgm).unwrap();
+    let path = picture.to_str().unwrap();
+    let shaped = cli(&["image", path, "--shapes", "--width", "1", "--height", "1"]);
+    assert!(shaped.status.success(), "{}", text(&shaped.stderr));
+    assert_eq!(text(&shaped.stdout), "A\n");
+    for option in ["--dither", "--edges", "--edge-glyphs"] {
+        refused(
+            &cli(&["image", path, "--shapes", option]),
+            "cannot be used with",
+        );
+    }
+    refused(
+        &cli(&["image", path, "--shapes", "--ramp", "simple"]),
+        "cannot be used with",
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn generate_builds_mazes_skies_and_patterns_from_the_library() {
     let maze = cli(&[
         "generate", "maze", "--width", "9", "--height", "5", "--seed", "7",
