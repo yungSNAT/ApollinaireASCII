@@ -73,7 +73,10 @@ impl<'de> Deserialize<'de> for Project {
                     (1, None) => None,
                     (1, Some(_)) => return Err(de::Error::unknown_field("layers", FIELDS)),
                     (2, Some(Few(names))) if names.iter().any(|meta| meta.motion.is_some()) => {
-                        return Err(de::Error::unknown_field("motion", &["name", "visible"]));
+                        return Err(de::Error::unknown_field(
+                            "motion",
+                            &["name", "visible", "locked"],
+                        ));
                     }
                     (_, Some(Few(names))) => Some(names),
                     (_, None) => return Err(de::Error::missing_field("layers")),
@@ -112,6 +115,7 @@ impl<'de> Deserialize<'de> for Project {
                             .map(|(meta, art)| Layer {
                                 name: meta.name,
                                 visible: meta.visible,
+                                locked: meta.locked.unwrap_or(false),
                                 art,
                                 motion: meta.motion.unwrap_or_default(),
                             })
@@ -266,11 +270,12 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for Few<T> {
     }
 }
 
-/// A layer's `name`, `visible` and, in version 3, `motion`; [`Layered::new`] checks the name
-/// and that every key is on a frame of the project.
+/// A layer's `name`, `visible`, optional `locked` and, in version 3, `motion`;
+/// [`Layered::new`] checks the name and that every key is on a frame of the project.
 struct Meta {
     name: String,
     visible: bool,
+    locked: Option<bool>,
     motion: Option<Motion>,
 }
 impl<'de> Deserialize<'de> for Meta {
@@ -285,16 +290,17 @@ impl<'de> Deserialize<'de> for Meta {
                 self,
                 mut map: M,
             ) -> std::result::Result<Meta, M::Error> {
-                let (mut name, mut visible, mut motion) = (None, None, None);
+                let (mut name, mut visible, mut locked, mut motion) = (None, None, None, None);
                 while let Some(key) = map.next_key::<String>()? {
                     match key.as_str() {
                         "name" => field(&mut name, &mut map, "name")?,
                         "visible" => field(&mut visible, &mut map, "visible")?,
+                        "locked" => field(&mut locked, &mut map, "locked")?,
                         "motion" => field(&mut motion, &mut map, "motion")?,
                         _ => {
                             return Err(de::Error::unknown_field(
                                 &key,
-                                &["name", "visible", "motion"],
+                                &["name", "visible", "locked", "motion"],
                             ));
                         }
                     }
@@ -302,6 +308,7 @@ impl<'de> Deserialize<'de> for Meta {
                 Ok(Meta {
                     name: required(name, "name")?,
                     visible: required(visible, "visible")?,
+                    locked,
                     motion: motion.map(|Tracks(motion)| motion),
                 })
             }
