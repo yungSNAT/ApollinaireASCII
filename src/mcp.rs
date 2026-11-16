@@ -772,9 +772,10 @@ mod tests {
     use super::*;
 
     /// Commands that are no tool: interactive ones, ones that print no artwork, and ones that
-    /// need a file name or 2 files, which a tool cannot pass.
+    /// need a file name (whose extension picks the format) or 2 files, which a tool cannot pass.
     const NOT_TOOLS: &[&str] = &[
         "import",
+        "model",
         "compose",
         "play",
         "edit",
