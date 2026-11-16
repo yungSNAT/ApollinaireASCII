@@ -221,3 +221,49 @@ fn failed(program: &str, shown: &impl std::fmt::Display, errors: &[u8]) -> Strin
         .collect();
     format!("{program} could not read {shown}: {}", detail.join("; "))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_the_video_demuxers_are_named_to_ffmpeg() {
+        assert_eq!(allowed("matroska"), Ok("matroska"));
+        assert_eq!(
+            allowed("hls").unwrap_err(),
+            "ffprobe chose the hls format, which video input does not read"
+        );
+        assert!(allowed("mov,mp4").is_err());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_program_that_stalls_is_stopped_and_reaped() {
+        let started = Instant::now();
+        let mut stalls = Command::new("sh");
+        stalls.args(["-c", "echo $$; exec sleep 30"]);
+        let mut run = Run::start(&mut stalls, Duration::from_millis(200)).unwrap();
+        let mut pid = String::new();
+        run.stdout.read_to_string(&mut pid).unwrap();
+        assert_eq!(
+            run.finish("ffmpeg", &"clip.mp4").unwrap_err(),
+            "ffmpeg made no progress on clip.mp4 for 0.2 seconds, so it was stopped"
+        );
+        assert!(started.elapsed() < Duration::from_secs(10));
+        assert!(!Path::new(&format!("/proc/{}", pid.trim())).exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_slow_program_that_keeps_making_progress_runs_to_the_end() {
+        let mut slow = Command::new("sh");
+        slow.args(["-c", "for i in 1 2 3 4; do sleep 1; echo; done"]);
+        let mut run = Run::start(&mut slow, Duration::from_secs(2)).unwrap();
+        let mut byte = [0];
+        while run.stdout.read_exact(&mut byte).is_ok() {
+            run.progress.fetch_add(1, Ordering::Relaxed);
+        }
+        let (status, errors) = run.finish("ffmpeg", &"clip.mp4").unwrap();
+        assert!(status.success() && errors.is_empty());
+    }
+}

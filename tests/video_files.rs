@@ -305,4 +305,102 @@ mod with_ffmpeg {
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// A box: its size, its kind and its body.
+    fn boxed(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
+        let size = u32::try_from(body.len() + 8).unwrap();
+        [&size.to_be_bytes()[..], kind, body].concat()
+    }
+
+    /// Point a QuickTime file's pictures at `white.mov` beside it. The data reference becomes
+    /// an alias record (150 bytes of fixed fields, with one level up from the movie and one
+    /// down to the target, then a path record and the end mark), and the boxes holding it grow
+    /// to match. The movie box ends the file, so no sample offset moves.
+    fn refer_to_sibling(bytes: &mut Vec<u8>) {
+        let mut chain = Vec::new();
+        let (mut start, mut end) = (0, bytes.len());
+        for kind in [b"moov", b"trak", b"mdia", b"minf", b"dinf", b"dref"] {
+            let mut at = start;
+            while &bytes[at + 4..at + 8] != kind {
+                at += u32::from_be_bytes(bytes[at..at + 4].try_into().unwrap()) as usize;
+                assert!(at < end, "no {}", String::from_utf8_lossy(kind));
+            }
+            let size = u32::from_be_bytes(bytes[at..at + 4].try_into().unwrap()) as usize;
+            chain.push((at, size));
+            (start, end) = (at + 8, at + size);
+        }
+        assert_eq!(chain[0].0 + chain[0].1, bytes.len(), "the movie box ends the file");
+        let mut alias = vec![0; 150];
+        alias[130..134].copy_from_slice(&[0, 1, 0, 1]);
+        let path = b"/white.mov";
+        let records = [&[0, 2, 0, 10][..], path, &[0xff, 0xff, 0, 0]].concat();
+        let entry = boxed(b"alis", &[&[0; 4][..], &alias, &records].concat());
+        let dref = boxed(b"dref", &[&[0, 0, 0, 0, 0, 0, 0, 1][..], &entry].concat());
+        let (at, size) = chain.pop().unwrap();
+        let grown = dref.len() - size;
+        bytes.splice(at..at + size, dref);
+        for (at, size) in chain {
+            let size = u32::try_from(size + grown).unwrap();
+            bytes[at..at + 4].copy_from_slice(&size.to_be_bytes());
+        }
+    }
+
+    #[test]
+    fn quicktime_references_to_other_files_are_never_opened() {
+        if !ffmpeg_present() {
+            return;
+        }
+        let dir = scratch("video-refs");
+        // Raw pictures, so both files lay out their samples alike.
+        for colour in ["black", "white"] {
+            make(
+                &dir.join(format!("{colour}.mov")),
+                &[
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    &format!("color=c={colour}:s=16x16:r=5:d=1"),
+                    "-c:v",
+                    "rawvideo",
+                    "-pix_fmt",
+                    "rgb24",
+                ],
+            );
+        }
+        let mut bytes = std::fs::read(dir.join("black.mov")).unwrap();
+        refer_to_sibling(&mut bytes);
+        let refers = dir.join("refers.mov");
+        std::fs::write(&refers, bytes).unwrap();
+
+        // With references turned on, ffmpeg draws white.mov's pictures through the file
+        // protocol alone.
+        let mut input = std::ffi::OsString::from("file:");
+        input.push(&refers);
+        let followed = Command::new("ffmpeg")
+            .args(["-v", "error", "-protocol_whitelist", "file"])
+            .args(["-enable_drefs", "1", "-i"])
+            .arg(&input)
+            .args(["-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"])
+            .output()
+            .unwrap();
+        assert_eq!(followed.stdout, [255; 256], "{}", stderr(&followed));
+
+        // A named pipe in its place would hold ffprobe or ffmpeg at once if either opened it,
+        // until the stall limit stopped it.
+        std::fs::remove_file(dir.join("white.mov")).unwrap();
+        let piped = Command::new("mkfifo")
+            .arg(dir.join("white.mov"))
+            .status()
+            .unwrap();
+        assert!(piped.success());
+        let output = cli(&["image", refers.to_str().unwrap()]);
+        assert_eq!(
+            stderr(&output),
+            format!(
+                "apollinaire: ffmpeg decoded no frames from {}\n",
+                refers.display()
+            )
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
