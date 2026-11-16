@@ -1123,6 +1123,31 @@ fn say_reads_the_message_or_the_art_from_stdin() {
 }
 
 #[test]
+fn say_draws_the_art_of_a_cow_file_without_running_it() {
+    let dir = scratch("say-cow");
+    let cow = dir.join("owl.COW");
+    std::fs::write(
+        &cow,
+        "$the_cow = <<\"EOC\";\n  $thoughts\n   $thoughts ($eyes)\nEOC\n",
+    )
+    .unwrap();
+    let said = cli_stdin(&["say", "--art-file", cow.to_str().unwrap()], b"Hoo");
+    assert_eq!(
+        text(&said.stdout),
+        "+-----+  \n| Hoo |  \n+-----+  \n  \\      \n   \\ (oo)\n",
+        "{}",
+        text(&said.stderr)
+    );
+    // A line of Perl outside the art is refused.
+    std::fs::write(&cow, "$eyes = '..';\n$the_cow = <<EOC;\nx\nEOC\n").unwrap();
+    refused(
+        &cli(&["say", "Hoo", "--art-file", cow.to_str().unwrap()]),
+        "Line 1: only the art is read",
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn say_refuses_missing_animated_or_conflicting_art() {
     let dir = scratch("say-art");
     let missing = dir.join("missing.txt");
