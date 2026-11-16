@@ -231,6 +231,7 @@ enum Transform {
     Vertical,
     Border,
     Crop,
+    Rotate,
 }
 #[derive(Subcommand)]
 enum Command {
@@ -448,7 +449,8 @@ enum Command {
     Transform {
         /// A .txt or .json project, or `-` for stdin.
         input: PathBuf,
-        /// Flip horizontally or vertically, add a border (see `--style`), or crop.
+        /// Flip horizontally or vertically, add a border (see `--style`), crop, or rotate
+        /// clockwise (see `--turns`).
         #[arg(value_enum)]
         operation: Transform,
         /// Crop: zero-based column of the left edge.
@@ -466,6 +468,9 @@ enum Command {
         /// Border style for the `border` operation; plain `+-|` by default.
         #[arg(long, value_enum)]
         style: Option<Border>,
+        /// Rotate: quarter turns clockwise, 1 (the default) to 3. Line characters turn too.
+        #[arg(long, value_parser = clap::value_parser!(u8).range(1..=3))]
+        turns: Option<u8>,
     },
     /// Play a project in a terminal. Escape codes are playback transport only.
     Play {
@@ -801,9 +806,13 @@ fn run(args: Args) -> Result<()> {
             width,
             height,
             style,
+            turns,
         } => {
             if style.is_some() && !matches!(operation, Transform::Border) {
                 return Err("Only the border operation takes --style".into());
+            }
+            if turns.is_some() && !matches!(operation, Transform::Rotate) {
+                return Err("Only the rotate operation takes --turns".into());
             }
             let project = load(&input, false)?;
             let mut frames = Vec::with_capacity(project.frames().len());
@@ -820,6 +829,7 @@ fn run(args: Args) -> Result<()> {
                         width.ok_or("Crop needs --width")?,
                         height.ok_or("Crop needs --height")?,
                     )?,
+                    Transform::Rotate => entry.frame.rotate(turns.unwrap_or(1), false)?,
                 };
                 frames.push(TimedFrame {
                     frame,
