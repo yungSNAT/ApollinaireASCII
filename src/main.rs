@@ -937,7 +937,8 @@ fn run(args: Args) -> Result<()> {
             if style.is_some() && !matches!(operation, Transform::Border) {
                 return Err("Only the border operation takes --style".into());
             }
-            if (design.is_some() || design_file.is_some()) && !matches!(operation, Transform::Border)
+            if (design.is_some() || design_file.is_some())
+                && !matches!(operation, Transform::Border)
             {
                 return Err("Only the border operation takes --design and --design-file".into());
             }

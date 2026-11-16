@@ -49,9 +49,9 @@ pub fn bundled() -> Vec<Design> {
 
 /// A bundled design by name or alias.
 pub fn design(name: &str) -> Result<Design> {
-    find(&bundled(), name).cloned().ok_or_else(|| {
-        format!("Unknown box design {name}; run `apollinaire list` for the designs")
-    })
+    find(&bundled(), name)
+        .cloned()
+        .ok_or_else(|| format!("Unknown box design {name}; run `apollinaire list` for the designs"))
 }
 
 /// The design in `designs` with this name or alias, ignoring letter case.
@@ -123,7 +123,9 @@ impl<'a> Lexer<'a> {
                 b'\n' => self.line += 1,
                 b' ' | b'\t' | b'\r' => {}
                 b'#' => {
-                    self.at += self.text[self.at..].find('\n').unwrap_or(self.text.len() - self.at);
+                    self.at += self.text[self.at..]
+                        .find('\n')
+                        .unwrap_or(self.text.len() - self.at);
                     continue;
                 }
                 _ => return,
@@ -240,9 +242,13 @@ impl<'a> Lexer<'a> {
                     sampled = true;
                 }
                 "replace" => {
-                    return Err(self.error("REPLACE rewrites the text in the box and is not supported"));
+                    return Err(
+                        self.error("REPLACE rewrites the text in the box and is not supported")
+                    );
                 }
-                "parent" => return Err(self.error("PARENT is not read: put every design in one file")),
+                "parent" => {
+                    return Err(self.error("PARENT is not read: put every design in one file"));
+                }
                 // `REVERSE [once|global] "pattern" to "text"` applies only when boxes removes a
                 // box, which this never does.
                 "reverse" => {
@@ -265,7 +271,11 @@ impl<'a> Lexer<'a> {
                 }
             }
         }
-        for (given, entry) in [(shaped, "SHAPES"), (stretched, "ELASTIC"), (sampled, "SAMPLE")] {
+        for (given, entry) in [
+            (shaped, "SHAPES"),
+            (stretched, "ELASTIC"),
+            (sampled, "SAMPLE"),
+        ] {
             if !given {
                 return Err(format!("Box design {name} has no {entry} entry"));
             }
@@ -324,7 +334,11 @@ impl<'a> Lexer<'a> {
                 "right" => &[1],
                 "bottom" => &[2],
                 "left" => &[3],
-                _ => return Err(self.error(&format!("expected a padding side such as all, found {side:?}"))),
+                _ => {
+                    return Err(self.error(&format!(
+                        "expected a padding side such as all, found {side:?}"
+                    )));
+                }
             };
             let value = self
                 .word()
@@ -374,6 +388,9 @@ impl<'a> Lexer<'a> {
     }
 }
 
+/// A shape's width or height.
+type Measure = fn(&Design, usize) -> usize;
+
 /// A side of the box: how thick it is, and the shapes between its corners with how far each
 /// runs along it. A side the design leaves open between its corners is one elastic blank.
 struct Side {
@@ -399,12 +416,15 @@ impl Design {
     /// A side's thickness across it and its parts along it; `across` is the size that every
     /// shape on the side shares and `along` the size that each may choose.
     fn side(&self, shapes: [usize; 5], horizontal: bool) -> Result<Side> {
-        let (across, along): (fn(&Self, usize) -> usize, fn(&Self, usize) -> usize) = if horizontal {
-            (Self::height, Self::width)
+        let (across, along) = if horizontal {
+            (Self::height as Measure, Self::width as Measure)
         } else {
-            (Self::width, Self::height)
+            (Self::width as Measure, Self::height as Measure)
         };
-        let given: Vec<usize> = shapes.into_iter().filter(|s| !self.shapes[*s].is_empty()).collect();
+        let given: Vec<usize> = shapes
+            .into_iter()
+            .filter(|s| !self.shapes[*s].is_empty())
+            .collect();
         let thickness = given.first().map_or(0, |s| across(self, *s));
         if given.iter().any(|s| across(self, *s) != thickness) {
             let named: Vec<_> = given.iter().map(|s| SHAPES[*s]).collect();
@@ -432,7 +452,10 @@ impl Design {
             .map(|&s| (Some(s), along(self, s), self.elastic[s]))
             .collect();
         if parts.is_empty() {
-            return Ok(Side { thickness, parts: vec![(None, 1, true)] });
+            return Ok(Side {
+                thickness,
+                parts: vec![(None, 1, true)],
+            });
         }
         if !parts.iter().any(|p| p.2) {
             let named: Vec<_> = middle.iter().map(|s| SHAPES[*s]).collect();
@@ -451,10 +474,16 @@ impl Design {
         }
         for (shape, name) in SHAPES.iter().enumerate() {
             if self.elastic[shape] && self.shapes[shape].is_empty() {
-                return Err(format!("Box design {}: the elastic shape {name} is not given", self.name()));
+                return Err(format!(
+                    "Box design {}: the elastic shape {name} is not given",
+                    self.name()
+                ));
             }
             if self.elastic[shape] && shape % 4 == 0 {
-                return Err(format!("Box design {}: the corner {name} cannot be elastic", self.name()));
+                return Err(format!(
+                    "Box design {}: the corner {name} cannot be elastic",
+                    self.name()
+                ));
             }
         }
         for (shapes, horizontal) in [(TOP, true), (RIGHT, false), (BOTTOM, true), (LEFT, false)] {
@@ -488,13 +517,22 @@ impl Design {
         )?;
         let text = frame.text();
         let lines: Vec<&str> = text.split('\n').collect();
-        let (x, y) = (pad_left + (columns - width) / 2, pad_top + (rows - height) / 2);
+        let (x, y) = (
+            pad_left + (columns - width) / 2,
+            pad_top + (rows - height) / 2,
+        );
         let blank = " ".repeat(columns);
         let left_column = self.run(&left, &down[0], left.thickness);
         let right_column = self.run(&right, &down[1], right.thickness);
         let mut out = Vec::with_capacity(rows + top.thickness + bottom.thickness);
         for row in 0..top.thickness {
-            out.push(self.edge(row, [0, 4], &top, &across[0], [left.thickness, right.thickness]));
+            out.push(self.edge(
+                row,
+                [0, 4],
+                &top,
+                &across[0],
+                [left.thickness, right.thickness],
+            ));
         }
         for row in 0..rows {
             let inside = match row.checked_sub(y).and_then(|r| lines.get(r)) {
@@ -504,7 +542,13 @@ impl Design {
             out.push(format!("{}{inside}{}", left_column[row], right_column[row]));
         }
         for row in 0..bottom.thickness {
-            out.push(self.edge(row, [12, 8], &bottom, &across[1], [left.thickness, right.thickness]));
+            out.push(self.edge(
+                row,
+                [12, 8],
+                &bottom,
+                &across[1],
+                [left.thickness, right.thickness],
+            ));
         }
         Frame::from_text(&out.join("\n"))
     }
@@ -519,7 +563,12 @@ impl Design {
     ) -> Result<(usize, [Vec<usize>; 2])> {
         (need..=max.saturating_sub(ends))
             .find_map(|length| Some((length, [repeats(a, length)?, repeats(b, length)?])))
-            .ok_or_else(|| format!("Box design {} would need more than {max} {unit}", self.name()))
+            .ok_or_else(|| {
+                format!(
+                    "Box design {} would need more than {max} {unit}",
+                    self.name()
+                )
+            })
     }
     /// A vertical side's lines from top to bottom, each `thickness` wide.
     fn run(&self, side: &Side, repeats: &[usize], thickness: usize) -> Vec<String> {
@@ -535,7 +584,14 @@ impl Design {
         lines
     }
     /// Row `row` of the top or bottom: its corners, then its parts repeated.
-    fn edge(&self, row: usize, corners: [usize; 2], side: &Side, repeats: &[usize], widths: [usize; 2]) -> String {
+    fn edge(
+        &self,
+        row: usize,
+        corners: [usize; 2],
+        side: &Side,
+        repeats: &[usize],
+        widths: [usize; 2],
+    ) -> String {
         let corner = |shape: usize, width: usize| match self.shapes[shape].get(row) {
             Some(line) => line.clone(),
             None => " ".repeat(width),

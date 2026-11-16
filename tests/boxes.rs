@@ -4,7 +4,10 @@
 use apollinaire_ascii::{Frame, boxes};
 
 fn draw(design: &boxes::Design, text: &str) -> String {
-    design.draw(&Frame::from_text(text).unwrap()).unwrap().text()
+    design
+        .draw(&Frame::from_text(text).unwrap())
+        .unwrap()
+        .text()
 }
 
 /// One design `a` holding `body`, in a file of its own.
@@ -24,7 +27,9 @@ fn bundled_designs_draw_their_samples() {
     let names: Vec<_> = designs.iter().map(boxes::Design::name).collect();
     assert_eq!(
         names,
-        ["curly", "zigzag", "rail", "film", "ticket", "shadow", "bracket", "crest"]
+        [
+            "curly", "zigzag", "rail", "film", "ticket", "shadow", "bracket", "crest"
+        ]
     );
     for design in &designs {
         let drawn = draw(design, "Hi");
@@ -133,23 +138,50 @@ fn design_files_take_aliases_delimiters_padding_and_ignored_entries() {
 #[test]
 fn design_files_refuse_what_they_cannot_draw_with_its_line() {
     for (text, expected) in [
-        ("PARENT \"x\"", "Line 1: PARENT is not read: put every design in one file"),
+        (
+            "PARENT \"x\"",
+            "Line 1: PARENT is not read: put every design in one file",
+        ),
         ("BIX a", "Line 1: expected BOX, found BIX"),
         ("\n(", "Line 2: expected BOX"),
         ("# nothing\n", "The design file holds no BOX design"),
-        ("BOX 1a", "Line 1: expected a design name starting with a letter"),
-        ("BOX a\n(", "Line 2: expected an entry such as SHAPES, or END"),
-        ("BOX a\nshapes { n (\"-\") }", "Box design a has no END line"),
-        (&format!("BOX a\n{VALID}\nEND b"), "Line 7: END b does not close BOX a"),
-        (&file("parent \"x\""), "Line 2: PARENT is not read: put every design in one file"),
+        (
+            "BOX 1a",
+            "Line 1: expected a design name starting with a letter",
+        ),
+        (
+            "BOX a\n(",
+            "Line 2: expected an entry such as SHAPES, or END",
+        ),
+        (
+            "BOX a\nshapes { n (\"-\") }",
+            "Box design a has no END line",
+        ),
+        (
+            &format!("BOX a\n{VALID}\nEND b"),
+            "Line 7: END b does not close BOX a",
+        ),
+        (
+            &file("parent \"x\""),
+            "Line 2: PARENT is not read: put every design in one file",
+        ),
         (
             &file("replace \"a\" with \"b\""),
             "Line 2: REPLACE rewrites the text in the box and is not supported",
         ),
         (&file("shapes n"), "Line 2: expected {"),
-        (&file("shapes { n (x) }"), "Line 2: expected a string between \" marks"),
-        (&file("shapes { n (\"-) }"), "Line 2: a string is not closed on its line"),
-        (&file("shapes { n (\"-\\\n\") }"), "Line 2: a string is not closed on its line"),
+        (
+            &file("shapes { n (x) }"),
+            "Line 2: expected a string between \" marks",
+        ),
+        (
+            &file("shapes { n (\"-) }"),
+            "Line 2: a string is not closed on its line",
+        ),
+        (
+            &file("shapes { n (\"-\\\n\") }"),
+            "Line 2: a string is not closed on its line",
+        ),
         (
             &file("shapes { north (\"-\") }"),
             "Line 2: expected a shape name such as nw, found \"north\"",
@@ -179,20 +211,44 @@ fn design_files_refuse_what_they_cannot_draw_with_its_line() {
             &file("padding { middle 1 }"),
             "Line 2: expected a padding side such as all, found \"middle\"",
         ),
-        (&file("padding { all x }"), "Line 2: expected a padding of 0 to 512"),
-        (&file("padding { all 513 }"), "Line 2: expected a padding of 0 to 512"),
+        (
+            &file("padding { all x }"),
+            "Line 2: expected a padding of 0 to 512",
+        ),
+        (
+            &file("padding { all 513 }"),
+            "Line 2: expected a padding of 0 to 512",
+        ),
         (&file("sample\nx"), "Line 2: SAMPLE has no ENDS line"),
         // The line count carries on past a sample.
-        (&file("sample\nx\nends\nbogus x"), "Line 5: expected a string between \" marks"),
-        ("BOX a\ndelim ?", "Line 2: DELIM takes an escape character and a quote"),
+        (
+            &file("sample\nx\nends\nbogus x"),
+            "Line 5: expected a string between \" marks",
+        ),
+        (
+            "BOX a\ndelim ?",
+            "Line 2: DELIM takes an escape character and a quote",
+        ),
         (
             &file("delim ab"),
             "Line 2: DELIM takes an escape character from @~?!\\ and a different quote from \"~'!|",
         ),
-        (&file("delim !!"), "Line 2: DELIM takes an escape character from @~?!\\ and a different quote from \"~'!|"),
-        (&file("shapes { n (\"-\") }\nelastic (n)"), "Box design a has no SAMPLE entry"),
-        (&file("shapes { n (\"-\") }\nsample\n-\nends"), "Box design a has no ELASTIC entry"),
-        (&file("elastic (n)\nsample\n-\nends"), "Box design a has no SHAPES entry"),
+        (
+            &file("delim !!"),
+            "Line 2: DELIM takes an escape character from @~?!\\ and a different quote from \"~'!|",
+        ),
+        (
+            &file("shapes { n (\"-\") }\nelastic (n)"),
+            "Box design a has no SAMPLE entry",
+        ),
+        (
+            &file("shapes { n (\"-\") }\nsample\n-\nends"),
+            "Box design a has no ELASTIC entry",
+        ),
+        (
+            &file("elastic (n)\nsample\n-\nends"),
+            "Box design a has no SHAPES entry",
+        ),
         (
             &file("shapes { }\nelastic (n)\nsample\nends"),
             "Box design a gives no shapes",

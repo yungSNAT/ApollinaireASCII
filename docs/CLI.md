@@ -41,6 +41,8 @@ apollinaire transform movie.json horizontal --output flipped.json
 apollinaire transform art.txt crop --x 2 --y 1 --width 20 --height 10
 apollinaire transform art.txt border
 apollinaire transform art.txt border --style dotted
+apollinaire transform art.txt border --design film
+apollinaire transform art.txt border --design-file my-boxes.cfg --design stars
 apollinaire transform art.txt rotate --turns 3
 apollinaire check movie.json
 apollinaire play movie.json --loops 3
@@ -53,6 +55,8 @@ apollinaire man | man -l -
 `--output` creates a new file. An existing file causes an error, even when its contents are identical. Without it, exports go to stdout. Errors go to stderr and return a nonzero exit status. A reader that closes the pipe early, as `head` does, ends the command quietly with status 0. `check` reports validated dimensions and timing on stdout. Given text that is not valid art, it lists every problem on stderr by line and column, such as a tab, a curly quote with the ASCII to use instead, bytes that are not UTF-8 or a row shorter than the widest: the first 200, then how many more there are. JSON projects and ANSI files report their first error.
 
 Borders come in 4 styles: `plain` (`+-|`, the default), `rounded` (`.-'|`), `dotted` (`.:`) and `heavy` (`#=`). `art` takes one as `--border=<style>` (with the `=`, so `--border` alone still works before the piece's name), and `transform ... border` and `say` as `--style <style>`.
+
+`transform ... border` also draws box designs written in the design-file format of the [boxes](https://boxes.thomasjensen.com/) program, with `--design NAME` in place of `--style`. 8 designs drawn for ApollinaireASCII are bundled: `curly`, `zigzag`, `rail`, `film`, `ticket`, `shadow`, `bracket` and `crest` (`apollinaire list` names them; none is copied from boxes). `--design-file FILE` reads your own designs, and `--design` picks one of them by name or alias, the first by default. A design gives up to 16 shapes around the box, clockwise from `nw` to `wnw`; elastic shapes repeat to fit the art, as evenly as their widths allow, and where they cannot fit it exactly the box grows and the art sits in its middle. `SHAPES`, `ELASTIC`, `PADDING`, `SAMPLE` and `DELIM` are read; `REVERSE`, `INDENT`, `TAGS` and other entries are read and not used. `REPLACE`, which rewrites the text inside the box, `PARENT`, which reads another file, and a shape holding a byte outside printable ASCII, such as a colour code, are refused with their line number, as is a design whose shapes do not fit together. The browser editor's border style list includes the bundled designs.
 
 `transform ... rotate` turns every frame clockwise by `--turns` quarter turns (1 by default, up to 3), and turns `-`, `|`, `/` and `\` with it; arrowheads keep their glyphs, as they do in the flips. Cells are about twice as tall as they are wide, so a quarter turn stretches a shape, and a turn whose result would pass 256 rows is refused. The editor's Rotate area buttons also turn arrowheads when Mirror directional characters is on.
 
