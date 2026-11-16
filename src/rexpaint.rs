@@ -103,6 +103,7 @@ pub fn read(bytes: &[u8]) -> Result<Layered> {
         layers.push(Layer {
             name: format!("Layer {number}"),
             visible: true,
+            locked: false,
             art: Animation::still(Frame::new(columns, rows, cells)?),
             motion: Default::default(),
         });
