@@ -52,7 +52,9 @@ impl Ascii {
     /// `slant`; `apollinaire_ascii::lettering::FONTS` names them all.
     pub fn lettering(text: &str, font: &str) -> Result<Self, String> {
         let options = lettering::Options::default();
-        Ok(Self::new(lettering::render_with(text, font, None, &options)?))
+        Ok(Self::new(lettering::render_with(
+            text, font, None, &options,
+        )?))
     }
     /// A piece from the catalogue, such as `cat`; `apollinaire list` names them.
     pub fn art(name: &str) -> Result<Self, String> {

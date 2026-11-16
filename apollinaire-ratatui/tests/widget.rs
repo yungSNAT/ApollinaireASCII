@@ -31,7 +31,9 @@ fn aligns_within_the_area() {
         (Alignment::Right, ["~~~~ab", "~~~~ c"]),
     ] {
         let mut buf = filled(6, 2);
-        frame("ab\n c").alignment(alignment).render(buf.area, &mut buf);
+        frame("ab\n c")
+            .alignment(alignment)
+            .render(buf.area, &mut buf);
         assert_eq!(buf, Buffer::with_lines(rows), "{alignment:?}");
     }
 }
@@ -41,10 +43,15 @@ fn clips_to_the_area_and_the_buffer() {
     let mut buf = filled(5, 4);
     // The area starts inside the buffer and runs past its right and bottom edges.
     frame("abc\ndef\nghi").render(Rect::new(3, 2, 9, 9), &mut buf);
-    assert_eq!(buf, Buffer::with_lines(["~~~~~", "~~~~~", "~~~ab", "~~~de"]));
+    assert_eq!(
+        buf,
+        Buffer::with_lines(["~~~~~", "~~~~~", "~~~ab", "~~~de"])
+    );
     // A frame wider than the area is clipped on the right, whatever the alignment.
     let mut narrow = filled(2, 1);
-    frame("abc").alignment(Alignment::Right).render(narrow.area, &mut narrow);
+    frame("abc")
+        .alignment(Alignment::Right)
+        .render(narrow.area, &mut narrow);
     assert_eq!(narrow, Buffer::with_lines(["ab"]));
     let mut nothing = filled(2, 1);
     frame("abc").render(Rect::new(0, 0, 0, 1), &mut nothing);
