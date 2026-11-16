@@ -202,13 +202,11 @@ mod tests {
         // bitmap could tie; the space, first, is chosen for an empty cell.
         assert_eq!(best(&[[0.0; 8]; 8]), b' ');
         for code in b'!'..=b'~' {
+            // The character rides along so a failure names it.
             let chosen = best(&drawn(code));
             assert_eq!(
-                BITMAPS[usize::from(chosen - b' ')],
-                BITMAPS[usize::from(code - b' ')],
-                "{} chose {}",
-                code as char,
-                chosen as char
+                (code as char, BITMAPS[usize::from(chosen - b' ')]),
+                (code as char, BITMAPS[usize::from(code - b' ')])
             );
         }
     }
