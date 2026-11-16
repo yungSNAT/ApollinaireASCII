@@ -722,10 +722,9 @@ pub fn serve() -> crate::Result<()> {
         }
         let ended = line.last() == Some(&b'\n');
         let reply = if line.len() - usize::from(ended) > MAX_MESSAGE_BYTES {
-            // Skip the rest of the line, so the next message starts clean.
-            if !ended {
-                skip_line(&mut input)?;
-            }
+            // At most the limit and one more byte were read, so no line feed yet: skip the rest
+            // of the line, so the next message starts clean.
+            skip_line(&mut input)?;
             Some(json!({
                 "jsonrpc": "2.0",
                 "id": null,
