@@ -268,6 +268,23 @@ fn utf8_ansi_rows_keep_their_own_width_and_end_at_each_line_feed() {
     let mut art = "\x1b[0mabcdef".as_bytes().to_vec();
     art.extend(sauce(1, 1, 4, &[]));
     assert_eq!(read("a.utf8.ans", &art).unwrap().text(), "abcd\nef  ");
+    // Cursor moves count towards the width, as a terminal places what follows them.
+    assert_eq!(
+        read("a.utf8.ans", "\x1b[0mA\x1b[5CB".as_bytes())
+            .unwrap()
+            .text(),
+        "A     B"
+    );
+    assert_eq!(
+        read("a.utf8.ans", "\x1b[0m\x1b[1;10Hx".as_bytes())
+            .unwrap()
+            .text(),
+        "         x"
+    );
+    // With a wrap pending, erasing to the end of the row includes the last column.
+    let mut art = "\x1b[0mabcd\x1b[K".as_bytes().to_vec();
+    art.extend(sauce(1, 1, 4, &[]));
+    assert_eq!(read("a.utf8.ans", &art).unwrap().text(), "abc ");
     // Tabs reach the next multiple of 8 when the width is measured.
     assert_eq!(
         read("tab.utf8.ans", "\x1b[0ma\tb\n".as_bytes())
