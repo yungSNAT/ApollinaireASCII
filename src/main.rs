@@ -1,6 +1,7 @@
 mod check;
 mod edit;
 mod fetch;
+mod mcp;
 
 use apollinaire_ascii::{
     Animation, BorderStyle, Canvas, EffectOptions, Frame, Glyphs, Layered, MAX_INPUT_BYTES,
@@ -579,6 +580,8 @@ enum Command {
         /// A .txt or .json project, or `-` for stdin.
         input: PathBuf,
     },
+    /// Serve the artwork commands to AI agents as Model Context Protocol tools over stdio.
+    Mcp,
     /// Print a shell completion script, such as `apollinaire completions bash > apollinaire.bash`.
     Completions {
         /// Shell to complete for.
@@ -984,6 +987,10 @@ fn run(args: Args) -> Result<()> {
                 Animation::still(Frame::blank(width.unwrap_or(72), height.unwrap_or(24))?)
             };
             return edit::run(file, project);
+        }
+        Command::Mcp => {
+            no_export(&args.export, "MCP")?;
+            return mcp::serve();
         }
         Command::Completions { shell } => {
             no_export(&args.export, "Completions")?;
