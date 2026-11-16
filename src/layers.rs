@@ -8,16 +8,18 @@
 //! let sky = Animation::still(Frame::from_text("* *")?);
 //! let bird = Animation::still(Frame::from_text(" v ")?);
 //! let project = Layered::new(vec![
-//!     Layer { name: "Sky".into(), visible: true, art: sky },
-//!     Layer { name: "Bird".into(), visible: true, art: bird },
+//!     Layer { name: "Sky".into(), visible: true, art: sky, motion: Default::default() },
+//!     Layer { name: "Bird".into(), visible: true, art: bird, motion: Default::default() },
 //! ])?;
 //! assert_eq!(project.flatten().frames()[0].frame.text(), "*v*");
 //! assert_eq!(Layered::from_json(&project.to_json())?, project);
 //! # Ok::<(), String>(())
 //! ```
 
+use crate::motion::{Motion, Property};
 use crate::{Animation, Frame, MAX_INPUT_BYTES, MAX_PROJECT_CELLS, Result, TimedFrame};
-use serde_json::json;
+use serde_json::{Map, Value, json};
+use std::ops::Range;
 
 pub const MAX_LAYERS: usize = 16;
 /// A one-layer project with this name, visible, is written as a version 1 project.
@@ -29,6 +31,19 @@ pub struct Layer {
     pub name: String,
     pub visible: bool,
     pub art: Animation,
+    /// Keys that move, scale and turn the layer over the frames; empty for none.
+    pub motion: Motion,
+}
+
+impl Layer {
+    /// Frame `index` of this layer as it is shown, through its motion.
+    pub fn drawn(&self, index: usize) -> std::borrow::Cow<'_, Frame> {
+        let frame = &self.art.frames()[index].frame;
+        match self.motion.is_empty() {
+            true => std::borrow::Cow::Borrowed(frame),
+            false => std::borrow::Cow::Owned(self.motion.draw(frame, index)),
+        }
+    }
 }
 
 /// Layers from bottom to top. Every layer has the same dimensions, frame count, frame
@@ -55,6 +70,13 @@ impl Layered {
         let first = &layers[0].art;
         for layer in &layers {
             check_name(&layer.name)?;
+            if layer
+                .motion
+                .last_frame()
+                .is_some_and(|frame| frame >= layer.art.frames().len())
+            {
+                return Err("A key is on a frame the project does not have".into());
+            }
             let art = &layer.art;
             if art.width() != first.width()
                 || art.height() != first.height()
@@ -103,7 +125,9 @@ impl Layered {
         let names: usize = self
             .layers
             .iter()
-            .map(|layer| 2 * layer.name.len() + 32)
+            // A key is at most about 140 bytes (a value and an easing curve of 4 long decimals); the
+            // tracks' names and brackets fit in the extra 128.
+            .map(|layer| 2 * layer.name.len() + 160 + 160 * layer.motion.len())
             .sum();
         // Per frame: {"duration_ms":60000,"layers":[]}, and the header with its brackets.
         texts + names + 40 * self.layers[0].art.frames().len() + 128
@@ -114,17 +138,20 @@ impl Layered {
                 name: DEFAULT_NAME.into(),
                 visible: true,
                 art,
+                motion: Motion::default(),
             }],
         }
     }
     pub fn layers(&self) -> &[Layer] {
         &self.layers
     }
-    /// The animation, when the project is one visible layer named [`DEFAULT_NAME`]: the
-    /// project a version 1 file holds.
+    /// The animation, when the project is one visible layer named [`DEFAULT_NAME`] with no
+    /// keys: the project a version 1 file holds.
     pub fn plain(&self) -> Option<&Animation> {
         match &self.layers[..] {
-            [layer] if layer.visible && layer.name == DEFAULT_NAME => Some(&layer.art),
+            [layer] if layer.visible && layer.name == DEFAULT_NAME && layer.motion.is_empty() => {
+                Some(&layer.art)
+            }
             _ => None,
         }
     }
@@ -149,22 +176,21 @@ impl Layered {
                 .expect("The old frame fitted");
         })
     }
-    /// One frame as shown: the visible layers stacked.
+    /// One frame as shown: the visible layers, each drawn through its motion, stacked.
     pub fn frame(&self, index: usize) -> Frame {
         let art = &self.layers[0].art;
-        stack(
-            art.width(),
-            art.height(),
-            self.layers
-                .iter()
-                .filter(|layer| layer.visible)
-                .map(|layer| &layer.art.frames()[index].frame),
-        )
+        let shown: Vec<std::borrow::Cow<Frame>> = self
+            .layers
+            .iter()
+            .filter(|layer| layer.visible)
+            .map(|layer| layer.drawn(index))
+            .collect();
+        stack(art.width(), art.height(), shown.iter().map(AsRef::as_ref))
     }
     /// [`flatten`](Self::flatten), moving rather than copying a lone visible layer.
     pub(crate) fn into_flat(mut self) -> Animation {
         match &self.layers[..] {
-            [layer] if layer.visible => self.layers.swap_remove(0).art,
+            [layer] if layer.visible && layer.motion.is_empty() => self.layers.swap_remove(0).art,
             _ => self.flatten(),
         }
     }
@@ -173,6 +199,7 @@ impl Layered {
         let first = &self.layers[0].art;
         if let [layer] = &self.layers[..]
             && layer.visible
+            && layer.motion.is_empty()
         {
             return layer.art.clone();
         }
@@ -184,16 +211,17 @@ impl Layered {
             .collect();
         Animation::new(frames, first.looping()).expect("Layers share a valid timeline")
     }
-    /// Version 1 for a [`plain`](Self::plain) project, otherwise version 2.
+    /// Version 1 for a [`plain`](Self::plain) project, version 3 when a layer has keys,
+    /// otherwise version 2.
     pub fn to_json(&self) -> String {
         if let Some(art) = self.plain() {
             return art.to_json();
         }
         let first = &self.layers[0].art;
-        json!({"format":"asciiforge","version":2,"width":first.width(),"height":first.height(),
-            "loop":first.looping(),
-            "layers":self.layers.iter().map(|l| json!({"name":l.name,"visible":l.visible}))
-                .collect::<Vec<_>>(),
+        let keyed = self.layers.iter().any(|layer| !layer.motion.is_empty());
+        json!({"format":"asciiforge","version":if keyed { 3 } else { 2 },
+            "width":first.width(),"height":first.height(),"loop":first.looping(),
+            "layers":self.layers.iter().map(layer_json).collect::<Vec<_>>(),
             "frames":(0..first.frames().len()).map(|index| json!({
                 "duration_ms":first.frames()[index].duration_ms,
                 "layers":self.layers.iter().map(|l| l.art.frames()[index].frame.text())
@@ -201,13 +229,115 @@ impl Layered {
         })
         .to_string()
     }
-    /// Read a version 1 or version 2 project.
+    /// Insert a blank frame at `index` in every layer; keys from `index` on move with their
+    /// frames. Nothing changes on error.
+    pub fn insert_blank_frame(&mut self, index: usize, duration_ms: u32) -> Result<()> {
+        self.restructure(
+            |art| {
+                let frame = Frame::blank(art.width(), art.height())?;
+                art.insert_frame(index, TimedFrame { frame, duration_ms })
+            },
+            |key| Some(key + usize::from(key >= index)),
+        )
+    }
+    /// Copy a range of frames in every layer to just after it. Keys stay on the original
+    /// frames, and later keys move with their frames. Nothing changes on error.
+    pub fn duplicate_frames(&mut self, range: Range<usize>) -> Result<()> {
+        let (end, count) = (range.end, range.len());
+        self.restructure(
+            |art| art.duplicate_frames(range.clone()),
+            |key| Some(if key >= end { key + count } else { key }),
+        )
+    }
+    /// Remove a range of frames from every layer, with the keys on them. Nothing changes on
+    /// error.
+    pub fn remove_frames(&mut self, range: Range<usize>) -> Result<()> {
+        let (start, end) = (range.start, range.end);
+        self.restructure(
+            |art| art.remove_frames(range.clone()),
+            |key| match key {
+                _ if key < start => Some(key),
+                _ if key < end => None,
+                _ => Some(key - (end - start)),
+            },
+        )
+    }
+    /// Move a range of frames in every layer to `destination`, as
+    /// [`Animation::move_frames`] does; keys move with their frames. Nothing changes on error.
+    pub fn move_frames(&mut self, range: Range<usize>, destination: usize) -> Result<()> {
+        let (start, count) = (range.start, range.len());
+        self.restructure(
+            |art| art.move_frames(range.clone(), destination),
+            |key| {
+                // The frame's position with the range taken out, then with it put back at
+                // `destination`.
+                Some(if range.contains(&key) {
+                    key - start + destination
+                } else {
+                    let rest = if key >= range.end { key - count } else { key };
+                    if rest >= destination {
+                        rest + count
+                    } else {
+                        rest
+                    }
+                })
+            },
+        )
+    }
+    fn restructure(
+        &mut self,
+        edit: impl Fn(&mut Animation) -> Result<()>,
+        map: impl Fn(usize) -> Option<usize>,
+    ) -> Result<()> {
+        let layers = self
+            .layers
+            .iter()
+            .map(|layer| {
+                let mut art = layer.art.clone();
+                edit(&mut art)?;
+                let mut motion = layer.motion.clone();
+                motion.remap(&map);
+                Ok(Layer {
+                    name: layer.name.clone(),
+                    visible: layer.visible,
+                    art,
+                    motion,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        *self = Self::new(layers)?;
+        Ok(())
+    }
+    /// Read a version 1, 2 or 3 project.
     pub fn from_json(input: &str) -> Result<Self> {
         if input.len() > MAX_INPUT_BYTES {
             return Err("Project exceeds the 16 MiB input limit".into());
         }
         crate::project_json::parse(input)
     }
+}
+
+/// A layer's entry in the `layers` list, with its keys in version 3.
+fn layer_json(layer: &Layer) -> Value {
+    let mut entry = json!({"name":layer.name,"visible":layer.visible});
+    if !layer.motion.is_empty() {
+        let tracks: Map<String, Value> = Property::ALL
+            .into_iter()
+            .filter(|&property| !layer.motion.keys(property).is_empty())
+            .map(|property| {
+                let keys = layer.motion.keys(property).iter().map(|key| {
+                    let easing = match key.easing.name() {
+                        Some(name) => json!(name),
+                        None => json!(key.easing.points()),
+                    };
+                    json!({"frame":key.frame,"value":key.value,"easing":easing})
+                });
+                (property.name().to_string(), keys.collect())
+            })
+            .collect();
+        entry["motion"] = Value::Object(tracks);
+    }
+    entry
 }
 
 fn check_name(name: &str) -> Result<()> {
