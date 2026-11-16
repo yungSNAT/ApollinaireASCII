@@ -3,10 +3,14 @@
 
 //! Build a Debian package from an unpacked Linux release folder. `gzip` compresses the manual
 //! page and `dpkg-deb` builds the archive.
-use std::path::Path;
 
 #[cfg(not(unix))]
-pub fn build(_src: &Path, _version: &str, _arch: &str, _out: &Path) -> Result<(), String> {
+pub fn build(
+    _src: &std::path::Path,
+    _version: &str,
+    _arch: &str,
+    _out: &std::path::Path,
+) -> Result<(), String> {
     Err("Building a .deb needs Linux, with gzip and dpkg-deb".into())
 }
 
