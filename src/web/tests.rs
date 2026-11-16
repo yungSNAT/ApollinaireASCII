@@ -2105,6 +2105,27 @@ fn rotating_an_area_turns_it_in_place_as_one_undo_step() {
     assert!(status().contains("cut off"), "{}", status());
 }
 
+#[wasm_bindgen_test]
+fn an_area_turned_taller_than_the_row_limit_is_clipped_not_refused() {
+    blank(512, 256);
+    let start = art();
+    apply_frame(&format!("{}{}", "x".repeat(300), &start[300..]));
+    let full = art();
+    tool("area");
+    drag(&[(0, 0), (299, 0)]);
+    click("area-rotate");
+    assert!(status().contains("cut off"), "{}", status());
+    let turned = art();
+    let lines: Vec<&str> = turned.lines().collect();
+    assert_eq!(lines.len(), 256);
+    // The first column holds the first 256 cells, turned to stand on end; the rest are cut.
+    assert!(lines.iter().all(|line| line.starts_with('x')));
+    assert_eq!(turned.bytes().filter(|&b| b == b'x').count(), 256);
+    click("undo");
+    assert_eq!(art(), full);
+    blank(4, 1);
+}
+
 /// The character picker's button for `code`.
 fn pick(code: u8) -> HtmlElement {
     document()
