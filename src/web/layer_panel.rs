@@ -89,6 +89,7 @@ fn change(app: &mut App, id: &str) -> Result<()> {
                     name: format!("Layer {}", count + 1),
                     visible: true,
                     art: Animation::new(frames, art.looping())?,
+                    motion: Default::default(),
                 },
             );
         }
@@ -161,7 +162,8 @@ pub(super) fn controls(app: &App, busy: bool, editor: bool) -> Result<()> {
         ("layer-delete", busy || single),
         ("layer-up", busy || app.active + 1 == layers.len()),
         ("layer-down", busy || app.active == 0),
-        ("layer-merge", busy || single),
+        // One layer with keys can be merged to draw its motion into its frames.
+        ("layer-merge", busy || single && layers[0].motion.is_empty()),
     ] {
         set_disabled(id, disabled)?;
         dropped |= disabled && id == focused;

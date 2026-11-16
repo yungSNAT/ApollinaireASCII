@@ -557,11 +557,13 @@ mod tests {
                 name: "Back".into(),
                 visible: true,
                 art: Animation::still(Frame::from_text("AS   ").unwrap()),
+                motion: Default::default(),
             },
             crate::Layer {
                 name: "Front".into(),
                 visible: false,
                 art: Animation::still(Frame::from_text("  CII").unwrap()),
+                motion: Default::default(),
             },
         ])
         .unwrap();

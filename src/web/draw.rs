@@ -17,6 +17,8 @@ use web_sys::{
     ClipboardEvent, Element, Event, FocusOptions, HtmlElement, KeyboardEvent, PointerEvent,
 };
 
+use std::borrow::Cow;
+
 type Area = (i32, i32, usize, usize);
 
 #[derive(Clone, Copy, Default, PartialEq)]
@@ -203,24 +205,27 @@ impl App {
         let (columns, rows) = (self.project().width(), self.project().height());
         let edited = drawing.stroke.as_ref().map_or(self.frame(), |s| &s.preview);
         let layers = self.layers.layers();
+        // With a drawing tool on a still frame, the active layer shows where its characters sit,
+        // without its motion, so strokes land under the pointer.
+        let motion = &layers[self.active].motion;
+        let edited = if (drawing.tool == Tool::SelectText || self.playing) && !motion.is_empty() {
+            Cow::Owned(motion.draw(edited, self.selected))
+        } else {
+            Cow::Borrowed(edited)
+        };
         let stacked = (layers.len() > 1 || !layers[0].visible).then(|| {
-            crate::layers::stack(
-                columns,
-                rows,
-                layers
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, layer)| layer.visible)
-                    .map(|(index, layer)| {
-                        if index == self.active {
-                            edited
-                        } else {
-                            &layer.art.frames()[self.selected].frame
-                        }
-                    }),
-            )
+            let shown: Vec<Cow<Frame>> = layers
+                .iter()
+                .enumerate()
+                .filter(|(_, layer)| layer.visible)
+                .map(|(index, layer)| match index == self.active {
+                    true => Cow::Borrowed(edited.as_ref()),
+                    false => layer.drawn(self.selected),
+                })
+                .collect();
+            crate::layers::stack(columns, rows, shown.iter().map(AsRef::as_ref))
         });
-        let shown = stacked.as_ref().unwrap_or(edited);
+        let shown = stacked.as_ref().unwrap_or(&edited);
         // A live camera writes its own preview into the grid; the overlays wait until it stops.
         let live = self.camera.is_some();
         if !live {

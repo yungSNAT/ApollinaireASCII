@@ -3,6 +3,7 @@
 
 //! Validate while deserialising, before an untrusted JSON tree can grow.
 use crate::layers::{Layer, Layered, MAX_LAYERS};
+use crate::motion::{Easing, Key, Motion, Property};
 use crate::{Animation, Frame, MAX_FRAMES, MAX_PROJECT_CELLS, Result, TimedFrame, dimensions};
 use serde::de::{self, Deserialize, Deserializer, IgnoredAny, MapAccess, SeqAccess, Visitor};
 use std::fmt;
@@ -24,7 +25,7 @@ impl<'de> Deserialize<'de> for Project {
         impl<'de> Visitor<'de> for ProjectVisitor {
             type Value = Project;
             fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                f.write_str("an asciiforge version 1 or 2 project")
+                f.write_str("an asciiforge version 1, 2 or 3 project")
             }
             fn visit_map<M: MapAccess<'de>>(
                 self,
@@ -47,10 +48,10 @@ impl<'de> Deserialize<'de> for Project {
                 }
                 let version = required::<u32, M::Error>(version, "version")?;
                 if required::<String, M::Error>(format, "format")? != "asciiforge"
-                    || !(1..=2).contains(&version)
+                    || !(1..=3).contains(&version)
                 {
                     return Err(de::Error::custom(
-                        "Expected asciiforge project version 1 or 2",
+                        "Expected asciiforge project version 1, 2 or 3",
                     ));
                 }
                 let width = required::<usize, M::Error>(width, "width")?;
@@ -71,6 +72,9 @@ impl<'de> Deserialize<'de> for Project {
                 let names = match (version, layers) {
                     (1, None) => None,
                     (1, Some(_)) => return Err(de::Error::unknown_field("layers", FIELDS)),
+                    (2, Some(Few(names))) if names.iter().any(|meta| meta.motion.is_some()) => {
+                        return Err(de::Error::unknown_field("motion", &["name", "visible"]));
+                    }
                     (_, Some(Few(names))) => Some(names),
                     (_, None) => return Err(de::Error::missing_field("layers")),
                 };
@@ -109,6 +113,7 @@ impl<'de> Deserialize<'de> for Project {
                                 name: meta.name,
                                 visible: meta.visible,
                                 art,
+                                motion: meta.motion.unwrap_or_default(),
                             })
                             .collect(),
                     ),
@@ -261,10 +266,12 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for Few<T> {
     }
 }
 
-/// A layer's `name` and `visible`; [`Layered::new`] checks the name.
+/// A layer's `name`, `visible` and, in version 3, `motion`; [`Layered::new`] checks the name
+/// and that every key is on a frame of the project.
 struct Meta {
     name: String,
     visible: bool,
+    motion: Option<Motion>,
 }
 impl<'de> Deserialize<'de> for Meta {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
@@ -278,21 +285,170 @@ impl<'de> Deserialize<'de> for Meta {
                 self,
                 mut map: M,
             ) -> std::result::Result<Meta, M::Error> {
-                let (mut name, mut visible) = (None, None);
+                let (mut name, mut visible, mut motion) = (None, None, None);
                 while let Some(key) = map.next_key::<String>()? {
                     match key.as_str() {
                         "name" => field(&mut name, &mut map, "name")?,
                         "visible" => field(&mut visible, &mut map, "visible")?,
-                        _ => return Err(de::Error::unknown_field(&key, &["name", "visible"])),
+                        "motion" => field(&mut motion, &mut map, "motion")?,
+                        _ => {
+                            return Err(de::Error::unknown_field(
+                                &key,
+                                &["name", "visible", "motion"],
+                            ));
+                        }
                     }
                 }
                 Ok(Meta {
                     name: required(name, "name")?,
                     visible: required(visible, "visible")?,
+                    motion: motion.map(|Tracks(motion)| motion),
                 })
             }
         }
         deserializer.deserialize_map(MetaVisitor)
+    }
+}
+
+/// A layer's `motion`: one nonempty track of keys per property named, frames rising.
+struct Tracks(Motion);
+impl<'de> Deserialize<'de> for Tracks {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+        struct TracksVisitor;
+        impl<'de> Visitor<'de> for TracksVisitor {
+            type Value = Tracks;
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("keys for x, y, scale_x, scale_y, rotation, anchor_x or anchor_y")
+            }
+            fn visit_map<M: MapAccess<'de>>(
+                self,
+                mut map: M,
+            ) -> std::result::Result<Tracks, M::Error> {
+                const NAMES: &[&str] = &[
+                    "x", "y", "scale_x", "scale_y", "rotation", "anchor_x", "anchor_y",
+                ];
+                let mut motion = Motion::default();
+                while let Some(name) = map.next_key::<String>()? {
+                    let property = Property::from_name(&name)
+                        .ok_or_else(|| de::Error::unknown_field(&name, NAMES))?;
+                    if !motion.keys(property).is_empty() {
+                        return Err(de::Error::custom(format!("duplicate field `{name}`")));
+                    }
+                    let Track(keys) = map.next_value()?;
+                    if keys.windows(2).any(|pair| pair[0].frame >= pair[1].frame) {
+                        return Err(de::Error::custom(format!(
+                            "The {name} keys must be on rising frames"
+                        )));
+                    }
+                    for key in keys {
+                        motion.set_key(property, key).map_err(de::Error::custom)?;
+                    }
+                }
+                Ok(Tracks(motion))
+            }
+        }
+        deserializer.deserialize_map(TracksVisitor)
+    }
+}
+
+/// 1 to [`MAX_FRAMES`] keys, refused as soon as the list grows past that.
+struct Track(Vec<Key>);
+impl<'de> Deserialize<'de> for Track {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+        struct TrackVisitor;
+        impl<'de> Visitor<'de> for TrackVisitor {
+            type Value = Track;
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "1 to {MAX_FRAMES} keys")
+            }
+            fn visit_seq<S: SeqAccess<'de>>(
+                self,
+                mut sequence: S,
+            ) -> std::result::Result<Track, S::Error> {
+                let mut keys = Vec::new();
+                while let Some(KeyEntry(key)) = sequence.next_element()? {
+                    if keys.len() == MAX_FRAMES {
+                        return Err(de::Error::custom("Too many keys"));
+                    }
+                    keys.push(key);
+                }
+                if keys.is_empty() {
+                    return Err(de::Error::invalid_length(0, &self));
+                }
+                Ok(Track(keys))
+            }
+        }
+        deserializer.deserialize_seq(TrackVisitor)
+    }
+}
+
+/// A key: `frame`, `value` and `easing`, each required.
+struct KeyEntry(Key);
+impl<'de> Deserialize<'de> for KeyEntry {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+        struct KeyVisitor;
+        impl<'de> Visitor<'de> for KeyVisitor {
+            type Value = KeyEntry;
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a key with frame, value and easing")
+            }
+            fn visit_map<M: MapAccess<'de>>(
+                self,
+                mut map: M,
+            ) -> std::result::Result<KeyEntry, M::Error> {
+                let (mut frame, mut value, mut easing) = (None, None, None);
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "frame" => field(&mut frame, &mut map, "frame")?,
+                        "value" => field(&mut value, &mut map, "value")?,
+                        "easing" => field(&mut easing, &mut map, "easing")?,
+                        _ => {
+                            return Err(de::Error::unknown_field(
+                                &key,
+                                &["frame", "value", "easing"],
+                            ));
+                        }
+                    }
+                }
+                let EasingField(easing) = required(easing, "easing")?;
+                Ok(KeyEntry(Key {
+                    frame: required(frame, "frame")?,
+                    value: required(value, "value")?,
+                    easing,
+                }))
+            }
+        }
+        deserializer.deserialize_map(KeyVisitor)
+    }
+}
+
+/// A preset easing's name, or the 4 control values of a custom curve.
+struct EasingField(Easing);
+impl<'de> Deserialize<'de> for EasingField {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+        struct EasingVisitor;
+        impl<'de> Visitor<'de> for EasingVisitor {
+            type Value = EasingField;
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("an easing name or [x1, y1, x2, y2]")
+            }
+            fn visit_str<E: de::Error>(self, name: &str) -> std::result::Result<EasingField, E> {
+                Easing::from_name(name)
+                    .map(EasingField)
+                    .ok_or_else(|| E::custom(format!("Unknown easing {name:?}")))
+            }
+            fn visit_seq<S: SeqAccess<'de>>(
+                self,
+                sequence: S,
+            ) -> std::result::Result<EasingField, S::Error> {
+                let points =
+                    <[f64; 4]>::deserialize(de::value::SeqAccessDeserializer::new(sequence))?;
+                Easing::curve(points)
+                    .map(EasingField)
+                    .map_err(de::Error::custom)
+            }
+        }
+        deserializer.deserialize_any(EasingVisitor)
     }
 }
 

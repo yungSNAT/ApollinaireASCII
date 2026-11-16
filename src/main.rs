@@ -675,11 +675,12 @@ fn run(args: Args) -> Result<()> {
                     return Err("--width and --height apply only to a new file".into());
                 }
                 if file.extension().is_some_and(|e| e == "json") {
-                    // Saving writes one animation, so a layered project would lose its layers.
+                    // Saving writes one animation, so a layered or keyed project would lose its
+                    // layers or keys.
                     Layered::from_json(&read_text(&file)?)?
                         .plain()
                         .cloned()
-                        .ok_or("This project uses layers; merge them in the browser editor first")?
+                        .ok_or("This project uses layers or keyframes; merge its layers in the browser editor first")?
                 } else {
                     load(&file, true)?
                 }
