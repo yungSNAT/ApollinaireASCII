@@ -201,10 +201,10 @@ fn utf8_ansi_art_maps_each_character_back_to_its_cp437_glyph() {
     let high = "ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐\
                 └┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■\u{a0}";
     let bytes: Vec<u8> = (0x80..=0xff).collect();
-    assert_eq!(
-        read("a.utf8.ans", high.as_bytes()).unwrap(),
-        decode(&bytes).unwrap()
-    );
+    // A SAUCE width of 128 holds them in one row, as CP437 text keeps its line.
+    let mut art = high.as_bytes().to_vec();
+    art.extend(sauce(1, 1, 128, &[]));
+    assert_eq!(read("a.utf8.ans", &art).unwrap(), decode(&bytes).unwrap());
     // The pictures CP437 draws for control bytes are drawn, never acted on as controls.
     let low = "☺☻♥♦♣♠•◘○◙♂♀♪♫☼►◄↕‼¶§▬↨↑↓→←∟↔▲▼⌂";
     assert_eq!(
