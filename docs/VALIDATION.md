@@ -159,6 +159,17 @@ On 17 November 2026 `image --shapes` was scored against the default ramp and [ch
 
 Shape matching beat the ramp on every error figure and on SSIM for every line drawing. Against chafa it had the lower error in 4 of 12 rows and the higher SSIM in 5 of the 6 line-drawing rows; chafa led on the fractals' SSIM, where every figure is near 0 because a character's strokes are not a smooth gradient, and on most error figures. So `--shapes` is the better choice for line art and logos, and chafa keeps a small fidelity lead on photographs. Six pictures are a first check, not proof of a general ranking. At the largest size, 512 by 256 cells, `--shapes` took 2.2 s and 410 MiB at peak on the 4000 by 3000 PNG and 3.0 s and 165 MiB on the 1920 by 1080 one, against 0.5 s and 149 MiB, and 0.1 s and 37 MiB, for the ramp: it resizes the picture to 8 by 16 pixels a cell before matching.
 
+The browser editor runs the same conversion as WebAssembly. Built for `wasm32-unknown-unknown` (Rust 1.99.1) and run in headless Chromium 157 on the same machine, one page load a conversion so each started with fresh memory, at 512 by 256 cells, it took (slowest of 3) with the WebAssembly memory at its end, which only grows, as the peak:
+
+| Picture | Ramp | Shapes |
+|---|--:|--:|
+| 1920 x 1080 PNG, 10.2 MiB | 161 ms, 32 MiB | 3.67 s, 170 MiB |
+| 4000 x 3000 JPEG, 3.2 MiB | 541 ms, 58 MiB | 2.63 s, 349 MiB |
+| 4096 x 4096 8-bit RGB gradient PNG | 196 ms, 66 MiB | 666 ms, 130 MiB |
+| 4096 x 4096 16-bit RGBA gradient PNG, the largest decoded picture | not run | 1.20 s, 210 MiB |
+
+Every conversion succeeded. So shape matching at the largest size holds the editor for up to about 4 seconds and needs up to about 350 MiB; it is off unless chosen.
+
 ## Speech bubbles against cowsay
 
 On 14 November 2026 a release build of `apollinaire say` (Rust 1.99.1) and [cowsay](https://github.com/cowsay-org/cowsay) 3.8.4 (its source release, run with Perl 5.44.0 in a UTF-8 locale) were given the same messages at each program's default width of 40. Each time is the fastest and the median of 20 runs, including process start, on the same shared Linux machine as the conversion timings (load average about 7), so the times are indicative.
@@ -178,7 +189,7 @@ Both wrapped the sentence into the same 4 lines. The outputs differ where the pr
 
 ## Deliberate limits
 
-The Rust code contains no video decoder: the browser decodes video, so supported formats vary by browser, and the CLI has no video or camera input. Only the CLI fetches media over the network, from `https://` image URLs. There is no ANSI-colour artwork mode, raster/vector artwork exporter or Unicode-art mode. GIF is the animated image import format; other image inputs use the image library's still-image decoding. Oversize inputs are refused. Browser work is synchronous Rust after the bounded file read, so the largest valid conversions hold the UI thread for up to about a second (see Conversion responsiveness). Resource limits bound accepted files and projects, not the browser process's total memory.
+The Rust code contains no video decoder: the browser decodes video, so supported formats vary by browser, and the CLI has no video or camera input. Only the CLI fetches media over the network, from `https://` image URLs. There is no ANSI-colour artwork mode, raster/vector artwork exporter or Unicode-art mode. GIF is the animated image import format; other image inputs use the image library's still-image decoding. Oversize inputs are refused. Browser work is synchronous Rust after the bounded file read, so the largest valid conversions hold the UI thread for up to about a second (see Conversion responsiveness), or about 4 seconds with shape matching at 512 by 256 cells (see Shape-matched characters against chafa). Resource limits bound accepted files and projects, not the browser process's total memory.
 
 The browser keeps 100 undo steps within a 16 million cell budget and has no automatic local persistence. A drag, a keyboard stroke or a run of typed characters is one step. Onion skin shows only the previous frame, so the first frame has none. On screens up to 760 pixels wide the drawing options start folded. Drawing tools disable touch scrolling over the grid; choose Select text to scroll it by touch. Save a JSON project to retain all frames and timing. Text export saves one selected frame. Closing or reloading a modified project requests the browser's unsaved-work prompt; downloads are reported as requested because the page cannot prove where the browser saved a file. Requesting a download does not clear the unsaved-work warning.
 
