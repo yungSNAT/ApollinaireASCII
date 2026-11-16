@@ -40,6 +40,7 @@ fn layer(name: &str, art: Animation, motion: Motion) -> Layer {
     Layer {
         name: name.into(),
         visible: true,
+        locked: false,
         art,
         motion,
     }

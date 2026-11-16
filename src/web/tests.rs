@@ -2170,6 +2170,107 @@ async fn layers_draw_separately_share_frames_and_save_as_version_2() {
 }
 
 #[wasm_bindgen_test]
+async fn a_locked_layer_keeps_its_art_and_solo_changes_only_the_stage() {
+    blank(5, 1);
+    apply_frame("* * *");
+    click("layer-add");
+    apply_frame(" v   ");
+    check("layer-locked", true);
+    assert_eq!(layer_list(), ["Layer 2", "Layer 1"]);
+
+    // The frame editor is read-only and refuses edits, drawing, typing and keys are refused,
+    // and the art stays.
+    assert!(element::<HtmlTextAreaElement>("editor").read_only());
+    apply_frame(" w   ");
+    assert!(status().contains("Layer 2 is locked"), "{}", status());
+    click("discard");
+    tool("pencil");
+    drag(&[(4, 0)]);
+    tool("type");
+    cursor_to((2, 0));
+    keys(&["x"]);
+    click("key-set");
+    assert!(status().contains("Layer 2 is locked"), "{}", status());
+    assert_eq!(art(), "*v* *");
+    // Its name, deletion and merging wait until it is unlocked.
+    for id in ["layer-name", "layer-delete", "layer-merge"] {
+        assert!(!enabled(id), "#{id}");
+    }
+    // Timing changes every layer, so it still applies.
+    set_value("range-duration", "170");
+    click("apply-range-duration");
+    let saved = super::Layered::from_json(&save("download-json").await.1).unwrap();
+    assert!(saved.layers()[1].locked && !saved.layers()[0].locked);
+    assert_eq!(saved.layers()[1].art.frames()[0].duration_ms, 170);
+    assert_eq!(saved.layers()[1].art.frames()[0].frame.text(), " v   ");
+
+    // Another layer is not locked.
+    let list = element::<HtmlSelectElement>("layer");
+    list.set_selected_index(1);
+    change_event("layer");
+    assert!(!element::<HtmlInputElement>("layer-locked").checked());
+    apply_frame("*****");
+    assert_eq!(art(), "*v***");
+
+    // Showing only the chosen layer changes the stage, not what is copied or saved.
+    check("layer-solo", true);
+    assert_eq!(art(), "*****");
+    assert_eq!(save("download-text").await.1, "*v***\n");
+    list.set_selected_index(0);
+    change_event("layer");
+    assert_eq!(art(), " v   ");
+    check("layer-solo", false);
+    assert_eq!(art(), "*v***");
+
+    check("layer-locked", false);
+    click("layer-merge");
+}
+
+#[wasm_bindgen_test]
+async fn a_lock_is_undone_with_the_art_and_whole_project_changes_still_apply() {
+    blank(5, 1);
+    apply_frame("* * *");
+    click("layer-add");
+    apply_frame(" v   ");
+    check("layer-locked", true);
+    let locked = || element::<HtmlInputElement>("layer-locked").checked();
+    // Locking is one step of history, undone and redone with the art.
+    click("undo");
+    assert!(!locked());
+    assert_eq!(art(), "*v* *");
+    click("redo");
+    assert!(locked());
+    assert_eq!(art(), "*v* *");
+
+    // Adding frames changes every layer, the locked one too, keeping its characters.
+    let list = element::<HtmlSelectElement>("layer");
+    list.set_selected_index(1);
+    change_event("layer");
+    click("duplicate");
+    let saved = super::Layered::from_json(&save("download-json").await.1).unwrap();
+    let top = &saved.layers()[1];
+    assert!(top.locked);
+    let texts: Vec<String> = top.art.frames().iter().map(|f| f.frame.text()).collect();
+    assert_eq!(texts, [" v   ", " v   "]);
+    click("undo");
+
+    // Opening a file replaces every layer, locked ones too; Undo brings them back, locked.
+    assert!(open("plain.txt", "abc").await.contains("File opened"));
+    assert_eq!(layer_list(), ["Layer 1"]);
+    click("undo");
+    assert_eq!(layer_list(), ["Layer 2", "Layer 1"]);
+    let saved = super::Layered::from_json(&save("download-json").await.1).unwrap();
+    assert!(saved.layers()[1].locked);
+    assert_eq!(saved.layers()[1].art.frames().len(), 1);
+    assert_eq!(saved.layers()[1].art.frames()[0].frame.text(), " v   ");
+
+    list.set_selected_index(0);
+    change_event("layer");
+    check("layer-locked", false);
+    click("layer-merge");
+}
+
+#[wasm_bindgen_test]
 async fn a_layered_project_opens_with_its_layers() {
     blank(3, 1);
     let two = r#"{"format":"asciiforge","version":2,"width":3,"height":1,"loop":false,"layers":[{"name":"Back","visible":true},{"name":"Front","visible":false},{"name":"Top","visible":true}],"frames":[{"duration_ms":100,"layers":["abc","XYZ"," - "]}]}"#;
