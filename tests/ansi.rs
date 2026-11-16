@@ -224,10 +224,56 @@ fn utf8_ansi_art_maps_each_character_back_to_its_cp437_glyph() {
         read("a.utf8.ans", b"a\xffb").unwrap_err(),
         "Byte 2: the art is not UTF-8"
     );
+    // Bytes after the end-of-file byte are not read, so they need not be UTF-8.
+    assert_eq!(
+        read("a.utf8.ans", b"\xe2\x96\x91\x1a\xff").unwrap(),
+        read("a.utf8.ans", "░".as_bytes()).unwrap()
+    );
     // Other ANSI names are CP437, whatever their bytes.
     assert_eq!(
         read("a.ans", "░".as_bytes()).unwrap().text(),
         decode("░".as_bytes()).unwrap().text()
+    );
+}
+
+/// Rows as text0wnz writes a .utf8.ans file: a reset, then each row's cells, a reset and LF.
+fn text0wnz(rows: &[String]) -> Vec<u8> {
+    let mut out = String::from("\x1b[0m");
+    for row in rows {
+        out.push_str(&format!("\x1b[1;33m{row}\x1b[0m\n"));
+    }
+    out.push_str("\x1b[0m");
+    out.into_bytes()
+}
+
+#[test]
+fn utf8_ansi_rows_keep_their_own_width_and_end_at_each_line_feed() {
+    // A full 80-column row and its LF make one row, not a row and a blank one.
+    let full = vec!["█".repeat(80), "░".repeat(80)];
+    let frame = read("full.utf8.ans", &text0wnz(&full)).unwrap();
+    assert_eq!(
+        frame.text(),
+        format!("{}\n{}", "#".repeat(80), ".".repeat(80))
+    );
+    // With no SAUCE record, the widest row sets the width, wider or narrower than 80.
+    for width in [132, 40] {
+        let rows = vec!["▀".repeat(width), "▄".repeat(width)];
+        let frame = read("wide.utf8.ans", &text0wnz(&rows)).unwrap();
+        assert_eq!(
+            frame.text(),
+            format!("{}\n{}", "\"".repeat(width), "_".repeat(width))
+        );
+    }
+    // Tabs reach the next multiple of 8 when the width is measured.
+    assert_eq!(
+        read("tab.utf8.ans", "\x1b[0ma\tb\n".as_bytes())
+            .unwrap()
+            .text(),
+        "a       b"
+    );
+    assert_eq!(
+        read("wide.utf8.ans", &text0wnz(&["x".repeat(513)])).unwrap_err(),
+        "The art is wider than 512 columns"
     );
 }
 
