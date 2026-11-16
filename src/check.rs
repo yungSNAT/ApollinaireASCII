@@ -20,7 +20,10 @@ pub fn problems(bytes: &[u8]) -> (Vec<String>, usize) {
         }
         None => bytes,
     };
-    let text = bytes.strip_suffix(b"\n").unwrap_or(bytes);
+    let (text, ended) = match bytes.strip_suffix(b"\n") {
+        Some(text) => (text, true),
+        None => (bytes, false),
+    };
     if text.is_empty() {
         found.add(1, 1, "the file has no rows".into());
         return found.into_parts();
@@ -28,9 +31,15 @@ pub fn problems(bytes: &[u8]) -> (Vec<String>, usize) {
     // Rows past the limit are checked for characters, but only the first rows set the width.
     let mut widths = Vec::new();
     let mut lines = 0;
-    for line in text.split(|&b| b == b'\n') {
+    let mut rows = text.split(|&b| b == b'\n').peekable();
+    while let Some(line) = rows.next() {
         lines += 1;
-        let width = row(line.strip_suffix(b"\r").unwrap_or(line), lines, &mut found);
+        // A carriage return ends a row only before a line feed, as import reads CRLF.
+        let line = match line.strip_suffix(b"\r") {
+            Some(rest) if ended || rows.peek().is_some() => rest,
+            _ => line,
+        };
+        let width = row(line, lines, &mut found);
         if lines <= MAX_HEIGHT {
             widths.push(width);
         }
@@ -214,6 +223,15 @@ mod tests {
         assert_eq!(
             problems(b"a\rb").0,
             ["line 1, column 2: a carriage return inside a row"]
+        );
+        // So is one ending a file without a line feed after it.
+        assert_eq!(
+            problems(b"a\r").0,
+            ["line 1, column 2: a carriage return inside a row"]
+        );
+        assert_eq!(
+            problems(b"ab\r\nc\r").0,
+            ["line 2, column 2: a carriage return inside a row"]
         );
         // The first 200 are listed and the rest counted.
         // More than twice the listed count, so the list is trimmed while scanning too.

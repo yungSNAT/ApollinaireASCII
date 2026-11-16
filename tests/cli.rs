@@ -211,7 +211,7 @@ fn check_lists_every_problem_in_text_and_agrees_with_import() {
     assert!(!project.status.success());
     assert!(!text(&project.stderr).contains("problems in"));
     // Check refuses exactly the text that import refuses.
-    let samples: [&[u8]; 13] = [
+    let samples: [&[u8]; 15] = [
         b"ab\ncd",
         b"ab\r\ncd\r\n",
         b"x",
@@ -225,6 +225,8 @@ fn check_lists_every_problem_in_text_and_agrees_with_import() {
         "\u{a0}".as_bytes(),
         b"\xff",
         b"ab\r\n\r\n",
+        b"a\r",
+        b"ab\r\ncd\r",
     ];
     for (index, sample) in samples.iter().enumerate() {
         std::fs::write(&input, sample).unwrap();
