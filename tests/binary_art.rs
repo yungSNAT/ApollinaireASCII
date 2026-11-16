@@ -209,7 +209,8 @@ fn tnd_moves_and_skips_colours_but_draws_their_characters() {
     file.extend([1, 0, 0, 0, 2, 0, 0, 0, 3, b'f']);
     let frame = read("a.tnd", &file).unwrap();
     assert_eq!((frame.width(), frame.height()), (80, 3));
-    let rows: Vec<&str> = frame.text().lines().map(str::trim_end).collect::<Vec<_>>();
+    let shown = frame.text();
+    let rows: Vec<&str> = shown.lines().map(str::trim_end).collect();
     assert_eq!(rows, ["abcde", "", "   f"]);
     // Text past column 80 wraps to the next row; a TundraDraw SAUCE width replaces 80.
     let mut wide = b"\x18TUNDRA24".to_vec();
