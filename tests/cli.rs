@@ -166,6 +166,27 @@ fn check_and_transform_report_dimensions_and_preserve_frame_content() {
     let flip = cli(&["transform", path, "horizontal", "--style", "heavy"]);
     assert!(!flip.status.success());
     assert!(text(&flip.stderr).contains("Only the border operation takes --style"));
+    for (turns, expected) in [
+        (None, "ca\ndb\n"),
+        (Some("2"), "dc\nba\n"),
+        (Some("3"), "bd\nac\n"),
+    ] {
+        let mut args = vec!["transform", path, "rotate"];
+        args.extend(turns.map(|turns| ["--turns", turns]).iter().flatten());
+        let result = cli(&args);
+        assert!(result.status.success(), "{}", text(&result.stderr));
+        assert_eq!(text(&result.stdout), expected, "{turns:?}");
+    }
+    for args in [
+        ["transform", path, "rotate", "--turns", "4"],
+        ["transform", path, "vertical", "--turns", "1"],
+    ] {
+        assert!(!cli(&args).status.success(), "{args:?}");
+    }
+    assert!(
+        text(&cli(&["transform", path, "vertical", "--turns", "1"]).stderr)
+            .contains("Only the rotate operation takes --turns")
+    );
     let outside = cli(&[
         "transform",
         path,
@@ -179,6 +200,76 @@ fn check_and_transform_report_dimensions_and_preserve_frame_content() {
     ]);
     assert!(!outside.status.success());
     assert!(text(&outside.stderr).contains("Crop"));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn check_lists_every_problem_in_text_and_agrees_with_import() {
+    let dir = scratch("check-problems");
+    let input = dir.join("art.txt");
+    std::fs::write(&input, "a\u{2019}b\tc\nab\n").unwrap();
+    let path = input.to_str().unwrap();
+    let expected = format!(
+        "apollinaire: 3 problems in {path}:\n  line 1, column 2: U+2019 is not ASCII; use '\n  line 1, column 4: a tab; use spaces\n  line 2, column 3: the row is shorter than line 1, which has 5 columns; pad it with spaces, or import with --pad\n"
+    );
+    let check = cli(&["check", path]);
+    refused(&check, &expected);
+    assert_eq!(text(&check.stderr), expected);
+    // The first 200 are listed and the rest counted, from stdin too.
+    let many = cli_stdin(&["check", "-"], "\t".repeat(250).as_bytes());
+    refused(
+        &many,
+        "apollinaire: 250 problems in stdin:\n  line 1, column 1: a tab",
+    );
+    assert!(
+        text(&many.stderr)
+            .ends_with("\n  line 1, column 200: a tab; use spaces\n  ... and 50 more\n")
+    );
+    // JSON is checked as a project, not as text.
+    let json = dir.join("art.json");
+    std::fs::write(&json, "a\tb").unwrap();
+    let project = cli(&["check", json.to_str().unwrap()]);
+    assert!(!project.status.success());
+    assert!(!text(&project.stderr).contains("problems in"));
+    // Check refuses exactly the text that import refuses.
+    let samples: [&[u8]; 15] = [
+        b"ab\ncd",
+        b"ab\r\ncd\r\n",
+        b"x",
+        "\u{feff}ab".as_bytes(),
+        b"a\tb",
+        b"ab\nc",
+        b"",
+        b"\n",
+        b"\n\n",
+        b"a\rb",
+        "\u{a0}".as_bytes(),
+        b"\xff",
+        b"ab\r\n\r\n",
+        b"a\r",
+        b"ab\r\ncd\r",
+    ];
+    for (index, sample) in samples.iter().enumerate() {
+        std::fs::write(&input, sample).unwrap();
+        let check = cli(&["check", path]);
+        let import = cli(&["import", path]);
+        assert_eq!(
+            check.status.success(),
+            import.status.success(),
+            "sample {index}: {}",
+            text(&check.stderr)
+        );
+    }
+    for (rows, columns) in [(256, 512), (257, 1), (1, 513)] {
+        std::fs::write(&input, format!("{}\n", "x".repeat(columns)).repeat(rows)).unwrap();
+        let check = cli(&["check", path]);
+        assert_eq!(
+            check.status.success(),
+            cli(&["import", path]).status.success(),
+            "{rows} x {columns}: {}",
+            text(&check.stderr)
+        );
+    }
     std::fs::remove_dir_all(dir).unwrap();
 }
 
@@ -552,15 +643,44 @@ fn a_cast_extension_or_format_writes_an_asciicast_recording() {
 }
 
 #[test]
+fn code_formats_write_components_and_a_go_name_writes_bubble_tea() {
+    let dir = scratch("code");
+    let file = dir.join("ghost.go");
+    let saved = cli(&["animate", "ghost", "--output", file.to_str().unwrap()]);
+    assert!(saved.status.success(), "{}", text(&saved.stderr));
+    let printed = cli(&["animate", "ghost", "--format", "bubbletea"]);
+    assert_eq!(std::fs::read(&file).unwrap(), printed.stdout);
+    assert!(text(&printed.stdout).contains("tea \"charm.land/bubbletea/v2\""));
+    for (format, signature) in [
+        ("react", "from 'react';"),
+        ("ink", "from 'ink';"),
+        ("opentui", "from '@opentui/core';"),
+    ] {
+        let printed = cli(&["animate", "ghost", "--format", format]);
+        assert!(printed.status.success(), "{}", text(&printed.stderr));
+        assert!(text(&printed.stdout).contains(signature), "{format}");
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn image_batches_use_safe_names_and_the_requested_export_format() {
     let dir = scratch("batch-formats");
     let input = dir.join("two words.pgm");
     std::fs::write(&input, b"P2\n2 1\n255\n0 255\n").unwrap();
     let input = input.to_str().unwrap();
-    for (format, signature) in [
-        ("json", "{"),
-        ("html", "<!doctype html>"),
-        ("cast", "{\"version\":2,"),
+    for (format, extension, signature) in [
+        ("json", "json", "{"),
+        ("html", "html", "<!doctype html>"),
+        ("cast", "cast", "{\"version\":2,"),
+        ("react", "js", "// ApollinaireASCII artwork as a React"),
+        ("ink", "js", "// ApollinaireASCII artwork as an Ink"),
+        ("opentui", "js", "// ApollinaireASCII artwork for OpenTUI"),
+        (
+            "bubbletea",
+            "go",
+            "// ApollinaireASCII artwork as a Bubble Tea",
+        ),
     ] {
         let output = dir.join(format);
         let result = cli(&[
@@ -575,7 +695,7 @@ fn image_batches_use_safe_names_and_the_requested_export_format() {
         ]);
         assert!(result.status.success(), "{}", text(&result.stderr));
         let contents =
-            std::fs::read_to_string(output.join(format!("two_words.pgm.{format}"))).unwrap();
+            std::fs::read_to_string(output.join(format!("two_words.pgm.{extension}"))).unwrap();
         assert!(contents.starts_with(signature));
     }
 
@@ -1345,6 +1465,248 @@ fn ansi_and_cp437_art_files_load_as_ascii_by_their_extension() {
 }
 
 #[test]
+fn model_draws_an_obj_or_stl_file_turning() {
+    let dir = scratch("model");
+    let cube = dir.join("cube.obj");
+    let mut obj = String::new();
+    for corner in 0..8 {
+        let [x, y, z] = [corner & 1, (corner >> 1) & 1, (corner >> 2) & 1];
+        obj += &format!("v {x} {y} {z}\n");
+    }
+    obj += "f 1 2 4 3\nf 5 6 8 7\nf 1 2 6 5\nf 3 4 8 7\nf 1 3 7 5\nf 2 4 8 6\n";
+    std::fs::write(&cube, obj).unwrap();
+    let path = cube.to_str().unwrap();
+    let json = cli(&[
+        "model", path, "--width", "20", "--height", "10", "--frames", "4",
+    ]);
+    let project = apollinaire_ascii::Animation::from_json(text(&json.stdout)).unwrap();
+    assert_eq!(project.frames().len(), 4, "{}", text(&json.stderr));
+    let frame = cli(&[
+        "model", path, "--width", "20", "--height", "10", "--frames", "4", "--spin", "xy",
+        "--light", "front", "--ramp", "simple", "--format", "text", "--frame", "1",
+    ]);
+    let drawn = text(&frame.stdout);
+    assert_eq!(drawn.lines().count(), 10, "{}", text(&frame.stderr));
+    assert!(drawn.bytes().all(|b| b" .oO#\n".contains(&b)) && drawn.contains('#'));
+    // Every spin and light named on the command line reaches the library's own.
+    use apollinaire_ascii::model::{self, ModelOptions};
+    let mesh = model::read("cube.obj", &std::fs::read(&cube).unwrap()).unwrap();
+    let spins = [
+        ("y", model::Spin::Y),
+        ("x", model::Spin::X),
+        ("xy", model::Spin::XY),
+    ];
+    let lights = [
+        ("top-left", model::Light::TopLeft),
+        ("top", model::Light::Top),
+        ("front", model::Light::Front),
+        ("left", model::Light::Left),
+        ("right", model::Light::Right),
+    ];
+    let choices = spins
+        .map(|(name, spin)| {
+            (
+                ["--spin", name],
+                ModelOptions {
+                    spin,
+                    ..Default::default()
+                },
+            )
+        })
+        .into_iter()
+        .chain(lights.map(|(name, light)| {
+            (
+                ["--light", name],
+                ModelOptions {
+                    light,
+                    ..Default::default()
+                },
+            )
+        }));
+    for (flag, options) in choices {
+        let options = ModelOptions {
+            width: 20,
+            height: 10,
+            frames: 4,
+            ..options
+        };
+        let output = cli(&[
+            &[
+                "model", path, "--width", "20", "--height", "10", "--frames", "4",
+            ][..],
+            &flag[..],
+        ]
+        .concat());
+        assert_eq!(
+            apollinaire_ascii::Animation::from_json(text(&output.stdout)).unwrap(),
+            model::render(&mesh, &options).unwrap(),
+            "{flag:?}"
+        );
+    }
+    refused(
+        &cli(&["model", path, "--frames", "601"]),
+        "Animation exceeds frame or cell limits",
+    );
+    let gltf = dir.join("cube.gltf");
+    std::fs::write(&gltf, "{}").unwrap();
+    refused(&cli(&["model", gltf.to_str().unwrap()]), ".stl or .obj");
+    refused(&cli(&["model", path, "--spin", "z"]), "invalid value");
+}
+
+#[test]
+fn image_shapes_match_each_cell_and_refuse_ramp_options() {
+    let dir = scratch("shapes");
+    // font8x8's A, each bitmap row drawn twice, as a plain PGM.
+    let a: [u8; 8] = [0x0C, 0x1E, 0x33, 0x33, 0x3F, 0x33, 0x33, 0x00];
+    let mut pgm = String::from("P2\n8 16\n1\n");
+    for y in 0..16 {
+        for x in 0..8 {
+            pgm.push_str(if a[y / 2] >> x & 1 == 1 { "1 " } else { "0 " });
+        }
+        pgm.push('\n');
+    }
+    let picture = dir.join("a.pgm");
+    std::fs::write(&picture, pgm).unwrap();
+    let path = picture.to_str().unwrap();
+    let shaped = cli(&["image", path, "--shapes", "--width", "1", "--height", "1"]);
+    assert!(shaped.status.success(), "{}", text(&shaped.stderr));
+    assert_eq!(text(&shaped.stdout), "A\n");
+    for option in ["--dither", "--edges", "--edge-glyphs"] {
+        refused(
+            &cli(&["image", path, "--shapes", option]),
+            "cannot be used with",
+        );
+    }
+    refused(
+        &cli(&["image", path, "--shapes", "--ramp", "simple"]),
+        "cannot be used with",
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn generate_builds_mazes_skies_and_patterns_from_the_library() {
+    let maze = cli(&[
+        "generate", "maze", "--width", "9", "--height", "5", "--seed", "7",
+    ]);
+    assert_eq!(
+        text(&maze.stdout).lines().count(),
+        5,
+        "{}",
+        text(&maze.stderr)
+    );
+    assert!(text(&maze.stdout).starts_with("# #######\n"));
+    let solved = cli(&[
+        "generate",
+        "maze",
+        "--width",
+        "9",
+        "--height",
+        "5",
+        "--seed",
+        "7",
+        "--algorithm",
+        "wilson",
+        "--style",
+        "lines",
+        "--solution",
+    ]);
+    assert!(
+        text(&solved.stdout).starts_with("+.+-+-+-+\n"),
+        "{}",
+        text(&solved.stdout)
+    );
+    let bricks = cli(&[
+        "generate", "pattern", "bricks", "--width", "8", "--height", "2",
+    ]);
+    assert_eq!(text(&bricks.stdout), "|___|___\n__|___|_\n");
+    let words = cli(&[
+        "generate", "pattern", "text", "--text", "HI", "--width", "4", "--height", "1",
+    ]);
+    assert_eq!(text(&words.stdout), "HI H\n");
+    let stars = cli(&[
+        "generate",
+        "sky",
+        "--width",
+        "20",
+        "--height",
+        "5",
+        "--moons",
+        "0",
+        "--big-stars",
+        "0",
+        "--asteroids",
+        "0",
+        "--stars",
+        "6",
+        "--phase",
+        "random",
+    ]);
+    let glyphs = text(&stars.stdout)
+        .bytes()
+        .filter(|b| !b" \n".contains(b))
+        .count();
+    assert_eq!(glyphs, 6, "{}", text(&stars.stderr));
+    // Every algorithm and phase named on the command line reaches the library's own.
+    use apollinaire_ascii::generator::{self, MazeOptions, SkyOptions};
+    let same = |args: &[&str], frame: apollinaire_ascii::Frame| {
+        let output = cli(args);
+        assert_eq!(
+            text(&output.stdout).trim_end_matches('\n'),
+            frame.text().trim_end_matches('\n'),
+            "{args:?}: {}",
+            text(&output.stderr)
+        );
+    };
+    for (name, algorithm) in [
+        ("depth-first", generator::Algorithm::DepthFirst),
+        ("prim", generator::Algorithm::Prim),
+        ("wilson", generator::Algorithm::Wilson),
+        ("sidewinder", generator::Algorithm::Sidewinder),
+    ] {
+        let options = MazeOptions {
+            algorithm,
+            style: generator::MazeStyle::Hash,
+            solution: false,
+        };
+        same(
+            &["generate", "maze", "--seed", "3", "--algorithm", name],
+            generator::maze(72, 24, 3, &options).unwrap(),
+        );
+    }
+    for (name, phase) in [
+        ("full", generator::Phase::Full),
+        ("waxing", generator::Phase::Waxing),
+        ("waning", generator::Phase::Waning),
+        ("random", generator::Phase::Random),
+    ] {
+        let options = SkyOptions {
+            phase,
+            ..SkyOptions::default()
+        };
+        same(
+            &["generate", "sky", "--seed", "3", "--phase", name],
+            generator::sky(72, 24, 3, &options).unwrap(),
+        );
+    }
+    let listed = cli(&["list"]);
+    assert!(text(&listed.stdout).contains("\nPatterns: checker, stripes, diagonal"));
+    refused(
+        &cli(&["generate", "pattern", "plaid"]),
+        "Unknown pattern plaid",
+    );
+    refused(&cli(&["generate", "maze", "--width", "2"]), "at least 3");
+    refused(
+        &cli(&["generate", "maze", "--algorithm", "kruskal"]),
+        "invalid value",
+    );
+    refused(
+        &cli(&["generate", "sky", "--moons", "21"]),
+        "at most 20 moons",
+    );
+}
+
+#[test]
 fn binary_text_art_loads_by_name_and_bin_only_with_its_flag() {
     let dir = scratch("binary-art");
     // A 2 by 1 XBIN screen: a full block and a heart.
@@ -1385,11 +1747,19 @@ fn rexpaint_images_load_flattened_by_their_extension() {
             "{}",
             text(&imported.stderr)
         );
+        let check = cli(&["check", path.to_str().unwrap()]);
+        assert!(
+            text(&check.stdout).starts_with("Valid ASCII: 8 x 4, 1 frame(s)"),
+            "{}",
+            text(&check.stderr)
+        );
     }
     let broken = dir.join("broken.xp");
     std::fs::write(&broken, b"not gzip").unwrap();
-    refused(
-        &cli(&["import", broken.to_str().unwrap()]),
-        "Not a REXPaint .xp file",
-    );
+    for command in ["import", "check"] {
+        refused(
+            &cli(&[command, broken.to_str().unwrap()]),
+            "Not a REXPaint .xp file",
+        );
+    }
 }

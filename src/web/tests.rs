@@ -1027,6 +1027,33 @@ async fn convert(contents: &str) {
     wait_for(|| !status().starts_with("Reading")).await;
     assert!(status().contains("File opened"), "{}", status());
 }
+#[wasm_bindgen_test]
+async fn the_converter_turns_a_3d_model_into_a_looping_animation() {
+    blank(4, 1);
+    preset("standard");
+    set_value("width", "20");
+    check("auto-height", true);
+    let triangle = "v -1 -1 0\nv 1 -1 0\nv 0 1 0\nf 1 2 3\n";
+    choose("media-file", "triangle.obj", triangle.as_bytes());
+    click("convert");
+    wait_for(|| !status().starts_with("Reading")).await;
+    assert!(status().contains("File opened"), "{}", status());
+    assert_eq!(grid_size(), (20, 10));
+    assert!(frame_count().ends_with("/ 36"), "{}", frame_count());
+    assert!(art().bytes().any(|b| b != b' ' && b != b'\n'));
+    choose("media-file", "broken.stl", b"solid\nfacet\n");
+    click("convert");
+    wait_for(|| !status().starts_with("Reading")).await;
+    assert!(status().contains("ends inside a facet"), "{}", status());
+    // Shape matching is for pictures; a model asks for a ramp instead of being drawn without.
+    check("shapes", true);
+    choose("media-file", "triangle.obj", triangle.as_bytes());
+    click("convert");
+    wait_for(|| !status().starts_with("Reading")).await;
+    assert!(status().contains("shaded with a ramp"), "{}", status());
+    // The page is shared by the tests, so the standard preset turns shape matching off again.
+    preset("standard");
+}
 fn preset(name: &str) {
     let picker = element::<HtmlSelectElement>("preset");
     picker.set_value(name);
@@ -1551,6 +1578,26 @@ async fn presets_fill_the_conversion_settings_and_reach_the_output() {
     assert_eq!(settings(), edited);
     preset("standard");
     assert_eq!(settings(), standard);
+
+    // Shape matching chooses from every character, so a black cell is a space and a white one
+    // is inked; it refuses dithering, and a preset turns it off.
+    check("shapes", true);
+    assert_eq!(chosen(), "custom");
+    convert(STEP).await;
+    let shaped = art();
+    assert!(
+        shaped.starts_with("   ") && !shaped.ends_with(' '),
+        "{shaped:?}"
+    );
+    check("dither", true);
+    choose("media-file", "step.pgm", STEP.as_bytes());
+    click("convert");
+    wait_for(|| !status().starts_with("Reading")).await;
+    assert!(status().contains("Shape matching"), "{}", status());
+    assert_eq!(art(), shaped);
+    preset("standard");
+    assert!(!element::<HtmlInputElement>("shapes").checked());
+    assert_eq!(settings(), standard);
 }
 
 #[wasm_bindgen_test]
@@ -1850,6 +1897,32 @@ async fn playback_and_saves_keep_unsaved_edits() {
     let (name, player) = save("download-html").await;
     assert_eq!(name, "artwork.html");
     assert!(player.contains(&json));
+    for (format, file, data) in [
+        (
+            "react",
+            "artwork-react.js",
+            "const frames = [\"#  \",\"  #\"];",
+        ),
+        ("ink", "artwork-ink.js", "const frames = [\"#  \",\"  #\"];"),
+        (
+            "opentui",
+            "artwork-opentui.js",
+            "const durations = [50,50];",
+        ),
+        (
+            "bubbletea",
+            "artwork.go",
+            "var frames = []string{\"#  \", \"  #\"}",
+        ),
+    ] {
+        element::<web_sys::HtmlSelectElement>("code-format").set_value(format);
+        let (name, code) = save("download-code").await;
+        assert_eq!(
+            (name.as_str(), code.contains(data)),
+            (file, true),
+            "{format}"
+        );
+    }
 
     // A save is only a request, so leaving still warns, and undo still reaches both edits.
     assert!(leaving_warns());
@@ -2064,6 +2137,84 @@ fn effect_animates_the_selected_frame_and_undoes() {
 }
 
 #[wasm_bindgen_test]
+fn the_generator_source_draws_mazes_skies_and_patterns_with_only_their_settings_shown() {
+    use crate::generator;
+    blank(4, 1);
+    let shown = |id: &str| !element::<HtmlElement>(id).hidden();
+    let mode = element::<HtmlSelectElement>("mode");
+    let source = element::<HtmlSelectElement>("generator");
+    mode.set_value("generator");
+    change_event("mode");
+    assert!(shown("generator-fields") && shown("maze-fields") && shown("seed-fields"));
+    assert!(!shown("sky-fields") && !shown("scene-fields") && !shown("text-fields"));
+    set_value("width", "9");
+    set_value("height", "5");
+    set_value("seed", "7");
+    element::<HtmlSelectElement>("maze-algorithm").set_value("wilson");
+    element::<HtmlSelectElement>("maze-style").set_value("lines");
+    check("maze-solution", true);
+    click("generate");
+    let solved = generator::maze(
+        9,
+        5,
+        7,
+        &generator::MazeOptions {
+            algorithm: generator::Algorithm::Wilson,
+            style: generator::MazeStyle::Lines,
+            solution: true,
+        },
+    )
+    .unwrap();
+    assert_eq!(art(), solved.text());
+    check("maze-solution", false);
+    source.set_value("sky");
+    change_event("generator");
+    assert!(shown("sky-fields") && !shown("maze-fields") && shown("seed-fields"));
+    set_value("width", "20");
+    set_value("sky-stars", "6");
+    for id in ["sky-big-stars", "sky-moons", "sky-asteroids"] {
+        set_value(id, "0");
+    }
+    click("generate");
+    assert_eq!(art().bytes().filter(|b| !b" \n".contains(b)).count(), 6);
+    set_value("sky-moons", "21");
+    click("generate");
+    assert_eq!(status(), "Error: A sky has at most 20 moons");
+    for (id, value) in [
+        ("sky-stars", "60"),
+        ("sky-big-stars", "4"),
+        ("sky-moons", "1"),
+        ("sky-asteroids", "2"),
+    ] {
+        set_value(id, value);
+    }
+    source.set_value("pattern");
+    change_event("generator");
+    assert!(shown("pattern-fields") && shown("text-fields") && !shown("seed-fields"));
+    let options = element::<HtmlSelectElement>("pattern").children();
+    let names: Vec<String> = (0..options.length())
+        .map(|i| {
+            options
+                .item(i)
+                .unwrap()
+                .get_attribute("value")
+                .unwrap_or_else(|| options.item(i).unwrap().text_content().unwrap())
+        })
+        .collect();
+    assert_eq!(names, generator::PATTERNS);
+    element::<HtmlSelectElement>("pattern").set_value("bricks");
+    set_value("width", "8");
+    set_value("height", "2");
+    click("generate");
+    assert_eq!(art(), rows(&["|___|___", "__|___|_"]));
+    source.set_value("maze");
+    mode.set_value("scene");
+    change_event("mode");
+    assert!(!shown("generator-fields") && shown("scene-fields") && shown("seed-fields"));
+    set_value("seed", "42");
+}
+
+#[wasm_bindgen_test]
 fn artwork_search_filters_the_catalogue() {
     blank(4, 1);
     input_event("art-search", "bird");
@@ -2120,6 +2271,118 @@ fn apply_frame(text: &str) {
     input_event("editor", text);
     click("apply");
 }
+#[wasm_bindgen_test]
+fn rotating_an_area_turns_it_in_place_as_one_undo_step() {
+    blank(4, 3);
+    apply_frame("ab  \n-   \nxy  ");
+    let start = rows(&["ab  ", "-   ", "xy  "]);
+    tool("area");
+    drag(&[(0, 0), (1, 1)]);
+    click("area-rotate");
+    let turned = rows(&["|a  ", " b  ", "xy  "]);
+    assert_eq!(art(), turned);
+    assert_eq!(status(), "Area rotated.");
+    // The selection is the turned area, so turning back restores it.
+    click("area-rotate-back");
+    assert_eq!(art(), start);
+    click("undo");
+    assert_eq!(art(), turned);
+    click("undo");
+    assert_eq!(art(), start);
+    // Cells turned past the canvas edge are cut off, and the status says so.
+    drag(&[(0, 2), (1, 2)]);
+    click("area-rotate");
+    assert_eq!(art(), rows(&["ab  ", "-   ", "x   "]));
+    assert!(status().contains("cut off"), "{}", status());
+}
+
+#[wasm_bindgen_test]
+fn an_area_turned_taller_than_the_row_limit_is_clipped_not_refused() {
+    blank(512, 256);
+    let start = art();
+    apply_frame(&format!("{}{}", "x".repeat(300), &start[300..]));
+    let full = art();
+    tool("area");
+    drag(&[(0, 0), (299, 0)]);
+    click("area-rotate");
+    assert!(status().contains("cut off"), "{}", status());
+    let turned = art();
+    let lines: Vec<&str> = turned.lines().collect();
+    assert_eq!(lines.len(), 256);
+    // The first column holds the first 256 cells, turned to stand on end; the rest are cut.
+    assert!(lines.iter().all(|line| line.starts_with('x')));
+    assert_eq!(turned.bytes().filter(|&b| b == b'x').count(), 256);
+    click("undo");
+    assert_eq!(art(), full);
+    blank(4, 1);
+}
+
+/// The character picker's button for `code`.
+fn pick(code: u8) -> HtmlElement {
+    document()
+        .query_selector(&format!("#char-picker [data-code=\"{code}\"]"))
+        .unwrap()
+        .unwrap()
+        .dyn_into()
+        .unwrap()
+}
+/// Press `key` on the focused picker button and return the code of the button focused after.
+fn pick_key(key: &str) -> u8 {
+    let init = KeyboardEventInit::new();
+    init.set_bubbles(true);
+    init.set_cancelable(true);
+    init.set_key(key);
+    let event = KeyboardEvent::new_with_keyboard_event_init_dict("keydown", &init).unwrap();
+    let focused = document().active_element().unwrap();
+    focused.dispatch_event(&event).unwrap();
+    let focused = document().active_element().unwrap();
+    focused.get_attribute("data-code").unwrap().parse().unwrap()
+}
+
+#[wasm_bindgen_test]
+fn the_character_picker_sets_the_brush_and_moves_by_keyboard() {
+    blank(3, 1);
+    assert_eq!(element::<Element>("char-picker").children().length(), 95);
+    assert_eq!(
+        pick(b' ').get_attribute("aria-label").as_deref(),
+        Some("Space")
+    );
+    // The brush's character is pressed and is the one tab stop.
+    input_event("brush", "#");
+    let state = |code: u8| {
+        let button = pick(code);
+        (
+            button.get_attribute("aria-pressed").unwrap(),
+            button.tab_index(),
+        )
+    };
+    assert_eq!(state(b'#'), ("true".into(), 0));
+    assert_eq!(state(b'@'), ("false".into(), -1));
+
+    pick(b'@').click();
+    assert_eq!(element::<HtmlInputElement>("brush").value(), "@");
+    assert_eq!(state(b'@'), ("true".into(), 0));
+    assert_eq!(state(b'#'), ("false".into(), -1));
+    tool("pencil");
+    drag(&[(1, 0)]);
+    assert_eq!(art(), " @ ");
+
+    // Arrows move by one and by a row of 16; Home and End go to the ends; the edges hold.
+    pick(b'@').focus().unwrap();
+    assert_eq!(pick_key("ArrowRight"), b'A');
+    assert_eq!(pick_key("ArrowDown"), b'Q');
+    assert_eq!(pick_key("ArrowUp"), b'A');
+    assert_eq!(pick_key("ArrowLeft"), b'@');
+    assert_eq!(pick_key("End"), b'~');
+    assert_eq!(pick_key("ArrowRight"), b'~');
+    assert_eq!(pick_key("ArrowDown"), b'~');
+    assert_eq!(pick_key("Home"), b' ');
+    assert_eq!(pick_key("ArrowLeft"), b' ');
+    assert_eq!(pick_key("ArrowUp"), b' ');
+    assert_eq!(pick(b' ').tab_index(), 0);
+    input_event("brush", "#");
+}
+
 /// The Layers list as shown, top layer first.
 fn layer_list() -> Vec<String> {
     let list = element::<HtmlSelectElement>("layer");
@@ -2206,6 +2469,107 @@ async fn layers_draw_separately_share_frames_and_save_as_version_2() {
     assert_eq!(merged["version"], 1);
     click("undo");
     assert_eq!(layer_list(), ["Bird", "Layer 1"]);
+    click("layer-merge");
+}
+
+#[wasm_bindgen_test]
+async fn a_locked_layer_keeps_its_art_and_solo_changes_only_the_stage() {
+    blank(5, 1);
+    apply_frame("* * *");
+    click("layer-add");
+    apply_frame(" v   ");
+    check("layer-locked", true);
+    assert_eq!(layer_list(), ["Layer 2", "Layer 1"]);
+
+    // The frame editor is read-only and refuses edits, drawing, typing and keys are refused,
+    // and the art stays.
+    assert!(element::<HtmlTextAreaElement>("editor").read_only());
+    apply_frame(" w   ");
+    assert!(status().contains("Layer 2 is locked"), "{}", status());
+    click("discard");
+    tool("pencil");
+    drag(&[(4, 0)]);
+    tool("type");
+    cursor_to((2, 0));
+    keys(&["x"]);
+    click("key-set");
+    assert!(status().contains("Layer 2 is locked"), "{}", status());
+    assert_eq!(art(), "*v* *");
+    // Its name, deletion and merging wait until it is unlocked.
+    for id in ["layer-name", "layer-delete", "layer-merge"] {
+        assert!(!enabled(id), "#{id}");
+    }
+    // Timing changes every layer, so it still applies.
+    set_value("range-duration", "170");
+    click("apply-range-duration");
+    let saved = super::Layered::from_json(&save("download-json").await.1).unwrap();
+    assert!(saved.layers()[1].locked && !saved.layers()[0].locked);
+    assert_eq!(saved.layers()[1].art.frames()[0].duration_ms, 170);
+    assert_eq!(saved.layers()[1].art.frames()[0].frame.text(), " v   ");
+
+    // Another layer is not locked.
+    let list = element::<HtmlSelectElement>("layer");
+    list.set_selected_index(1);
+    change_event("layer");
+    assert!(!element::<HtmlInputElement>("layer-locked").checked());
+    apply_frame("*****");
+    assert_eq!(art(), "*v***");
+
+    // Showing only the chosen layer changes the stage, not what is copied or saved.
+    check("layer-solo", true);
+    assert_eq!(art(), "*****");
+    assert_eq!(save("download-text").await.1, "*v***\n");
+    list.set_selected_index(0);
+    change_event("layer");
+    assert_eq!(art(), " v   ");
+    check("layer-solo", false);
+    assert_eq!(art(), "*v***");
+
+    check("layer-locked", false);
+    click("layer-merge");
+}
+
+#[wasm_bindgen_test]
+async fn a_lock_is_undone_with_the_art_and_whole_project_changes_still_apply() {
+    blank(5, 1);
+    apply_frame("* * *");
+    click("layer-add");
+    apply_frame(" v   ");
+    check("layer-locked", true);
+    let locked = || element::<HtmlInputElement>("layer-locked").checked();
+    // Locking is one step of history, undone and redone with the art.
+    click("undo");
+    assert!(!locked());
+    assert_eq!(art(), "*v* *");
+    click("redo");
+    assert!(locked());
+    assert_eq!(art(), "*v* *");
+
+    // Adding frames changes every layer, the locked one too, keeping its characters.
+    let list = element::<HtmlSelectElement>("layer");
+    list.set_selected_index(1);
+    change_event("layer");
+    click("duplicate");
+    let saved = super::Layered::from_json(&save("download-json").await.1).unwrap();
+    let top = &saved.layers()[1];
+    assert!(top.locked);
+    let texts: Vec<String> = top.art.frames().iter().map(|f| f.frame.text()).collect();
+    assert_eq!(texts, [" v   ", " v   "]);
+    click("undo");
+
+    // Opening a file replaces every layer, locked ones too; Undo brings them back, locked.
+    assert!(open("plain.txt", "abc").await.contains("File opened"));
+    assert_eq!(layer_list(), ["Layer 1"]);
+    click("undo");
+    assert_eq!(layer_list(), ["Layer 2", "Layer 1"]);
+    let saved = super::Layered::from_json(&save("download-json").await.1).unwrap();
+    assert!(saved.layers()[1].locked);
+    assert_eq!(saved.layers()[1].art.frames().len(), 1);
+    assert_eq!(saved.layers()[1].art.frames()[0].frame.text(), " v   ");
+
+    list.set_selected_index(0);
+    change_event("layer");
+    check("layer-locked", false);
     click("layer-merge");
 }
 

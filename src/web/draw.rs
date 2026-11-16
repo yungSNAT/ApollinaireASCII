@@ -213,11 +213,11 @@ impl App {
         } else {
             Cow::Borrowed(edited)
         };
-        let stacked = (layers.len() > 1 || !layers[0].visible).then(|| {
+        let stacked = (layers.len() > 1 || !layers[0].visible || self.solo).then(|| {
             let shown: Vec<Cow<Frame>> = layers
                 .iter()
                 .enumerate()
-                .filter(|(_, layer)| layer.visible)
+                .filter(|(index, layer)| layer.visible && (!self.solo || *index == self.active))
                 .map(|(index, layer)| match index == self.active {
                     true => Cow::Borrowed(edited.as_ref()),
                     false => layer.drawn(self.selected),
@@ -272,6 +272,8 @@ impl App {
             ("area-copy", drawing.selection.is_none()),
             ("area-cut", drawing.selection.is_none()),
             ("area-clear", drawing.selection.is_none()),
+            ("area-rotate", drawing.selection.is_none()),
+            ("area-rotate-back", drawing.selection.is_none()),
             ("area-paste", drawing.clipboard.is_none() || !drawing_tool),
             ("stamp-text", drawing.tool != Tool::Type),
             ("save-stamp", drawing.selection.is_none()),
@@ -567,6 +569,7 @@ impl App {
             return Ok(());
         }
         if self.drawing.typing {
+            self.unlocked()?;
             self.layers
                 .replace_frame(self.active, self.selected, frame)?;
             self.modified = true;
@@ -594,6 +597,36 @@ impl App {
         let mut canvas = Canvas::from_frame(self.frame());
         canvas.fill_area(x, y, width, height, b' ')?;
         self.set_frame(canvas.finish(), message)
+    }
+    /// Turn the selected area clockwise by `quarter_turns` about its top-left corner, as one
+    /// undo step: the cells it leaves become spaces, cells pushed past the canvas edge are
+    /// cut off, and the selection becomes the turned area.
+    fn rotate_area(&mut self, quarter_turns: u8) -> Result<()> {
+        self.clean()?;
+        let (x, y, width, height) = self.drawing.selection.ok_or("Select an area first.")?;
+        let source = self.frame().crop(x as usize, y as usize, width, height)?;
+        let (turned_width, turned_height) = source.turned_size(quarter_turns);
+        let mut canvas = Canvas::from_frame(self.frame());
+        canvas.fill_area(x, y, width, height, b' ')?;
+        // Cell by cell, so a turned area longer than the canvas's limits is clipped like any
+        // other, rather than refused as a frame.
+        for (to_x, to_y, glyph) in source.turned_cells(quarter_turns, checked("mirror-glyphs")?) {
+            canvas.set(x + to_x as i32, y + to_y as i32, glyph)?;
+        }
+        let area = (
+            x,
+            y,
+            turned_width.min(self.project().width() - x as usize),
+            turned_height.min(self.project().height() - y as usize),
+        );
+        let message = if (area.2, area.3) == (turned_width, turned_height) {
+            "Area rotated."
+        } else {
+            "Area rotated. The canvas edge cut off part of it."
+        };
+        self.set_frame(canvas.finish(), message)?;
+        self.drawing.selection = Some(area);
+        Ok(())
     }
     fn paste(&mut self, contents: Frame) -> Result<()> {
         self.clean()?;
@@ -835,6 +868,8 @@ fn button(id: &str) -> Result<()> {
                 app.clear_area("Area cut.")?;
             }
             "area-clear" => app.clear_area("Area cleared.")?,
+            "area-rotate" => app.rotate_area(1)?,
+            "area-rotate-back" => app.rotate_area(3)?,
             "save-stamp" => app.save_stamp()?,
             "delete-stamp" => {
                 app.drawing_cancel();
@@ -958,6 +993,8 @@ pub(super) fn listen_all() -> std::result::Result<(), wasm_bindgen::JsValue> {
         "area-copy",
         "area-cut",
         "area-clear",
+        "area-rotate",
+        "area-rotate-back",
         "area-paste",
         "stamp-text",
         "save-stamp",

@@ -132,6 +132,45 @@ fn directional_mirrors_reflect_pairs_and_preserve_literal_flips() {
 }
 
 #[test]
+fn rotation_turns_cells_lines_and_optionally_arrowheads() {
+    // 3 by 2: a quarter turn makes it 2 by 3, and 4 quarter turns give it back.
+    let frame = Frame::from_text("-/<\n|\\^").unwrap();
+    let once = frame.rotate(1, false).unwrap();
+    assert_eq!(once.text(), "-|\n/\\\n^<");
+    assert_eq!(frame.rotate(1, true).unwrap().text(), "-|\n/\\\n>^");
+    assert_eq!(frame.rotate(2, false).unwrap().text(), "^\\|\n</-");
+    assert_eq!(frame.rotate(2, true).unwrap().text(), "v\\|\n>/-");
+    assert_eq!(
+        frame.rotate(3, true).unwrap(),
+        frame.rotate(1, true).unwrap().rotate(2, true).unwrap()
+    );
+    assert_eq!(frame.rotate(0, true).unwrap(), frame);
+    assert_eq!(frame.rotate(4, true).unwrap(), frame);
+    let mut turned = frame.clone();
+    for _ in 0..4 {
+        turned = turned.rotate(1, true).unwrap();
+    }
+    assert_eq!(turned, frame);
+    // Letters and other glyphs stay as they are; every byte stays printable.
+    let all = Frame::new(19, 5, (32..=126).collect()).unwrap();
+    for turns in 0..4 {
+        let turned = all.rotate(turns, true).unwrap();
+        ascii(&turned);
+        let letters = |f: &Frame| {
+            f.cells()
+                .iter()
+                .filter(|c| c.is_ascii_alphanumeric())
+                .count()
+        };
+        assert_eq!(letters(&turned), 62);
+    }
+    // A turn that would pass the 256-row limit is refused.
+    let wide = Frame::blank(300, 2).unwrap();
+    assert!(wide.rotate(1, false).is_err());
+    assert_eq!(wide.rotate(2, false).unwrap().width(), 300);
+}
+
+#[test]
 fn animation_clock_uses_per_frame_durations_and_loop_policy() {
     let mut project = Animation::new(vec![timed("a", 10), timed("b", 30)], true).unwrap();
     for (time, index) in [
@@ -1042,6 +1081,55 @@ fn asciicast_export_of_a_still_lasts_its_one_frame() {
         .collect();
     let times: Vec<f64> = events.iter().map(|(time, _, _)| *time).collect();
     assert_eq!(times, [0.0, 0.1]);
+}
+
+/// The JSON array after `prefix` on the line that starts with it, read back.
+fn literal<T: serde::de::DeserializeOwned>(code: &str, prefix: &str, open: char) -> T {
+    let line = code
+        .lines()
+        .find_map(|line| line.strip_prefix(prefix))
+        .unwrap_or_else(|| panic!("no {prefix} in\n{code}"));
+    let line = line.trim_end_matches(';');
+    let array = match open {
+        '{' => format!("[{}]", &line[1..line.len() - 1]),
+        _ => line.to_string(),
+    };
+    serde_json::from_str(&array).unwrap()
+}
+
+#[test]
+fn code_exports_carry_every_frame_as_a_literal_that_cannot_break_out() {
+    // Quotes, backslashes, template syntax and a closing script tag stay inside the strings.
+    let texts = ["`${a}`\n\"\\'/  ", "</scri\npt>   "];
+    let project = Animation::new(vec![timed(texts[0], 120), timed(texts[1], 30)], true).unwrap();
+    let shown: Vec<String> = project.frames().iter().map(|e| e.frame.text()).collect();
+    for code in [
+        export::react(&project),
+        export::ink(&project),
+        export::opentui(&project),
+    ] {
+        assert!(code.bytes().all(|b| b == b'\n' || (32..=126).contains(&b)));
+        assert_eq!(literal::<Vec<String>>(&code, "const frames = ", '['), shown);
+        assert_eq!(
+            literal::<Vec<u32>>(&code, "const durations = ", '['),
+            [120, 30]
+        );
+        assert!(code.contains("const loop = true;\n"));
+    }
+    let go = export::bubbletea(&project);
+    assert!(go.starts_with("// ApollinaireASCII artwork as a Bubble Tea program.\npackage main\n"));
+    assert_eq!(
+        literal::<Vec<String>>(&go, "var frames = []string", '{'),
+        shown
+    );
+    assert_eq!(
+        literal::<Vec<u32>>(&go, "var durations = []int", '{'),
+        [120, 30]
+    );
+    assert!(go.contains("\nconst loop = true\n"));
+    let once = Animation::new(vec![timed("a", 50)], false).unwrap();
+    assert!(export::react(&once).contains("const loop = false;\n"));
+    assert!(export::bubbletea(&once).contains("\nconst loop = false\n"));
 }
 
 #[test]

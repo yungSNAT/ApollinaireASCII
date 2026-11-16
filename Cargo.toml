@@ -9,8 +9,8 @@ repository = "https://github.com/yungSNAT/ApollinaireASCII"
 homepage = "https://yungsnat.github.io/ApollinaireASCII/"
 readme = "README.md"
 categories = ["command-line-utilities", "multimedia::images", "text-processing", "wasm"]
-# notices.rs checks web/, which the package leaves out.
-include = ["/src", "/tests", "!/tests/notices.rs", "/examples", "/LICENSES", "/README.md", "/LICENSE.md", "/THIRD_PARTY_NOTICES.md"]
+# notices.rs checks web/, which the package leaves out; code_exports runs in Node, Bun and Go.
+include = ["/src", "/tests", "!/tests/notices.rs", "!/tests/code_exports", "/examples", "/LICENSES", "/README.md", "/LICENSE.md", "/THIRD_PARTY_NOTICES.md"]
 keywords = ["ascii", "art", "figlet", "animation", "wasm"]
 
 # `cargo binstall apollinaire-ascii` installs the release archive's binary instead of building it.

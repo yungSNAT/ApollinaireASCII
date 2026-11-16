@@ -6,12 +6,12 @@
   "architecture": {
     "64bit": {
       "url": "https://github.com/yungSNAT/ApollinaireASCII/releases/download/v0.4.1/apollinaire-v0.4.1-x86_64-pc-windows-msvc.zip",
-      "hash": "921083d7756f282d20778d3dd75a351763da4d987a73ae6f74e52536421d2e3d",
+      "hash": "f042485d84a7ed2c7bb4ea53081976160714ee9c2489a9a363b21c33991d1add",
       "extract_dir": "apollinaire-v0.4.1-x86_64-pc-windows-msvc"
     },
     "arm64": {
       "url": "https://github.com/yungSNAT/ApollinaireASCII/releases/download/v0.4.1/apollinaire-v0.4.1-aarch64-pc-windows-msvc.zip",
-      "hash": "4079c8cd2d7fdb2843e09e16b5fadd44d24a9507ef2e3167dbfeb6e64830c89d",
+      "hash": "822fa541f61bfb53ac1b07527a4781449b62f38d8f76578c85c2bcf6d8aa5ad5",
       "extract_dir": "apollinaire-v0.4.1-aarch64-pc-windows-msvc"
     }
   },
