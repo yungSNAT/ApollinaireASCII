@@ -272,6 +272,8 @@ impl App {
             ("area-copy", drawing.selection.is_none()),
             ("area-cut", drawing.selection.is_none()),
             ("area-clear", drawing.selection.is_none()),
+            ("area-rotate", drawing.selection.is_none()),
+            ("area-rotate-back", drawing.selection.is_none()),
             ("area-paste", drawing.clipboard.is_none() || !drawing_tool),
             ("stamp-text", drawing.tool != Tool::Type),
             ("save-stamp", drawing.selection.is_none()),
@@ -595,6 +597,34 @@ impl App {
         canvas.fill_area(x, y, width, height, b' ')?;
         self.set_frame(canvas.finish(), message)
     }
+    /// Turn the selected area clockwise by `quarter_turns` about its top-left corner, as one
+    /// undo step: the cells it leaves become spaces, cells pushed past the canvas edge are
+    /// cut off, and the selection becomes the turned area.
+    fn rotate_area(&mut self, quarter_turns: u8) -> Result<()> {
+        self.clean()?;
+        let (x, y, width, height) = self.drawing.selection.ok_or("Select an area first.")?;
+        let turned = self
+            .frame()
+            .crop(x as usize, y as usize, width, height)?
+            .rotate(quarter_turns, checked("mirror-glyphs")?)?;
+        let mut canvas = Canvas::from_frame(self.frame());
+        canvas.fill_area(x, y, width, height, b' ')?;
+        canvas.overlay(&turned, x, y, false)?;
+        let area = (
+            x,
+            y,
+            turned.width().min(self.project().width() - x as usize),
+            turned.height().min(self.project().height() - y as usize),
+        );
+        let message = if (area.2, area.3) == (turned.width(), turned.height()) {
+            "Area rotated."
+        } else {
+            "Area rotated. The canvas edge cut off part of it."
+        };
+        self.set_frame(canvas.finish(), message)?;
+        self.drawing.selection = Some(area);
+        Ok(())
+    }
     fn paste(&mut self, contents: Frame) -> Result<()> {
         self.clean()?;
         self.pause();
@@ -835,6 +865,8 @@ fn button(id: &str) -> Result<()> {
                 app.clear_area("Area cut.")?;
             }
             "area-clear" => app.clear_area("Area cleared.")?,
+            "area-rotate" => app.rotate_area(1)?,
+            "area-rotate-back" => app.rotate_area(3)?,
             "save-stamp" => app.save_stamp()?,
             "delete-stamp" => {
                 app.drawing_cancel();
@@ -958,6 +990,8 @@ pub(super) fn listen_all() -> std::result::Result<(), wasm_bindgen::JsValue> {
         "area-copy",
         "area-cut",
         "area-clear",
+        "area-rotate",
+        "area-rotate-back",
         "area-paste",
         "stamp-text",
         "save-stamp",

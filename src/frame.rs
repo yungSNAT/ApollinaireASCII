@@ -127,6 +127,30 @@ impl Frame {
         }
         frame
     }
+    /// Turn the frame clockwise by `quarter_turns` quarter turns (taken modulo 4), swapping
+    /// width and height for an odd count. `-`, `|`, `/` and `\` turn with it, as they do when a
+    /// keyed layer turns; with `arrows`, the arrowheads `<`, `^`, `>` and `v` turn too. Cells are
+    /// about twice as tall as they are wide, so a quarter turn stretches a shape. A turn whose
+    /// result would pass 512 columns or 256 rows is refused.
+    pub fn rotate(&self, quarter_turns: u8, arrows: bool) -> Result<Self> {
+        let turns = usize::from(quarter_turns % 4);
+        let (w, h) = (self.width, self.height);
+        let width = if turns % 2 == 1 { h } else { w };
+        let height = self.cells.len() / width;
+        dimensions(width, height)?;
+        let mut cells = vec![b' '; self.cells.len()];
+        for (index, &glyph) in self.cells.iter().enumerate() {
+            let (x, y) = (index % w, index / w);
+            let (to_x, to_y) = match turns {
+                0 => (x, y),
+                1 => (h - 1 - y, x),
+                2 => (w - 1 - x, h - 1 - y),
+                _ => (y, w - 1 - x),
+            };
+            cells[to_y * width + to_x] = crate::motion::turned(glyph, 2 * turns, arrows);
+        }
+        Frame::new(width, height, cells)
+    }
     pub fn crop(&self, x: usize, y: usize, width: usize, height: usize) -> Result<Self> {
         dimensions(width, height)?;
         if x.checked_add(width).is_none_or(|v| v > self.width)

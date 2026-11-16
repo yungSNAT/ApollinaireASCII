@@ -38,6 +38,7 @@ apollinaire transform movie.json horizontal --output flipped.json
 apollinaire transform art.txt crop --x 2 --y 1 --width 20 --height 10
 apollinaire transform art.txt border
 apollinaire transform art.txt border --style dotted
+apollinaire transform art.txt rotate --turns 3
 apollinaire check movie.json
 apollinaire play movie.json --loops 3
 apollinaire edit cat.txt
@@ -49,6 +50,8 @@ apollinaire man | man -l -
 `--output` creates a new file. An existing file causes an error, even when its contents are identical. Without it, exports go to stdout. Errors go to stderr and return a nonzero exit status. A reader that closes the pipe early, as `head` does, ends the command quietly with status 0. `check` reports validated dimensions and timing on stdout.
 
 Borders come in 4 styles: `plain` (`+-|`, the default), `rounded` (`.-'|`), `dotted` (`.:`) and `heavy` (`#=`). `art` takes one as `--border=<style>` (with the `=`, so `--border` alone still works before the piece's name), and `transform ... border` and `say` as `--style <style>`.
+
+`transform ... rotate` turns every frame clockwise by `--turns` quarter turns (1 by default, up to 3), and turns `-`, `|`, `/` and `\` with it; arrowheads keep their glyphs, as they do in the flips. Cells are about twice as tall as they are wide, so a quarter turn stretches a shape, and a turn whose result would pass 256 rows is refused. The editor's Rotate area buttons also turn arrowheads when Mirror directional characters is on.
 
 `--format text|json|html|cast` overrides extension/default inference. `.json`, `.html` and `.cast` output extensions select those formats; otherwise a still defaults to text and an animation to JSON. Animated text export requires an explicit zero-based `--frame`. `--frame` is valid only with text export.
 

@@ -347,7 +347,7 @@ impl Motion {
                         && (0.0..height as f64).contains(&source_y)
                     {
                         let glyph = art.cells()[source_y as usize * width + source_x as usize];
-                        *cell = turned(glyph, steps);
+                        *cell = turned(glyph, steps, false);
                     }
                 }
             }
@@ -371,11 +371,16 @@ fn turn(degrees: f64) -> (f64, f64) {
     }
 }
 
-/// A line character turned clockwise by `steps` of 45 degrees.
-fn turned(glyph: u8, steps: usize) -> u8 {
+/// A line character turned clockwise by `steps` of 45 degrees and, with `arrows`, an
+/// arrowhead turned by whole quarter turns (`steps` rounded down to a multiple of 2).
+pub(crate) fn turned(glyph: u8, steps: usize, arrows: bool) -> u8 {
     const LINES: &[u8; 4] = b"-\\|/";
-    match LINES.iter().position(|&line| line == glyph) {
-        Some(index) => LINES[(index + steps) % 4],
-        None => glyph,
+    const ARROWS: &[u8; 4] = b"<^>v";
+    if let Some(index) = LINES.iter().position(|&line| line == glyph) {
+        return LINES[(index + steps) % 4];
+    }
+    match ARROWS.iter().position(|&arrow| arrow == glyph) {
+        Some(index) if arrows => ARROWS[(index + steps / 2) % 4],
+        _ => glyph,
     }
 }

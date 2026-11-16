@@ -166,6 +166,27 @@ fn check_and_transform_report_dimensions_and_preserve_frame_content() {
     let flip = cli(&["transform", path, "horizontal", "--style", "heavy"]);
     assert!(!flip.status.success());
     assert!(text(&flip.stderr).contains("Only the border operation takes --style"));
+    for (turns, expected) in [
+        (None, "ca\ndb\n"),
+        (Some("2"), "dc\nba\n"),
+        (Some("3"), "bd\nac\n"),
+    ] {
+        let mut args = vec!["transform", path, "rotate"];
+        args.extend(turns.map(|turns| ["--turns", turns]).iter().flatten());
+        let result = cli(&args);
+        assert!(result.status.success(), "{}", text(&result.stderr));
+        assert_eq!(text(&result.stdout), expected, "{turns:?}");
+    }
+    for args in [
+        ["transform", path, "rotate", "--turns", "4"],
+        ["transform", path, "vertical", "--turns", "1"],
+    ] {
+        assert!(!cli(&args).status.success(), "{args:?}");
+    }
+    assert!(
+        text(&cli(&["transform", path, "vertical", "--turns", "1"]).stderr)
+            .contains("Only the rotate operation takes --turns")
+    );
     let outside = cli(&[
         "transform",
         path,
