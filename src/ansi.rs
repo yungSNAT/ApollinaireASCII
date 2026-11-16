@@ -99,49 +99,6 @@ enum Wrap {
     NextGlyph,
 }
 
-/// The number in one parameter of an escape sequence, with 0 when it has no digits.
-fn parameter(digits: &[u8]) -> usize {
-    digits
-        .iter()
-        .filter(|b| b.is_ascii_digit())
-        .fold(0usize, |v, d| {
-            v.saturating_mul(10).saturating_add(usize::from(d - b'0'))
-        })
-}
-
-/// The column after the rightmost glyph `art` draws on a screen with no right edge, following
-/// LF, tabs and the cursor escapes `C`, `D`, `H` and `f` as a terminal does.
-fn widest_row(art: &[u8]) -> usize {
-    let (mut x, mut widest, mut index) = (0usize, 0, 0);
-    while let Some(&byte) = art.get(index) {
-        index += 1;
-        if byte == 0x1b && art.get(index) == Some(&b'[') {
-            let parameters = index + 1;
-            index = parameters;
-            while art.get(index).is_some_and(|b| (0x20..0x40).contains(b)) {
-                index += 1;
-            }
-            let mut numbers = art[parameters..index].split(|b| *b == b';').map(parameter);
-            let count = numbers.next().unwrap_or(0).max(1);
-            match art.get(index) {
-                Some(b'C') => x = x.saturating_add(count),
-                Some(b'D') => x = x.saturating_sub(count),
-                Some(b'H' | b'f') => x = numbers.next().unwrap_or(0).max(1) - 1,
-                _ => {}
-            }
-            index += 1;
-        } else if byte == b'\n' {
-            x = 0;
-        } else if byte == b'\t' {
-            x = (x / 8 + 1) * 8;
-        } else if byte != b'\r' && byte != 0x1b {
-            x = x.saturating_add(1);
-            widest = widest.max(x);
-        }
-    }
-    widest
-}
-
 /// Split off a SAUCE record and its comment block, returning the art and the record's width
 /// for character art.
 fn sauce(bytes: &[u8]) -> (&[u8], Option<usize>) {
@@ -195,14 +152,18 @@ fn render(art: &[u8], sauce_width: Option<usize>, wrap: Wrap) -> Result<Frame> {
         ));
     }
     let rows = if art.windows(2).any(|pair| pair == b"\x1b[") {
-        let columns = sauce_width.unwrap_or_else(|| match wrap {
-            Wrap::NextByte => DEFAULT_WIDTH,
-            Wrap::NextGlyph => widest_row(art),
-        });
-        if columns > MAX_WIDTH {
-            return Err(format!("The art is wider than {MAX_WIDTH} columns"));
+        // With no SAUCE width, UTF-8 art plays on a screen wider than the limit and keeps the
+        // columns up to its rightmost glyph, so art too wide for the limit is refused below.
+        let (columns, crop) = match (sauce_width, wrap) {
+            (Some(width), _) => (width, false),
+            (None, Wrap::NextByte) => (DEFAULT_WIDTH, false),
+            (None, Wrap::NextGlyph) => (MAX_WIDTH + 1, true),
+        };
+        let (mut rows, drawn) = screen(art, columns, wrap)?;
+        if crop {
+            rows.iter_mut().for_each(|row| row.truncate(drawn));
         }
-        screen(art, columns, wrap)?
+        rows
     } else {
         lines(art)
     };
@@ -252,9 +213,11 @@ fn lines(art: &[u8]) -> Vec<Vec<u8>> {
     rows
 }
 
-/// ANSI art on a screen `width` columns wide, growing downwards.
-fn screen(art: &[u8], width: usize, wrap: Wrap) -> Result<Vec<Vec<u8>>> {
+/// ANSI art on a screen `width` columns wide, growing downwards, and the column after the
+/// rightmost glyph drawn.
+fn screen(art: &[u8], width: usize, wrap: Wrap) -> Result<(Vec<Vec<u8>>, usize)> {
     let mut rows: Vec<Vec<u8>> = Vec::new();
+    let mut drawn = 0;
     let (mut x, mut y, mut saved) = (0usize, 0usize, (0usize, 0usize));
     // Under `Wrap::NextGlyph` the cursor stays in the last column after a glyph fills it, and
     // the wrap waits here until the next glyph arrives.
@@ -286,9 +249,13 @@ fn screen(art: &[u8], width: usize, wrap: Wrap) -> Result<Vec<Vec<u8>>> {
                     ));
                 }
                 index += 1;
-                let mut numbers = art[parameters..index - 1]
-                    .split(|b| *b == b';')
-                    .map(parameter);
+                let mut numbers = art[parameters..index - 1].split(|b| *b == b';').map(|n| {
+                    n.iter()
+                        .filter(|b| b.is_ascii_digit())
+                        .fold(0usize, |v, d| {
+                            v.saturating_mul(10).saturating_add(usize::from(d - b'0'))
+                        })
+                });
                 // Every escape the screen acts on cancels a pending wrap; colour does not.
                 pending &= !b"ABCDHfJKsu".contains(&command);
                 let first = numbers.next().unwrap_or(0);
@@ -344,6 +311,7 @@ fn screen(art: &[u8], width: usize, wrap: Wrap) -> Result<Vec<Vec<u8>>> {
                 }
                 rows[y][x] = GLYPHS[usize::from(byte)];
                 x += 1;
+                drawn = drawn.max(x);
                 pending = wrap == Wrap::NextGlyph && x == width;
             }
         }
@@ -352,5 +320,5 @@ fn screen(art: &[u8], width: usize, wrap: Wrap) -> Result<Vec<Vec<u8>>> {
             x = x.min(width.saturating_sub(1));
         }
     }
-    Ok(rows)
+    Ok((rows, drawn))
 }
