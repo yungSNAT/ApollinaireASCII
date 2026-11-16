@@ -137,6 +137,26 @@
           <div class="actions"><button id="layer-add" type="button">Add layer</button><button id="layer-up" type="button" disabled>Move up</button><button id="layer-down" type="button" disabled>Move down</button><button id="layer-delete" type="button" disabled>Delete layer</button><button id="layer-merge" type="button" disabled>Merge layers</button></div>
           <p class="hint">Up to 16 layers. A space shows the layers below it. Every layer shares the frames, their timing and the size: adding, moving or deleting frames changes every layer, and a new size or frame count needs Merge layers first. Opening a file, converting a picture or video and restoring recovery replace every layer. Merge layers keeps what is shown and drops hidden layers. Saved JSON keeps the layers; copied text, saved text and the player show what is visible.</p>
         </details>
+        <details id="keyframes-panel">
+          <summary>Keyframes</summary>
+          <p class="hint">Keys move, stretch and turn the layer chosen in Layers over the frames. Set a value at the selected frame; between 2 keys it moves by the easing of the earlier one.</p>
+          <div class="tool-options">
+            <div><label for="key-property">Property</label><select id="key-property"><option value="x">Position across (columns)</option><option value="y">Position down (rows)</option><option value="scale_x">Width (percent)</option><option value="scale_y">Height (percent)</option><option value="rotation">Rotation (degrees clockwise)</option><option value="anchor_x">Anchor across (column)</option><option value="anchor_y">Anchor down (row)</option></select></div>
+            <div><label for="key-value">Value</label><input id="key-value" type="number" step="any" value="0"></div>
+            <div><label for="key-easing">Easing to the next key</label><select id="key-easing"><option value="linear">Linear</option><option value="hold">Hold until the next key</option><option value="ease-in">Ease in</option><option value="ease-out">Ease out</option><option value="ease-in-out">Ease in and out</option><option value="ease-in-back">Ease in, pulling back first</option><option value="ease-out-back">Ease out, overshooting</option><option value="bounce">Bounce</option><option value="custom">Custom curve</option></select></div>
+          </div>
+          <div id="key-curve-fields" class="tool-options" hidden>
+            <div><label for="key-x1">Curve x1 (0 to 1)</label><input id="key-x1" type="number" min="0" max="1" step="0.01" value="0.25"></div>
+            <div><label for="key-y1">Curve y1</label><input id="key-y1" type="number" min="-5" max="5" step="0.01" value="0.1"></div>
+            <div><label for="key-x2">Curve x2 (0 to 1)</label><input id="key-x2" type="number" min="0" max="1" step="0.01" value="0.25"></div>
+            <div><label for="key-y2">Curve y2</label><input id="key-y2" type="number" min="-5" max="5" step="0.01" value="1"></div>
+          </div>
+          <pre id="key-curve" class="key-curve" aria-label="The easing as a graph: time across, value up, with lines at the start and end values"></pre>
+          <div class="actions"><button id="key-set" type="button">Set key at this frame</button><button id="key-remove" type="button" disabled>Remove key at this frame</button></div>
+          <label for="key-list">Keys on this layer (choose one to go to its frame)</label>
+          <select id="key-list" size="5" disabled></select>
+          <p class="hint">Playback, copies, saved text, the player and every export show the motion. While a drawing tool other than Select text is chosen, the layer you draw on is shown where its characters sit, without its motion, so strokes land under the pointer. Merge layers keeps the motion as drawn.</p>
+        </details>
         <div class="actions">
           <button id="area-copy" type="button" disabled>Copy area</button><button id="area-cut" type="button" disabled>Cut area</button><button id="area-paste" type="button" disabled>Paste at cursor</button><button id="area-clear" type="button" disabled>Clear area</button><button id="undo" type="button">Undo</button><button id="redo" type="button">Redo</button>
         </div>

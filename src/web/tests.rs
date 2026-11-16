@@ -2283,3 +2283,134 @@ async fn typing_undo_and_recovery_keep_every_layer() {
     recovery_settled().await;
     click("layer-merge");
 }
+
+/// Key the chosen property at the selected frame.
+fn set_key(property: &str, value: &str, easing: &str) {
+    element::<HtmlSelectElement>("key-property").set_value(property);
+    set_value("key-value", value);
+    element::<HtmlSelectElement>("key-easing").set_value(easing);
+    click("key-set");
+}
+fn key_list() -> Vec<String> {
+    let options = element::<HtmlSelectElement>("key-list").children();
+    (0..options.length())
+        .map(|i| options.item(i).unwrap().text_content().unwrap())
+        .collect()
+}
+
+#[wasm_bindgen_test]
+async fn keyframes_move_a_layer_draw_where_it_sits_and_save_as_version_3() {
+    blank(5, 1);
+    apply_frame("v    ");
+    for _ in 0..3 {
+        click("duplicate");
+    }
+    assert_eq!(frame_count(), "Frame 4 / 4");
+    assert!(!enabled("key-remove") && !enabled("key-list"));
+    seek_frame(0);
+    set_key("x", "0", "linear");
+    assert_eq!(status(), "Position across 0 keyed at frame 1.");
+    seek_frame(3);
+    set_key("x", "3", "linear");
+    assert_eq!(art(), "   v ");
+    seek_frame(1);
+    assert_eq!(art(), " v   ");
+    assert_eq!(
+        key_list(),
+        [
+            "Frame 1: Position across 0, linear",
+            "Frame 4: Position across 3, linear"
+        ]
+    );
+
+    // Choosing a key goes to its frame and fills the fields.
+    let list = element::<HtmlSelectElement>("key-list");
+    list.set_selected_index(1);
+    change_event("key-list");
+    assert_eq!(frame_count(), "Frame 4 / 4");
+    assert_eq!(element::<HtmlInputElement>("key-value").value(), "3");
+    // Choosing a property fills in its value at this frame.
+    element::<HtmlSelectElement>("key-property").set_value("scale_x");
+    change_event("key-property");
+    assert_eq!(element::<HtmlInputElement>("key-value").value(), "100");
+    // Remove key removes the chosen property's key, so it waits for one here.
+    assert!(!enabled("key-remove"));
+    element::<HtmlSelectElement>("key-property").set_value("x");
+    change_event("key-property");
+    assert!(enabled("key-remove"));
+
+    // A drawing tool shows the layer where its characters sit, so the pencil lands under the
+    // pointer; Select text shows it moved again.
+    tool("pencil");
+    assert_eq!(art(), "v    ");
+    set_value("brush", "o");
+    drag(&[(4, 0)]);
+    assert_eq!(art(), "v   o");
+    tool("select-text");
+    assert_eq!(art(), "   v ");
+
+    let (_, json) = save("download-json").await;
+    let saved: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(saved["version"], 3);
+    assert_eq!(saved["layers"][0]["motion"]["x"][1]["value"], 3.0);
+    assert_eq!(save("download-text").await.1, "   v \n");
+
+    // Removing a key is one undo step.
+    click("key-remove");
+    assert_eq!(art(), "v   o");
+    assert_eq!(key_list(), ["Frame 1: Position across 0, linear"]);
+    assert!(!enabled("key-remove"));
+    click("undo");
+    assert_eq!(art(), "   v ");
+    seek_frame(2);
+    assert!(!enabled("key-remove"));
+
+    // Keys move with their frames: deleting the first frame takes its key with it.
+    seek_frame(0);
+    click("delete-frame");
+    assert_eq!(key_list(), ["Frame 3: Position across 3, linear"]);
+    click("undo");
+    assert_eq!(key_list().len(), 2);
+}
+
+#[wasm_bindgen_test]
+fn custom_easing_curves_are_drawn_and_checked() {
+    blank(4, 1);
+    element::<HtmlSelectElement>("key-property").set_value("x");
+    element::<HtmlSelectElement>("key-easing").set_value("linear");
+    input_event("key-x1", "0.25");
+    let fields = element::<Element>("key-curve-fields");
+    assert!(fields.has_attribute("hidden"));
+    let graph = || element::<Element>("key-curve").text_content().unwrap();
+    let linear = graph();
+    assert_eq!(linear.lines().count(), 9);
+    assert!(
+        linear.contains('*')
+            && linear
+                .bytes()
+                .all(|b| b == b'\n' || (32..=126).contains(&b))
+    );
+    element::<HtmlSelectElement>("key-easing").set_value("custom");
+    input_event("key-y1", "1.4");
+    assert!(!fields.has_attribute("hidden"));
+    assert_ne!(graph(), linear);
+    input_event("key-x2", "2");
+    assert!(graph().contains("x1 and x2 from 0 to 1"), "{}", graph());
+    set_value("key-value", "1");
+    click("key-set");
+    assert!(status().contains("x1 and x2 from 0 to 1"), "{}", status());
+    input_event("key-x2", "0.25");
+    click("key-set");
+    assert_eq!(key_list(), ["Frame 1: Position across 1, custom curve"]);
+    // Choosing the key puts its curve back in the fields.
+    element::<HtmlSelectElement>("key-easing").set_value("linear");
+    set_value("key-y1", "0");
+    let list = element::<HtmlSelectElement>("key-list");
+    list.set_selected_index(0);
+    change_event("key-list");
+    assert_eq!(element::<HtmlSelectElement>("key-easing").value(), "custom");
+    assert_eq!(element::<HtmlInputElement>("key-y1").value(), "1.4");
+    set_value("key-value", "9999");
+    click("key-set");
+    assert!(status().contains("from -1024 to 1024"), "{}", status());
+}

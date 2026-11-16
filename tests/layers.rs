@@ -3,6 +3,7 @@
 
 use apollinaire_ascii::{
     Animation, Frame, Layer, Layered, MAX_INPUT_BYTES, TimedFrame, layers::DEFAULT_NAME,
+    motion::Motion,
 };
 use serde_json::{Value, json};
 
@@ -22,6 +23,7 @@ fn layer(name: &str, visible: bool, texts: &[&str]) -> Layer {
         name: name.into(),
         visible,
         art: art(texts, true),
+        motion: Motion::default(),
     }
 }
 /// Sky stays still while the bird moves across it; a hidden layer covers everything.
@@ -134,6 +136,7 @@ fn layers_must_share_one_timeline_a_limit_and_valid_names() {
             false,
         )
         .unwrap(),
+        motion: Motion::default(),
     };
     // 16 layers of 4 frames of 131,072 cells is 8,388,608 cells.
     assert!(
@@ -300,6 +303,7 @@ fn narrow(frames: usize, spaces: usize) -> Result<Layered, String> {
                     false,
                 )
                 .unwrap(),
+                motion: Motion::default(),
             })
             .collect(),
     )
@@ -340,7 +344,7 @@ fn every_project_that_can_be_built_or_edited_loads_again() {
 
 /// The fuzz workflow seeds `project_json` with these files, so it starts from projects that load.
 #[test]
-fn the_project_json_fuzz_seeds_load_with_and_without_layers() {
+fn the_project_json_fuzz_seeds_load_with_and_without_layers_and_keys() {
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/project_json");
     let mut layer_counts: Vec<(String, usize)> = std::fs::read_dir(dir)
         .unwrap()
@@ -359,6 +363,7 @@ fn the_project_json_fuzz_seeds_load_with_and_without_layers() {
             ("version-1.json".to_owned(), 1),
             ("version-2-hidden-layer.json".to_owned(), 3),
             ("version-2.json".to_owned(), 2),
+            ("version-3-keyframes.json".to_owned(), 2),
         ]
     );
 }

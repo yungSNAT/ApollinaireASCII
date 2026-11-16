@@ -17,6 +17,7 @@ use web_sys::{
 };
 
 mod draw;
+mod keyframe_panel;
 mod layer_panel;
 mod media;
 mod recovery;
@@ -168,6 +169,7 @@ impl App {
         }
         let timing: Vec<u32> = project.frames().iter().map(|f| f.duration_ms).collect();
         let looping = project.looping();
+        let count = timing.len();
         let mut project = Some(project);
         let layers = self
             .layers
@@ -191,10 +193,14 @@ impl App {
                         looping,
                     )?,
                 };
+                // A lone layer may change its frame count; keys past the end go.
+                let mut motion = layer.motion.clone();
+                motion.remap(|frame| (frame < count).then_some(frame));
                 Ok(Layer {
                     name: layer.name.clone(),
                     visible: layer.visible,
                     art,
+                    motion,
                 })
             })
             .collect::<Result<Vec<_>>>()?;
@@ -202,22 +208,10 @@ impl App {
         Ok(())
     }
     /// Change every layer's frames alike, as adding, duplicating, deleting or moving frames do.
-    fn restructure(&mut self, edit: impl Fn(&mut Animation) -> Result<()>) -> Result<()> {
-        let layers = self
-            .layers
-            .layers()
-            .iter()
-            .map(|layer| {
-                let mut art = layer.art.clone();
-                edit(&mut art)?;
-                Ok(Layer {
-                    name: layer.name.clone(),
-                    visible: layer.visible,
-                    art,
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
-        self.replace_layers(Layered::new(layers)?, self.active);
+    fn restructure(&mut self, edit: impl FnOnce(&mut Layered) -> Result<()>) -> Result<()> {
+        let mut layers = self.layers.clone();
+        edit(&mut layers)?;
+        self.replace_layers(layers, self.active);
         Ok(())
     }
     /// Make `layers` the project with layer `active` chosen, keeping the old one for undo.
@@ -369,6 +363,7 @@ impl App {
         }
         self.recovery.controls(busy || self.dirty)?;
         layer_panel::controls(self, busy, editor)?;
+        keyframe_panel::controls(self, busy)?;
         media::controls(self)
     }
     fn update_frame(&mut self, frame: Frame, duration_ms: u32) -> Result<()> {
@@ -508,6 +503,7 @@ pub fn start() -> std::result::Result<(), JsValue> {
     }
     media::start()?;
     layer_panel::start()?;
+    keyframe_panel::start()?;
     let fonts = node::<Element>("font").map_err(|e| JsValue::from_str(&e))?;
     let uploaded = node::<Element>("custom-option").map_err(|e| JsValue::from_str(&e))?;
     for name in lettering::FONTS {
@@ -843,23 +839,16 @@ fn action(id: &str) -> Result<()> {
                 let offset = at.saturating_sub(range.start).min(range.len() - 1);
                 let (selected, new_range) = match id {
                     "add-frame" => {
-                        app.restructure(|project| {
-                            project.insert_frame(
-                                at + 1,
-                                TimedFrame {
-                                    frame: Frame::blank(project.width(), project.height())?,
-                                    duration_ms: project.frames()[at].duration_ms,
-                                },
-                            )
-                        })?;
+                        let duration_ms = app.project().frames()[at].duration_ms;
+                        app.restructure(|layers| layers.insert_blank_frame(at + 1, duration_ms))?;
                         (at + 1, at + 1..at + 2)
                     }
                     "duplicate" => {
-                        app.restructure(|project| project.duplicate_frames(range.clone()))?;
+                        app.restructure(|layers| layers.duplicate_frames(range.clone()))?;
                         (range.end + offset, range.end..range.end + range.len())
                     }
                     "delete-frame" => {
-                        app.restructure(|project| project.remove_frames(range.clone()))?;
+                        app.restructure(|layers| layers.remove_frames(range.clone()))?;
                         let selected = range.start.min(app.project().frames().len() - 1);
                         (selected, selected..selected + 1)
                     }
@@ -872,7 +861,7 @@ fn action(id: &str) -> Result<()> {
                         } else {
                             range.start + 1
                         };
-                        app.restructure(|project| project.move_frames(range.clone(), destination))?;
+                        app.restructure(|layers| layers.move_frames(range.clone(), destination))?;
                         (destination + offset, destination..destination + range.len())
                     }
                 };
