@@ -216,6 +216,11 @@ fn idf_reads_pairs_and_runs_up_to_its_font() {
         refused("a.idf", &idf(0, &[1, 0, 1, 1, b'x', 7])),
         "The art is taller than 256 rows"
     );
+    // Single pairs past the limit are refused too.
+    assert_eq!(
+        refused("a.idf", &idf(0, &pairs(&[b'x'; 257]))),
+        "The art is taller than 256 rows"
+    );
     let full = read("a.idf", &idf(0, &[1, 0, 0, 1, b'x', 7])).unwrap();
     assert_eq!((full.width(), full.height()), (1, 256));
 }
