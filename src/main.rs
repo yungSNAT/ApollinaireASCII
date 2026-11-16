@@ -5,7 +5,7 @@ use apollinaire_ascii::{
     Animation, BorderStyle, Canvas, EffectOptions, Frame, Layered, MAX_INPUT_BYTES,
     MAX_MEDIA_BYTES, RenderOptions, Result, SceneOptions, TimedFrame, animation, ansi, art, bubble,
     diagram::{self, TableRules},
-    effects, export, lettering,
+    effects, export, lettering, model,
 };
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use std::{
@@ -101,6 +101,43 @@ fn separator(value: &str) -> Result<u8> {
         b"tab" | b"\t" => Ok(b'\t'),
         [byte @ 32..=126] => Ok(*byte),
         _ => Err("Use tab or one printable ASCII character".into()),
+    }
+}
+#[derive(Clone, Copy, ValueEnum)]
+enum Spin {
+    /// Upright, like a turntable.
+    Y,
+    /// Head over heels.
+    X,
+    /// Both at once.
+    Xy,
+}
+impl From<Spin> for model::Spin {
+    fn from(spin: Spin) -> Self {
+        match spin {
+            Spin::Y => Self::Y,
+            Spin::X => Self::X,
+            Spin::Xy => Self::XY,
+        }
+    }
+}
+#[derive(Clone, Copy, ValueEnum)]
+enum Light {
+    TopLeft,
+    Top,
+    Front,
+    Left,
+    Right,
+}
+impl From<Light> for model::Light {
+    fn from(light: Light) -> Self {
+        match light {
+            Light::TopLeft => Self::TopLeft,
+            Light::Top => Self::Top,
+            Light::Front => Self::Front,
+            Light::Left => Self::Left,
+            Light::Right => Self::Right,
+        }
     }
 }
 #[derive(Clone, Copy, ValueEnum)]
@@ -264,6 +301,33 @@ enum Command {
         /// Printable ASCII text for the reveal and scroll scenes, at most 512 characters.
         #[arg(long, default_value = "HELLO, FRIEND")]
         text: String,
+    },
+    /// A 3D model (.stl, binary or text, or .obj) turning a full circle, exported as timed JSON.
+    Model {
+        /// An .stl or .obj file.
+        input: PathBuf,
+        /// Columns, 1 to 512.
+        #[arg(long, default_value_t = 72)]
+        width: usize,
+        /// Rows, 1 to 256.
+        #[arg(long, default_value_t = 24)]
+        height: usize,
+        /// Frames for one full turn, 1 to 600.
+        #[arg(long, default_value_t = 36)]
+        frames: usize,
+        /// Frames per second, 1 to 60.
+        #[arg(long, default_value_t = 12)]
+        fps: u32,
+        /// The axis the model turns about.
+        #[arg(long, value_enum, default_value_t = Spin::Y)]
+        spin: Spin,
+        /// Where the light comes from, seen from the front.
+        #[arg(long, value_enum, default_value_t = Light::TopLeft)]
+        light: Light,
+        /// A named ramp (standard, fine, simple, binary) or a literal sequence ordered from light
+        /// to dense; lit surfaces take the dense end.
+        #[arg(long, default_value = "standard")]
+        ramp: String,
     },
     /// Animate text art or lettering with a deterministic effect, exported as timed JSON.
     Effect {
@@ -603,6 +667,35 @@ fn run(args: Args) -> Result<()> {
                 text,
             },
         )?,
+        Command::Model {
+            input,
+            width,
+            height,
+            frames,
+            fps,
+            spin,
+            light,
+            ramp,
+        } => {
+            let name = input.to_string_lossy();
+            let mesh = model::read(&name, &read_bounded(&input, MAX_INPUT_BYTES)?)?;
+            let ramp = apollinaire_ascii::image_renderer::RAMPS
+                .iter()
+                .find(|(n, _)| *n == ramp)
+                .map_or(ramp.clone(), |(_, r)| r.to_string());
+            model::render(
+                &mesh,
+                &model::ModelOptions {
+                    width,
+                    height,
+                    frames,
+                    fps,
+                    spin: spin.into(),
+                    light: light.into(),
+                    ramp,
+                },
+            )?
+        }
         Command::Import { input, pad } => load(&input, pad)?,
         Command::Compose {
             background,
