@@ -39,9 +39,9 @@ Every frame contains bytes 32 through 126. Line feeds separate rows when saved a
 
 | Area | Included |
 | --- | --- |
-| Static art | 128 original pieces in 7 categories (animals, nature, objects, characters, borders and dividers, emoticons, banners), searchable by name or tag; blank canvases, character editing, borders in 4 styles, crops, flips, clipped composition and speech bubbles above any art (`apollinaire say`) |
+| Static art | 128 original pieces in 7 categories (animals, nature, objects, characters, borders and dividers, emoticons, banners), searchable by name or tag; blank canvases, character editing, borders in 4 styles, crops, flips, clipped composition and speech bubbles above any art or a cowsay `.cow` file's art, never run as Perl (`apollinaire say`) |
 | Tables and trees | `apollinaire table` lays out tab-, comma- or otherwise separated rows with `+-|` rules; `apollinaire tree` draws an indented outline as `tree --charset=ascii` does; the browser editor's Tables and trees panel makes either into an art stamp to place by pointer or keyboard |
-| Lettering | 21 FIGlet and TOIlet fonts plus filled block and outline styles; font-default, full-width, fitted and smushed layout for letters and lines; word wrap; multiline text; alignment; validated ASCII-only `.flf` and `.tlf` import |
+| Lettering | 24 FIGlet and TOIlet fonts, including all 18 from FIGlet 2.2.5, plus filled block and outline styles; font-default, full-width, fitted and smushed layout for letters and lines; word wrap; multiline text; alignment; validated ASCII-only `.flf` and `.tlf` import |
 | Animation | Ghost, rotating donut, wave, starfield, rain, fire, text reveal and scrolling text; deterministic seeds |
 | Text effects | Reveal, typewriter, decrypt, scatter, wipes in 4 directions, rain, wave and burn, applied to any art or lettering, forwards or in reverse; set duration, FPS and seed |
 | Media conversion | PNG, JPEG, GIF, WebP, BMP and PNM input; animated GIF timing; custom character ramps, aspect correction, transparency, inversion, gamma, contrast, dithering and edges, optionally drawn as `|`, `/`, `-` and `\` along their direction; characters matched to each cell's shape from all 95; presets in the browser editor; CLI batches and `https://` URLs; ANSI and CP437 art (`.ans`, `.asc`, `.nfo`, `.diz`, and UTF-8 ANSI as `.utf8.ans`) and XBIN, Artworx, iCE Draw, TundraDraw and BIN art (`.xb`, `.adf`, `.idf`, `.tnd`, and `.bin` on request) read as ASCII, with box drawing and shading mapped to ASCII characters, colour dropped and the SAUCE width kept; `.stl` (binary or text) and `.obj` 3D models drawn turning a full circle about one or 2 axes, shaded from a chosen light side with any ramp (`apollinaire model` and the browser editor's converter) |
@@ -49,6 +49,7 @@ Every frame contains bytes 32 through 126. Line feeds separate rows when saved a
 | Browser editor | Pencil, eraser, line, rectangle, ellipse, fill, typing, area select/move/copy/paste/rotate and reusable art stamps on the character grid, each usable by keyboard; a character picker; an option that keeps rectangles square and ellipses round; optional directional ASCII mirrors; diagram mode for joined `+-|` boxes, labels and arrows; up to 16 layers that share the frames, with show, hide, lock, show-only, reorder and merge, saved in JSON and flattened in text and player exports; keyframes that move, stretch and turn a layer about an anchor, eased by 8 presets or a custom cubic curve drawn in ASCII, with line characters turning as the layer turns, shown in every export and CLI command; onion skin; select/copy text, timeline, frame-range timing/duplication/deletion/reordering, undo/redo, local file imports and opt-in local recovery |
 | Export | Plain `.txt`, timed `.json` projects and standalone `.html` text players; code that plays the artwork as a React or Ink component, in OpenTUI or as a Bubble Tea program; from the CLI, asciicast v2 `.cast` recordings for asciinema's terminal and web players |
 | Terminal | `apollinaire edit`: an interactive editor for `.txt` and `.json` files, with typing, mouse drawing, a chosen brush, frames, playback and undo, on Windows, macOS and Linux; `apollinaire play` for playback. Escape codes only move the cursor; saved artwork remains plain text |
+| AI agents | `apollinaire mcp` serves the artwork commands to AI agents as Model Context Protocol tools over stdio: art, lettering, speech bubbles, tables, trees, image conversion, effects, scenes, generators, transforms and checks. Text and images are sent with each call, so the server reads and writes no files |
 
 All maintained application logic is Rust, including the browser's DOM controls and file handling. HTML and CSS describe the interface. A small JavaScript loader starts WebAssembly; standalone HTML exports include a small JavaScript text player so each file works on its own.
 
@@ -112,7 +113,7 @@ apollinaire import release.nfo --output release.txt
 
 The checked toolchain is pinned in `rust-toolchain.toml`. Existing output files are never overwritten. Static artwork defaults to text; animations default to JSON so frames and timings are retained. Use `--format text --frame 0` to deliberately select one animated frame.
 
-The `.cast` export, the `table` and `tree` commands, ANSI and binary art input, the `model` command and projects with layers or keyframes (versions 2 and 3) are newer than v0.4.1: until the next release, install with `--git` as above to use them. v0.4.1 does not know the `.cast` format and writes JSON under a `.cast` name, it reads an `.ans` file as text, refusing CP437 bytes, and it refuses a project the browser editor saved with layers or keyframes.
+The `.cast` export, the `table` and `tree` commands, ANSI and binary art input, the `model` command, the bubble, digital and term fonts, `.cow` files in `say` and projects with layers or keyframes (versions 2 and 3) are newer than v0.4.1: until the next release, install with `--git` as above to use them. v0.4.1 does not know the `.cast` format and writes JSON under a `.cast` name, it reads an `.ans` file as text, refusing CP437 bytes, and it refuses a project the browser editor saved with layers or keyframes.
 
 ## Use the library
 
@@ -141,6 +142,8 @@ fn main() -> Result<(), String> {
 ```
 
 `Frame` is an immutable rectangular ASCII grid. `Canvas` provides validated, clipped drawing, including flood fill and diagram boxes and arrows that join with `+`; `Animation` owns equal-size frames, durations and loop behaviour. See [the format and limits](docs/FORMAT.md) and the [API documentation](https://docs.rs/apollinaire-ascii).
+
+For a terminal interface built with ratatui, [apollinaire-ratatui](apollinaire-ratatui/README.md) draws lettering, catalogue pieces or any frame as a widget. Until it is on crates.io, depend on it as `apollinaire-ratatui = { git = "https://github.com/yungSNAT/ApollinaireASCII" }`.
 
 ## Build the browser editor
 

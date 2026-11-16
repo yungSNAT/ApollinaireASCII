@@ -1,0 +1,22 @@
+[package]
+name = "apollinaire-ratatui"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT"
+description = "ApollinaireASCII lettering and art as a ratatui widget"
+repository = "https://github.com/yungSNAT/ApollinaireASCII"
+readme = "README.md"
+categories = ["command-line-interface", "text-processing"]
+keywords = ["ascii", "figlet", "ratatui", "tui", "widget"]
+
+[dependencies]
+apollinaire-ascii = { path = "..", version = "0.4.1", default-features = false }
+# Widget libraries depend on ratatui-core, the stable part of ratatui.
+ratatui-core = "0.1.2"
+
+# Its own lock file, like xtask, so the library's notices and lock stay as they are.
+[workspace]
+
+[lints.rust]
+unsafe_code = "forbid"

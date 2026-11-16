@@ -1,6 +1,7 @@
 mod check;
 mod edit;
 mod fetch;
+mod mcp;
 
 use apollinaire_ascii::{
     Animation, BorderStyle, Canvas, EffectOptions, Frame, Glyphs, Layered, MAX_INPUT_BYTES,
@@ -341,7 +342,8 @@ enum Command {
         #[arg(long, conflicts_with = "art_file")]
         art: Option<String>,
         /// Static .txt or .json frame to draw below the bubble, or `-` for stdin when the
-        /// message is an argument. Ragged text rows are padded.
+        /// message is an argument. Ragged text rows are padded. A cowsay .cow file gives its
+        /// art only, never run as Perl, whose own lines lead from the bubble.
         #[arg(long)]
         art_file: Option<PathBuf>,
     },
@@ -577,6 +579,8 @@ enum Command {
         /// A .txt or .json project, or `-` for stdin.
         input: PathBuf,
     },
+    /// Serve the artwork commands to AI agents as Model Context Protocol tools over stdio.
+    Mcp,
     /// Print a shell completion script, such as `apollinaire completions bash > apollinaire.bash`.
     Completions {
         /// Shell to complete for.
@@ -683,7 +687,13 @@ fn run(args: Args) -> Result<()> {
             art,
             art_file,
         } => {
+            let cow = art_file
+                .as_ref()
+                .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("cow")))
+                .map(|p| read_text(p))
+                .transpose()?;
             let speaker = match (art, art_file) {
+                _ if cow.is_some() => None,
                 (Some(name), _) => Some(art::template(&name)?),
                 (None, Some(path)) => {
                     if message.is_none() && path == Path::new("-") {
@@ -701,12 +711,10 @@ fn run(args: Args) -> Result<()> {
                 Some(message) => message,
                 None => read_text(Path::new("-"))?,
             };
-            Animation::still(bubble::say(
-                &message,
-                width,
-                style.into(),
-                speaker.as_ref(),
-            )?)
+            Animation::still(match cow {
+                Some(cow) => bubble::cowsay(&message, width, style.into(), &cow)?,
+                None => bubble::say(&message, width, style.into(), speaker.as_ref())?,
+            })
         }
         Command::Table {
             input,
@@ -982,6 +990,10 @@ fn run(args: Args) -> Result<()> {
                 Animation::still(Frame::blank(width.unwrap_or(72), height.unwrap_or(24))?)
             };
             return edit::run(file, project);
+        }
+        Command::Mcp => {
+            no_export(&args.export, "MCP")?;
+            return mcp::serve();
         }
         Command::Completions { shell } => {
             no_export(&args.export, "Completions")?;
