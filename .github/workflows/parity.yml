@@ -1,0 +1,94 @@
+name: Port parity (temporary)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: cargo build --locked --manifest-path xtask/Cargo.toml
+      - run: cargo test --locked --manifest-path xtask/Cargo.toml
+      - name: deb.sh and xtask deb on the same release folder
+        run: |
+          set -euo pipefail
+          r=$RUNNER_TEMP/release
+          mkdir -p "$r/man" "$r/completions" "$r/LICENSES/nested"
+          printf '#!/bin/sh\necho apollinaire\n' > "$r/apollinaire"
+          chmod 700 "$r/apollinaire"
+          printf '.TH APOLLINAIRE 1\n' > "$r/man/apollinaire.1"
+          for f in apollinaire.bash _apollinaire apollinaire.fish; do echo "$f" > "$r/completions/$f"; done
+          for f in LICENSE.md README.md THIRD_PARTY_NOTICES.md DEPENDENCY_NOTICES.txt; do head -c 9000 /dev/urandom | base64 > "$r/$f"; done
+          chmod 755 "$r/README.md"
+          echo MIT > "$r/LICENSES/MIT.txt"
+          echo Apache > "$r/LICENSES/nested/Apache-2.0.txt"
+          bash .github/scripts/deb.sh "$r" '0.4.1~rc.1' arm64 old.deb
+          xtask/target/debug/xtask deb "$r" '0.4.1~rc.1' arm64 new.deb
+          for d in old new; do
+            dpkg-deb --field $d.deb > $d.fields
+            dpkg-deb --contents $d.deb | awk '{ print $1, $2, $3, $6 }' | sort -k4 > $d.contents
+            dpkg-deb --extract $d.deb $d.tree
+          done
+          diff old.fields new.fields
+          diff old.contents new.contents
+          diff -r old.tree new.tree
+          cat new.fields new.contents
+      - name: manifests.sh and xtask manifests on the same sums
+        run: |
+          set -euo pipefail
+          bash .github/scripts/manifests.sh v0.4.1 xtask/tests/golden/SHA256SUMS.txt old
+          xtask/target/debug/xtask manifests v0.4.1 xtask/tests/golden/SHA256SUMS.txt new
+          cmp old/apollinaire.rb new/apollinaire.rb
+          cmp old/apollinaire.json new/apollinaire.json
+          grep -v aarch64-pc-windows xtask/tests/golden/SHA256SUMS.txt > short.txt
+          set +e
+          bash .github/scripts/manifests.sh v0.4.1 short.txt old2 2> old.err; echo "old exit $?"
+          xtask/target/debug/xtask manifests v0.4.1 short.txt new2 2> new.err; echo "new exit $?"
+          set -e
+          diff old.err new.err
+          cat new.err
+      - name: conversion-speed.sh and xtask speed with stand-in programs
+        run: |
+          set -euo pipefail
+          s=$RUNNER_TEMP/stubs
+          mkdir -p "$s"
+          printf '#!/bin/sh\ncase "$1" in -version) echo "Version: ImageMagick 7.1.2-35 Q16";; *) for last; do :; done; head -c 1000 /dev/zero > "$last";; esac\n' > "$s/magick"
+          printf '#!/bin/sh\nif [ "$1" = --version ]; then echo "apollinaire 0.4.1"; exit; fi\nif [ "$2" = big.png ]; then echo "Input exceeds 16 MiB" >&2; exit 2; fi\nprintf "ab\\n"\n' > "$s/apo"
+          printf '#!/bin/sh\nif [ "$1" = --version ]; then echo "1.13.1"; exit; fi\nprintf "a\\033[0m\\n"\n' > "$s/aic"
+          printf '#!/bin/sh\nif [ "$1" = --version ]; then printf "Chafa version 1.18.3\\nmore\\n"; exit; fi\nprintf "x\\303\\251\\n"\n' > "$s/chafa"
+          chmod +x "$s"/*
+          export PATH="$s:$PATH"
+          mkdir old-work new-work
+          bash .github/scripts/conversion-speed.sh "$s/apo" "$s/aic" "$s/chafa" old-work > old.out
+          xtask/target/debug/xtask speed "$s/apo" "$s/aic" "$s/chafa" new-work > new.out
+          # Times differ from run to run; the old script listed the pictures with ls -l, the new
+          # one prints their sizes.
+          mask() { sed -E 's/: [0-9]+ ms$/: N ms/' "$1" | grep -v -E '^-rw|bytes$' ; }
+          diff <(mask old.out) <(mask new.out)
+          cat new.out
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - run: cargo build --locked --release
+      - name: conpty.py
+        run: |
+          python -m pip install --disable-pip-version-check --only-binary :all: --require-hashes -r .github/scripts/conpty-requirements.txt
+          python -u -I .github/scripts/conpty.py
+      - name: tests/conpty.rs
+        run: cargo test --locked --release --test conpty -- --ignored --nocapture

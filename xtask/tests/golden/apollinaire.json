@@ -1,0 +1,38 @@
+{
+  "version": "0.4.1",
+  "description": "Static art, block lettering and animation as real ASCII text",
+  "homepage": "https://yungsnat.github.io/ApollinaireASCII/",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/yungSNAT/ApollinaireASCII/releases/download/v0.4.1/apollinaire-v0.4.1-x86_64-pc-windows-msvc.zip",
+      "hash": "921083d7756f282d20778d3dd75a351763da4d987a73ae6f74e52536421d2e3d",
+      "extract_dir": "apollinaire-v0.4.1-x86_64-pc-windows-msvc"
+    },
+    "arm64": {
+      "url": "https://github.com/yungSNAT/ApollinaireASCII/releases/download/v0.4.1/apollinaire-v0.4.1-aarch64-pc-windows-msvc.zip",
+      "hash": "4079c8cd2d7fdb2843e09e16b5fadd44d24a9507ef2e3167dbfeb6e64830c89d",
+      "extract_dir": "apollinaire-v0.4.1-aarch64-pc-windows-msvc"
+    }
+  },
+  "bin": "apollinaire.exe",
+  "notes": "For PowerShell completions, add this line to your profile: . \"$dir\\completions\\apollinaire.ps1\"",
+  "checkver": {
+    "github": "https://github.com/yungSNAT/ApollinaireASCII"
+  },
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/yungSNAT/ApollinaireASCII/releases/download/v$version/apollinaire-v$version-x86_64-pc-windows-msvc.zip",
+        "extract_dir": "apollinaire-v$version-x86_64-pc-windows-msvc"
+      },
+      "arm64": {
+        "url": "https://github.com/yungSNAT/ApollinaireASCII/releases/download/v$version/apollinaire-v$version-aarch64-pc-windows-msvc.zip",
+        "extract_dir": "apollinaire-v$version-aarch64-pc-windows-msvc"
+      }
+    },
+    "hash": {
+      "url": "$baseurl/SHA256SUMS.txt"
+    }
+  }
+}
