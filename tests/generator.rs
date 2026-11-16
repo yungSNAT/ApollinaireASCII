@@ -54,7 +54,7 @@ fn assert_perfect(frame: &Frame, style: MazeStyle) {
         .count();
     assert_eq!(openings, cells - 1, "a perfect maze is a tree");
     let mut seen = vec![false; width * height];
-    let mut queue = VecDeque::from([(1, 0)]);
+    let mut queue: VecDeque<(usize, usize)> = VecDeque::from([(1, 0)]);
     seen[1] = true;
     let mut reached = 0;
     while let Some((x, y)) = queue.pop_front() {
