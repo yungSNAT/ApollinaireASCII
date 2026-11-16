@@ -327,6 +327,68 @@ pub const CATALOGUE: &[Piece] = &[
   (o  |=|=|=|>
    '--'-'-'-'"
     ),
+    art!(
+        "chick",
+        "animals",
+        ["bird", "baby", "farm", "easter"],
+        r"   .-.
+  (o >
+  / ) \
+ (_/__/
+   ^ ^"
+    ),
+    art!(
+        "hedgehog",
+        "animals",
+        ["spiky", "mammal", "garden"],
+        r"     ,/\/\/\/\,
+  .-'/\/\/\/\/\
+ (o              )
+  '-.__________.-'
+     ''      ''"
+    ),
+    art!(
+        "ladybird",
+        "animals",
+        ["ladybug", "beetle", "insect", "garden"],
+        r"    \ /
+   .-o-.
+  / o|o \
+ | o | o |
+  \__|__/"
+    ),
+    art!(
+        "jellyfish",
+        "animals",
+        ["sea", "ocean", "jelly"],
+        r"    .----.
+   /      \
+  /________\
+   ( ( ) )
+    ) ) (
+   ( (   )"
+    ),
+    art!(
+        "giraffe",
+        "animals",
+        ["safari", "mammal", "tall"],
+        r"   o o
+   (__)_
+    \ o \
+     | o|
+     |o |__________
+     | o   o   o   |
+     |  o    o   o |
+     ||  ||    ||  ||"
+    ),
+    art!(
+        "caterpillar",
+        "animals",
+        ["insect", "garden", "bug"],
+        r"  _ _ _ _ _
+ (_(_(_(_(_)o<
+  ' ' ' ' '"
+    ),
     // Nature and sky
     art!(
         "mountain",
@@ -474,6 +536,79 @@ pub const CATALOGUE: &[Piece] = &[
   -  - ===<     @@@)
      .   '  '-.  @@)
    '    .   .  '--'"
+    ),
+    art!(
+        "volcano",
+        "nature",
+        ["mountain", "eruption", "lava", "smoke"],
+        r"       ( ) (
+      (  )  )
+        \ | /
+       /\/\/\
+      /  ||  \
+     /   ||   \
+    /____||____\"
+    ),
+    art!(
+        "rainbow",
+        "nature",
+        ["sky", "weather", "arc"],
+        r"      .--------.
+    .'.------. '.
+   / .'.----. '. \
+  / / / .--. \ \ \
+ | | | |    | | | |"
+    ),
+    art!(
+        "wave",
+        "nature",
+        ["sea", "ocean", "surf", "water"],
+        r"      __
+   .-'  '-._
+  (  .--.   '.
+   '-'   \    \
+ ~~~~~~~~~\~~~~\~~~~~"
+    ),
+    art!(
+        "leaf",
+        "nature",
+        ["autumn", "plant", "garden"],
+        r"      __
+   .-'  '-.
+  /  /    \
+ |  /      |
+  \/  .   /
+  /'-.__.-'"
+    ),
+    art!(
+        "forest",
+        "nature",
+        ["trees", "pine", "woods"],
+        r"    /\      /\    /\
+   /  \    /  \  /  \
+  /    \  /    \/    \
+ /______\/______\_____\
+    ||      ||     ||"
+    ),
+    art!(
+        "sunset",
+        "nature",
+        ["sun", "sea", "evening", "sky"],
+        r"      \  |  /
+    '-.\_|_/.-'
+  -----(   )-----
+ ~~~~~~~~~~~~~~~~~
+   ~~~~~~~~~~~~~"
+    ),
+    art!(
+        "acorn",
+        "nature",
+        ["nut", "oak", "autumn", "seed"],
+        r"   _/\_
+  (____)
+  |    |
+   \  /
+    \/"
     ),
     // Objects
     art!(
@@ -732,6 +867,95 @@ pub const CATALOGUE: &[Piece] = &[
   /  ::::::::::  \
  '----------------'"
     ),
+    art!(
+        "hourglass",
+        "objects",
+        ["time", "sand", "timer"],
+        r"  =======
+  \     /
+   \:::/
+    ):(
+   / . \
+  /.:::.\
+  ======="
+    ),
+    art!(
+        "pencil",
+        "objects",
+        ["write", "school", "draw"],
+        r"  ____________________
+ |    |               |\
+ |____|_______________|/"
+    ),
+    art!(
+        "lock",
+        "objects",
+        ["padlock", "security", "closed"],
+        r"    .--.
+   /    \
+  _|____|_
+ |   ()   |
+ |   /\   |
+ |________|"
+    ),
+    art!(
+        "bell",
+        "objects",
+        ["ring", "alarm", "school", "church"],
+        r"      _
+    .' '.
+   /     \
+  |       |
+  |       |
+ /_________\
+      O"
+    ),
+    art!(
+        "crown",
+        "objects",
+        ["king", "queen", "royal", "winner"],
+        r"  .   .   .
+  |\ /|\ /|
+  | V | V |
+  |_______|"
+    ),
+    art!(
+        "sword",
+        "objects",
+        ["blade", "knight", "weapon"],
+        r"      /\
+      ||
+      ||
+      ||
+    __||__
+    \____/
+      ||
+      ()"
+    ),
+    art!(
+        "scissors",
+        "objects",
+        ["cut", "craft", "tool"],
+        r"  _     ,
+ (_)  ,'
+   ><
+  _  '.
+ (_)   '"
+    ),
+    art!(
+        "guitar",
+        "objects",
+        ["music", "instrument", "rock"],
+        r"          ___
+         |o o|
+          |=|
+          |=|
+       .--|=|--.
+      /   |=|   \
+     |   (   )   |
+      \         /
+       '-------'"
+    ),
     // Characters
     art!(
         "ghost",
@@ -782,6 +1006,103 @@ pub const CATALOGUE: &[Piece] = &[
     _(  :  )_
    (    :    )
     '-------'"
+    ),
+    art!(
+        "wizard",
+        "characters",
+        ["magic", "fantasy", "mage"],
+        r"       /\
+      /  \
+     /_*__\
+    ( o  o )
+     ) -- (
+    / '--' \
+   /  /||\  \
+     /_||_\"
+    ),
+    art!(
+        "knight",
+        "characters",
+        ["armour", "fantasy", "helmet"],
+        r"    ,-----.
+   |  ===  |
+   | [---] |
+    \_____/
+   /|  +  |\
+  | |  |  | |
+    |__|__|"
+    ),
+    art!(
+        "pirate",
+        "characters",
+        ["sea", "eyepatch", "treasure"],
+        r"     ______
+   _/______\_
+    | x  o |
+    |  <   |
+     \ -- /
+   ---'--'---"
+    ),
+    art!(
+        "astronaut",
+        "characters",
+        ["space", "helmet", "rocket"],
+        r"     .-----.
+    / .---. \
+   | | o o | |
+    \ '---' /
+   .-'-----'-.
+  | [=]   [=] |
+  |___________|
+    |_|   |_|"
+    ),
+    art!(
+        "ninja",
+        "characters",
+        ["stealth", "mask", "martial-arts"],
+        r"    .-----.
+   /=======\
+   |=[o o]=|
+    \_____/
+   --| |--
+     / \"
+    ),
+    art!(
+        "chef",
+        "characters",
+        ["cook", "kitchen", "food"],
+        r"    .-.-.-.
+   (       )
+    '-----'
+    | o o |
+    |  >  |
+     \ ~ /
+      '-'"
+    ),
+    art!(
+        "scarecrow",
+        "characters",
+        ["farm", "field", "autumn"],
+        r"      ___
+    _|___|_
+     (o o)
+  ----| |----
+     /|=|\
+      | |
+      | |"
+    ),
+    art!(
+        "skeleton",
+        "characters",
+        ["bones", "halloween", "spooky"],
+        r"     .-.
+    (o o)
+     |=|
+    __|__
+  //.=|=.\\
+  \\ .=. //
+     (|)
+    // \\"
     ),
     // Borders and dividers
     art!(
@@ -867,6 +1188,21 @@ pub const CATALOGUE: &[Piece] = &[
         ["divider", "line", "separator", "fancy"],
         r"-=-=-=-=-=-=-=-<( * )>-=-=-=-=-=-=-=-"
     ),
+    art!(
+        "frame-dashed",
+        "borders",
+        ["frame", "box", "dashed"],
+        r"+- - - - - - - - - -+
+|                   |
+|                   |
++- - - - - - - - - -+"
+    ),
+    art!(
+        "divider-dots",
+        "borders",
+        ["divider", "rule", "dots"],
+        r"o . o . o . o . o . o . o . o"
+    ),
     // Emoticons
     art!("happy", "emoticons", ["smile", "face", "joy"], r"(^_^)"),
     art!("cheer", "emoticons", ["hooray", "face", "joy"], r"\(^o^)/"),
@@ -904,6 +1240,15 @@ pub const CATALOGUE: &[Piece] = &[
         ["party", "face", "music"],
         r"<(^_^<)  (>^_^)>"
     ),
+    art!("angry", "emoticons", ["cross", "face", "upset"], r"(>_<)"),
+    art!("laugh", "emoticons", ["happy", "face", "joy"], r"(^o^)"),
+    art!(
+        "nervous",
+        "emoticons",
+        ["sweat", "face", "awkward"],
+        r"(^_^;)"
+    ),
+    art!("crying", "emoticons", ["sad", "face", "tears"], r"(T_T)"),
     // Banners
     art!(
         "welcome",
@@ -960,5 +1305,48 @@ pub const CATALOGUE: &[Piece] = &[
         r"  [===============================]
   |   PRESENT DAY, PRESENT TIME   |
   [===============================]"
+    ),
+    art!(
+        "game-over",
+        "banners",
+        ["sign", "arcade", "finale", "retro"],
+        r" +------------------------+
+ |    G A M E   O V E R   |
+ |  press start to retry  |
+ +------------------------+"
+    ),
+    art!(
+        "good-luck",
+        "banners",
+        ["sign", "wish", "luck"],
+        r"  .*.*.*.*.*.*.*.*.*.*.
+  *    GOOD  LUCK!    *
+  '*.*.*.*.*.*.*.*.*.*'"
+    ),
+    art!(
+        "open-sign",
+        "banners",
+        ["sign", "shop", "open"],
+        r"       /\
+      /  \
+  +--------+
+  |  OPEN  |
+  +--------+"
+    ),
+    art!(
+        "coming-soon",
+        "banners",
+        ["sign", "launch", "soon"],
+        r"  ~~~~~~~~~~~~~~~~~~~~~~~~~
+  <  C O M I N G  S O O N  >
+  ~~~~~~~~~~~~~~~~~~~~~~~~~"
+    ),
+    art!(
+        "hello-world",
+        "banners",
+        ["sign", "greeting", "code", "terminal"],
+        r" .--------------------.
+ |  > Hello, world!_  |
+ '--------------------'"
     ),
 ];

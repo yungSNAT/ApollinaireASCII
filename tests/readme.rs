@@ -18,3 +18,19 @@ fn readme_dependency_line_matches_the_crate_version() {
     let series: Vec<_> = env!("CARGO_PKG_VERSION").split('.').take(2).collect();
     assert_eq!(requested, series.join("."));
 }
+
+/// The README's count of catalogue pieces is the catalogue's length.
+#[test]
+fn readme_counts_every_catalogue_piece() {
+    let readme =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md")).unwrap();
+    let counted = readme
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("| Static art | ")?
+                .split_once(" original pieces")
+                .map(|(count, _)| count.parse::<usize>().unwrap())
+        })
+        .expect("README.md has no count of original pieces");
+    assert_eq!(counted, apollinaire_ascii::art::CATALOGUE.len());
+}

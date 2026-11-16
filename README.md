@@ -39,7 +39,7 @@ Every frame contains bytes 32 through 126. Line feeds separate rows when saved a
 
 | Area | Included |
 | --- | --- |
-| Static art | 89 original pieces in 7 categories (animals, nature, objects, characters, borders and dividers, emoticons, banners), searchable by name or tag; blank canvases, character editing, borders in 4 styles, crops, flips, clipped composition and speech bubbles above any art (`apollinaire say`) |
+| Static art | 129 original pieces in 7 categories (animals, nature, objects, characters, borders and dividers, emoticons, banners), searchable by name or tag; blank canvases, character editing, borders in 4 styles, crops, flips, clipped composition and speech bubbles above any art (`apollinaire say`) |
 | Tables and trees | `apollinaire table` lays out tab-, comma- or otherwise separated rows with `+-|` rules; `apollinaire tree` draws an indented outline as `tree --charset=ascii` does; the browser editor's Tables and trees panel makes either into an art stamp to place by pointer or keyboard |
 | Lettering | 21 FIGlet and TOIlet fonts plus filled block and outline styles; font-default, full-width, fitted and smushed layout for letters and lines; word wrap; multiline text; alignment; validated ASCII-only `.flf` and `.tlf` import |
 | Animation | Ghost, rotating donut, wave, starfield, rain, fire, text reveal and scrolling text; deterministic seeds |
