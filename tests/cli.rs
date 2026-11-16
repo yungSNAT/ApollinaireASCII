@@ -1407,6 +1407,48 @@ fn generate_builds_mazes_skies_and_patterns_from_the_library() {
         .filter(|b| !b" \n".contains(b))
         .count();
     assert_eq!(glyphs, 6, "{}", text(&stars.stderr));
+    // Every algorithm and phase named on the command line reaches the library's own.
+    use apollinaire_ascii::generator::{self, MazeOptions, SkyOptions};
+    let same = |args: &[&str], frame: apollinaire_ascii::Frame| {
+        let output = cli(args);
+        assert_eq!(
+            text(&output.stdout).trim_end_matches('\n'),
+            frame.text().trim_end_matches('\n'),
+            "{args:?}: {}",
+            text(&output.stderr)
+        );
+    };
+    for (name, algorithm) in [
+        ("depth-first", generator::Algorithm::DepthFirst),
+        ("prim", generator::Algorithm::Prim),
+        ("wilson", generator::Algorithm::Wilson),
+        ("sidewinder", generator::Algorithm::Sidewinder),
+    ] {
+        let options = MazeOptions {
+            algorithm,
+            style: generator::MazeStyle::Hash,
+            solution: false,
+        };
+        same(
+            &["generate", "maze", "--seed", "3", "--algorithm", name],
+            generator::maze(72, 24, 3, &options).unwrap(),
+        );
+    }
+    for (name, phase) in [
+        ("full", generator::Phase::Full),
+        ("waxing", generator::Phase::Waxing),
+        ("waning", generator::Phase::Waning),
+        ("random", generator::Phase::Random),
+    ] {
+        let options = SkyOptions {
+            phase,
+            ..SkyOptions::default()
+        };
+        same(
+            &["generate", "sky", "--seed", "3", "--phase", name],
+            generator::sky(72, 24, 3, &options).unwrap(),
+        );
+    }
     let listed = cli(&["list"]);
     assert!(text(&listed.stdout).contains("\nPatterns: checker, stripes, diagonal"));
     refused(
