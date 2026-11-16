@@ -1327,7 +1327,7 @@ fn ansi_and_cp437_art_files_load_as_ascii_by_their_extension() {
     let imported = cli(&["import", utf8.to_str().unwrap(), "--format", "text"]);
     assert_eq!(
         text(&imported.stdout),
-        format!("+--+{0}\n+--+{0}\n", " ".repeat(76)),
+        "+--+\n+--+\n",
         "{}",
         text(&imported.stderr)
     );
