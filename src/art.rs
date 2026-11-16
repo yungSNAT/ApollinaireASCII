@@ -1095,14 +1095,18 @@ pub const CATALOGUE: &[Piece] = &[
         "skeleton",
         "characters",
         ["bones", "halloween", "spooky"],
-        r"     .-.
-    (o o)
-     |=|
-    __|__
-  //.=|=.\\
-  \\ .=. //
-     (|)
-    // \\"
+        r"    .-'''-.
+   /  0 0  \
+   \   ^   /
+    '.www.'
+  ___ |+| ___
+ /   -=+=-   \
+|    -=+=-    |
+|    -=+=-    |
+m     (+)     m
+      / \
+     /   \
+    _|   |_"
     ),
     // Borders and dividers
     art!(
