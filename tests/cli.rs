@@ -1434,3 +1434,125 @@ fn ansi_and_cp437_art_files_load_as_ascii_by_their_extension() {
     std::fs::write(&txt, &art).unwrap();
     refused(&cli(&["import", txt.to_str().unwrap()]), "UTF-8");
 }
+
+#[test]
+fn generate_builds_mazes_skies_and_patterns_from_the_library() {
+    let maze = cli(&[
+        "generate", "maze", "--width", "9", "--height", "5", "--seed", "7",
+    ]);
+    assert_eq!(
+        text(&maze.stdout).lines().count(),
+        5,
+        "{}",
+        text(&maze.stderr)
+    );
+    assert!(text(&maze.stdout).starts_with("# #######\n"));
+    let solved = cli(&[
+        "generate",
+        "maze",
+        "--width",
+        "9",
+        "--height",
+        "5",
+        "--seed",
+        "7",
+        "--algorithm",
+        "wilson",
+        "--style",
+        "lines",
+        "--solution",
+    ]);
+    assert!(
+        text(&solved.stdout).starts_with("+.+-+-+-+\n"),
+        "{}",
+        text(&solved.stdout)
+    );
+    let bricks = cli(&[
+        "generate", "pattern", "bricks", "--width", "8", "--height", "2",
+    ]);
+    assert_eq!(text(&bricks.stdout), "|___|___\n__|___|_\n");
+    let words = cli(&[
+        "generate", "pattern", "text", "--text", "HI", "--width", "4", "--height", "1",
+    ]);
+    assert_eq!(text(&words.stdout), "HI H\n");
+    let stars = cli(&[
+        "generate",
+        "sky",
+        "--width",
+        "20",
+        "--height",
+        "5",
+        "--moons",
+        "0",
+        "--big-stars",
+        "0",
+        "--asteroids",
+        "0",
+        "--stars",
+        "6",
+        "--phase",
+        "random",
+    ]);
+    let glyphs = text(&stars.stdout)
+        .bytes()
+        .filter(|b| !b" \n".contains(b))
+        .count();
+    assert_eq!(glyphs, 6, "{}", text(&stars.stderr));
+    // Every algorithm and phase named on the command line reaches the library's own.
+    use apollinaire_ascii::generator::{self, MazeOptions, SkyOptions};
+    let same = |args: &[&str], frame: apollinaire_ascii::Frame| {
+        let output = cli(args);
+        assert_eq!(
+            text(&output.stdout).trim_end_matches('\n'),
+            frame.text().trim_end_matches('\n'),
+            "{args:?}: {}",
+            text(&output.stderr)
+        );
+    };
+    for (name, algorithm) in [
+        ("depth-first", generator::Algorithm::DepthFirst),
+        ("prim", generator::Algorithm::Prim),
+        ("wilson", generator::Algorithm::Wilson),
+        ("sidewinder", generator::Algorithm::Sidewinder),
+    ] {
+        let options = MazeOptions {
+            algorithm,
+            style: generator::MazeStyle::Hash,
+            solution: false,
+        };
+        same(
+            &["generate", "maze", "--seed", "3", "--algorithm", name],
+            generator::maze(72, 24, 3, &options).unwrap(),
+        );
+    }
+    for (name, phase) in [
+        ("full", generator::Phase::Full),
+        ("waxing", generator::Phase::Waxing),
+        ("waning", generator::Phase::Waning),
+        ("random", generator::Phase::Random),
+    ] {
+        let options = SkyOptions {
+            phase,
+            ..SkyOptions::default()
+        };
+        same(
+            &["generate", "sky", "--seed", "3", "--phase", name],
+            generator::sky(72, 24, 3, &options).unwrap(),
+        );
+    }
+    let listed = cli(&["list"]);
+    assert!(text(&listed.stdout).contains("\nPatterns: checker, stripes, diagonal"));
+    refused(
+        &cli(&["generate", "pattern", "plaid"]),
+        "Unknown pattern plaid",
+    );
+    refused(&cli(&["generate", "maze", "--width", "2"]), "at least 3");
+    refused(
+        &cli(&["generate", "maze", "--algorithm", "kruskal"]),
+        "invalid value",
+    );
+    refused(
+        &cli(&["generate", "sky", "--moons", "21"]),
+        "at most 20 moons",
+    );
+}
