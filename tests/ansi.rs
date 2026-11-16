@@ -281,6 +281,13 @@ fn utf8_ansi_rows_keep_their_own_width_and_end_at_each_line_feed() {
             .text(),
         "         x"
     );
+    // A move back over drawn cells does not widen the art.
+    assert_eq!(
+        read("a.utf8.ans", "\x1b[0mabcd\x1b[3Def".as_bytes())
+            .unwrap()
+            .text(),
+        "aefd"
+    );
     // Tabs reach the next multiple of 8 when the width is measured.
     assert_eq!(
         read("tab.utf8.ans", "\x1b[0ma\tb\n".as_bytes())
