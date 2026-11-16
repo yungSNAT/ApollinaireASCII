@@ -213,11 +213,11 @@ impl App {
         } else {
             Cow::Borrowed(edited)
         };
-        let stacked = (layers.len() > 1 || !layers[0].visible).then(|| {
+        let stacked = (layers.len() > 1 || !layers[0].visible || self.solo).then(|| {
             let shown: Vec<Cow<Frame>> = layers
                 .iter()
                 .enumerate()
-                .filter(|(_, layer)| layer.visible)
+                .filter(|(index, layer)| layer.visible && (!self.solo || *index == self.active))
                 .map(|(index, layer)| match index == self.active {
                     true => Cow::Borrowed(edited.as_ref()),
                     false => layer.drawn(self.selected),
@@ -569,6 +569,7 @@ impl App {
             return Ok(());
         }
         if self.drawing.typing {
+            self.unlocked()?;
             self.layers
                 .replace_frame(self.active, self.selected, frame)?;
             self.modified = true;

@@ -204,6 +204,76 @@ fn check_and_transform_report_dimensions_and_preserve_frame_content() {
 }
 
 #[test]
+fn check_lists_every_problem_in_text_and_agrees_with_import() {
+    let dir = scratch("check-problems");
+    let input = dir.join("art.txt");
+    std::fs::write(&input, "a\u{2019}b\tc\nab\n").unwrap();
+    let path = input.to_str().unwrap();
+    let expected = format!(
+        "apollinaire: 3 problems in {path}:\n  line 1, column 2: U+2019 is not ASCII; use '\n  line 1, column 4: a tab; use spaces\n  line 2, column 3: the row is shorter than line 1, which has 5 columns; pad it with spaces, or import with --pad\n"
+    );
+    let check = cli(&["check", path]);
+    refused(&check, &expected);
+    assert_eq!(text(&check.stderr), expected);
+    // The first 200 are listed and the rest counted, from stdin too.
+    let many = cli_stdin(&["check", "-"], "\t".repeat(250).as_bytes());
+    refused(
+        &many,
+        "apollinaire: 250 problems in stdin:\n  line 1, column 1: a tab",
+    );
+    assert!(
+        text(&many.stderr)
+            .ends_with("\n  line 1, column 200: a tab; use spaces\n  ... and 50 more\n")
+    );
+    // JSON is checked as a project, not as text.
+    let json = dir.join("art.json");
+    std::fs::write(&json, "a\tb").unwrap();
+    let project = cli(&["check", json.to_str().unwrap()]);
+    assert!(!project.status.success());
+    assert!(!text(&project.stderr).contains("problems in"));
+    // Check refuses exactly the text that import refuses.
+    let samples: [&[u8]; 15] = [
+        b"ab\ncd",
+        b"ab\r\ncd\r\n",
+        b"x",
+        "\u{feff}ab".as_bytes(),
+        b"a\tb",
+        b"ab\nc",
+        b"",
+        b"\n",
+        b"\n\n",
+        b"a\rb",
+        "\u{a0}".as_bytes(),
+        b"\xff",
+        b"ab\r\n\r\n",
+        b"a\r",
+        b"ab\r\ncd\r",
+    ];
+    for (index, sample) in samples.iter().enumerate() {
+        std::fs::write(&input, sample).unwrap();
+        let check = cli(&["check", path]);
+        let import = cli(&["import", path]);
+        assert_eq!(
+            check.status.success(),
+            import.status.success(),
+            "sample {index}: {}",
+            text(&check.stderr)
+        );
+    }
+    for (rows, columns) in [(256, 512), (257, 1), (1, 513)] {
+        std::fs::write(&input, format!("{}\n", "x".repeat(columns)).repeat(rows)).unwrap();
+        let check = cli(&["check", path]);
+        assert_eq!(
+            check.status.success(),
+            cli(&["import", path]).status.success(),
+            "{rows} x {columns}: {}",
+            text(&check.stderr)
+        );
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn import_and_export_report_incompatible_options_and_bad_inputs() {
     let dir = scratch("bad-io");
     let input = dir.join("invalid.txt");

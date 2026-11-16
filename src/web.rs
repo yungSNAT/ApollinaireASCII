@@ -46,6 +46,9 @@ struct App {
     drawing: draw::Drawing,
     camera: Option<media::Camera>,
     recovery: recovery::Recovery,
+    /// Show only the active layer on the stage. A view setting: not saved, not undone, and
+    /// copies, saves and exports still show every visible layer.
+    solo: bool,
 }
 struct Snapshot {
     layers: Layered,
@@ -157,10 +160,31 @@ impl App {
     fn project(&self) -> &Animation {
         &self.layers.layers()[self.active].art
     }
+    /// Refuse a change to the active layer while it is locked.
+    fn unlocked(&self) -> Result<()> {
+        let layer = &self.layers.layers()[self.active];
+        match layer.locked {
+            true => Err(format!(
+                "{} is locked. Untick Lock this layer to change it.",
+                layer.name
+            )),
+            false => Ok(()),
+        }
+    }
     /// Replace the active layer. Every layer takes its frame durations and looping, so it must
     /// keep the size and frame count unless it is the only layer.
     fn commit(&mut self, project: Animation) -> Result<()> {
         let current = self.project();
+        // Timing alone may change on a locked layer, as it changes every layer.
+        if project.frames().len() != current.frames().len()
+            || project
+                .frames()
+                .iter()
+                .zip(current.frames())
+                .any(|(new, old)| new.frame != old.frame)
+        {
+            self.unlocked()?;
+        }
         if self.layers.layers().len() > 1
             && (project.width() != current.width()
                 || project.height() != current.height()
@@ -200,6 +224,7 @@ impl App {
                 Ok(Layer {
                     name: layer.name.clone(),
                     visible: layer.visible,
+                    locked: layer.locked,
                     art,
                     motion,
                 })
@@ -402,6 +427,7 @@ pub fn start() -> std::result::Result<(), JsValue> {
             drawing: draw::Drawing::default(),
             camera: None,
             recovery: recovery::Recovery::default(),
+            solo: false,
         })
     });
     for id in [
