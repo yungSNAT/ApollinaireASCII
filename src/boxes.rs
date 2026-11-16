@@ -79,6 +79,7 @@ pub fn parse(text: &str) -> Result<Vec<Design>> {
         quote: b'"',
     };
     let mut designs: Vec<Design> = Vec::new();
+    let mut names = std::collections::HashSet::new();
     while let Some(word) = lexer.word() {
         if word.eq_ignore_ascii_case("parent") {
             return Err(lexer.error("PARENT is not read: put every design in one file"));
@@ -87,7 +88,11 @@ pub fn parse(text: &str) -> Result<Vec<Design>> {
             return Err(lexer.error(&format!("expected BOX, found {word}")));
         }
         let design = lexer.design()?;
-        if let Some(name) = design.names.iter().find(|n| find(&designs, n).is_some()) {
+        if let Some(name) = design
+            .names
+            .iter()
+            .find(|n| !names.insert(n.to_ascii_lowercase()))
+        {
             return Err(format!("Box design {name} is defined twice"));
         }
         designs.push(design);
