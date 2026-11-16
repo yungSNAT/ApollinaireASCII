@@ -525,6 +525,15 @@ fn flowcharts_read_every_shape_and_link_form_alike() {
         assert_eq!(chart(&format!("graph TD\n{node} --> B")), boxed, "{node}");
     }
     assert_eq!(chart("graph TD\nA --> B\nA[x]"), boxed);
+    // Styling is skipped to the end of its statement, not its line.
+    assert_eq!(
+        chart("graph TD; A --> B; style A fill:#f00; B --> C"),
+        chart("graph TD; A --> B; B --> C")
+    );
+    assert_eq!(
+        chart("graph TD; A --> B; classDef warm fill:#f96;class A warm; B --> C;"),
+        chart("graph TD; A --> B; B --> C")
+    );
     let arrow = chart("graph TD\nA --> B");
     for source in [
         "graph\nA -.-> B",
@@ -632,6 +641,15 @@ fn flowcharts_refuse_what_they_cannot_draw_with_its_line() {
             "graph TD\nA <--- B",
             "Line 2: the link at column 3 has an arrowhead at its start only",
         ),
+        // The shortest such link is not mistaken for link text that is never closed.
+        (
+            "graph TD\nA <-- B",
+            "Line 2: the link at column 3 has an arrowhead at its start only",
+        ),
+        (
+            "graph TD\nA@{ shape: rect }",
+            "Line 2: expected a link such as --> at column 2",
+        ),
         (
             "graph TD\nA -> B",
             "Line 2: expected a link such as --> at column 3",
@@ -733,5 +751,24 @@ fn flowcharts_refuse_drawings_over_512_columns_or_256_rows() {
     assert_eq!(
         flowchart(&format!("flowchart TD\n{}  N0 --> M\n", chain(63))).unwrap_err(),
         "The flowchart needs 14 columns by 257 rows; the limit is 512 by 256"
+    );
+    // A link spanning 1,000 ranks needs a row for each and one between each pair, at least:
+    // refused before any rank is laid out.
+    assert_eq!(
+        flowchart(&format!("graph TD\nA {}> B", "-".repeat(1001))).unwrap_err(),
+        "The flowchart needs at least 2001 rows; the limit is 256"
+    );
+    assert_eq!(
+        flowchart(&format!("graph LR\nA {}> B", "-".repeat(301))).unwrap_err(),
+        "The flowchart needs at least 601 columns; the limit is 512"
+    );
+    // Input over 16 MiB is refused before it is read.
+    assert_eq!(
+        flowchart(&format!(
+            "graph TD\nA{}",
+            " ".repeat(apollinaire_ascii::MAX_INPUT_BYTES)
+        ))
+        .unwrap_err(),
+        "The flowchart exceeds the 16 MiB input limit"
     );
 }
