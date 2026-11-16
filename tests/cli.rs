@@ -583,6 +583,7 @@ fn image_batches_use_safe_names_and_the_requested_export_format() {
         ("html", "html", "<!doctype html>"),
         ("cast", "cast", "{\"version\":2,"),
         ("react", "js", "// ApollinaireASCII artwork as a React"),
+        ("ink", "js", "// ApollinaireASCII artwork as an Ink"),
         ("opentui", "js", "// ApollinaireASCII artwork for OpenTUI"),
         (
             "bubbletea",

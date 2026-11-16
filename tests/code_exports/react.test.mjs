@@ -55,6 +55,32 @@ test('loops back to the first frame', async (t) => {
   await act(async () => root.unmount());
 });
 
+test('leaves no timer behind when paused, resumed and unmounted mid-frame', async (t) => {
+  const { root, shown, wait } = await mount(t, looping);
+  // Count the timers set and not yet cleared, from here on.
+  const live = new Set();
+  const [set, clear] = [globalThis.setTimeout, globalThis.clearTimeout];
+  globalThis.setTimeout = (...args) => {
+    const id = set(...args);
+    live.add(id);
+    return id;
+  };
+  globalThis.clearTimeout = (id) => {
+    live.delete(id);
+    clear(id);
+  };
+  t.after(() => Object.assign(globalThis, { setTimeout: set, clearTimeout: clear }));
+  await wait(100);
+  await act(async () => root.render(createElement(looping, { paused: true })));
+  await wait(1000);
+  assert.equal(shown(), 0);
+  await act(async () => root.render(createElement(looping, { paused: false })));
+  assert.equal(live.size, 1, 'one timer while playing');
+  await wait(50);
+  await act(async () => root.unmount());
+  assert.equal(live.size, 0, 'no timer after unmounting');
+});
+
 test('holds its frame while paused', async (t) => {
   const { root, shown, wait } = await mount(t, looping, { paused: true });
   await wait(1000);
@@ -62,6 +88,21 @@ test('holds its frame while paused', async (t) => {
   await act(async () => root.render(createElement(looping, { paused: false })));
   await wait(200);
   assert.equal(shown(), 1);
+  await act(async () => root.unmount());
+});
+
+test('stays still when reduced motion is asked for between rendering and subscribing', async (t) => {
+  // The first query, read while rendering, says no; every later one says yes, with no event.
+  let queries = 0;
+  window.matchMedia = () => {
+    const query = new window.EventTarget();
+    query.matches = queries++ > 0;
+    return query;
+  };
+  t.after(() => delete window.matchMedia);
+  const { root, shown, wait } = await mount(t, looping);
+  await wait(200);
+  assert.equal(shown(), 0);
   await act(async () => root.unmount());
 });
 
