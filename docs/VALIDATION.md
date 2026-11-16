@@ -115,7 +115,7 @@ The last GIF is within 0.4% of the 64 million decoded pixel budget and at the 60
 
 ## CLI conversion speed
 
-On 13 November 2026 `.github/scripts/conversion-speed.sh` timed the CLI against 2 command-line converters that can print plain ASCII: [ascii-image-converter](https://github.com/TheZoraiz/ascii-image-converter) v1.13.1 (its Linux amd64 release binary) and [chafa](https://hpjansson.org/chafa/) 1.18.3 (its static Linux build, with `--symbols ascii --colors none`). Each converted 3 ImageMagick 7.1.2-35 plasma fractals to 200 columns and printed the result to `/dev/null`; each time is the fastest of 5 runs, including process start. apollinaire 0.4.0 was built with `cargo install --locked apollinaire-ascii` and Rust 1.100.0. The machine ran Linux 7.3.3 on an AMD Ryzen 7 4800H, limited to 4 CPUs and shared with other jobs (load average about 5), so the times are indicative.
+On 13 November 2026 the conversion speed script (now `xtask speed`) timed the CLI against 2 command-line converters that can print plain ASCII: [ascii-image-converter](https://github.com/TheZoraiz/ascii-image-converter) v1.13.1 (its Linux amd64 release binary) and [chafa](https://hpjansson.org/chafa/) 1.18.3 (its static Linux build, with `--symbols ascii --colors none`). Each converted 3 ImageMagick 7.1.2-35 plasma fractals to 200 columns and printed the result to `/dev/null`; each time is the fastest of 5 runs, including process start. apollinaire 0.4.0 was built with `cargo install --locked apollinaire-ascii` and Rust 1.100.0. The machine ran Linux 7.3.3 on an AMD Ryzen 7 4800H, limited to 4 CPUs and shared with other jobs (load average about 5), so the times are indicative.
 
 | Picture | apollinaire | apollinaire `--dither` | ascii-image-converter | chafa |
 |---|--:|--:|--:|--:|
@@ -123,7 +123,7 @@ On 13 November 2026 `.github/scripts/conversion-speed.sh` timed the CLI against 
 | 1920 x 1080 PNG, 10.2 MiB | 56 ms | 57 ms | 169 ms | 129 ms |
 | 4000 x 3000 PNG, 58.6 MiB | refused | refused | 901 ms | 646 ms |
 
-chafa came closest, within 17 ms on the JPEG. The CLI refused the large PNG with 'Input exceeds 16 MiB', its input limit then; the other 2 converted it, and Image input limit below covers the change that followed. The script also checked one output of each conversion: none held a byte outside line feeds and printable ASCII. The fractals differ slightly between runs despite the fixed seed. To rerun, pass the 3 programs' paths: `bash .github/scripts/conversion-speed.sh <apollinaire> <ascii-image-converter> <chafa>`; ImageMagick 7 draws the pictures.
+chafa came closest, within 17 ms on the JPEG. The CLI refused the large PNG with 'Input exceeds 16 MiB', its input limit then; the other 2 converted it, and Image input limit below covers the change that followed. The script also checked one output of each conversion: none held a byte outside line feeds and printable ASCII. The fractals differ slightly between runs despite the fixed seed. To rerun, pass the 3 programs' paths: `cargo run --manifest-path xtask/Cargo.toml -- speed <apollinaire> <ascii-image-converter> <chafa>`; ImageMagick 7 draws the pictures.
 
 ## Image input limit
 
