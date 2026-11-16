@@ -1,7 +1,8 @@
 name: Port parity (temporary)
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [ryan/rust-scripts-2026-11-15]
 
 permissions:
   contents: read
