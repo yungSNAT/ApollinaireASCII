@@ -221,9 +221,10 @@ mod tests {
 
     const SUMS: &str = include_str!("../tests/golden/SHA256SUMS.txt");
 
-    /// The files manifests.sh wrote from the same sums, before it was replaced.
+    /// The golden files are the v0.4.1 release's own SHA256SUMS.txt, apollinaire.rb and
+    /// apollinaire.json, as published: the formula and manifest it attached are reproduced.
     #[test]
-    fn writes_what_the_shell_script_wrote() {
+    fn reproduces_the_published_v0_4_1_formula_and_manifest() {
         let (formula, scoop) = render("v0.4.1", SUMS, "SHA256SUMS.txt").unwrap();
         assert_eq!(formula, include_str!("../tests/golden/apollinaire.rb"));
         assert_eq!(scoop, include_str!("../tests/golden/apollinaire.json"));
