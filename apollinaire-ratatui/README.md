@@ -17,4 +17,4 @@ fn draw(frame: &mut ratatui::Frame) -> Result<(), String> {
 
 `Ascii::size` gives the columns and rows the art needs, for a layout constraint. A frame larger than its area is clipped on the right and bottom.
 
-It depends on `ratatui-core`, so it works with ratatui 0.30 and later. MIT licence.
+It depends on `ratatui-core` 0.1, the widget interface of ratatui 0.30. MIT licence.

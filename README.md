@@ -142,6 +142,8 @@ fn main() -> Result<(), String> {
 
 `Frame` is an immutable rectangular ASCII grid. `Canvas` provides validated, clipped drawing, including flood fill and diagram boxes and arrows that join with `+`; `Animation` owns equal-size frames, durations and loop behaviour. See [the format and limits](docs/FORMAT.md) and the [API documentation](https://docs.rs/apollinaire-ascii).
 
+For a terminal interface built with ratatui, [apollinaire-ratatui](apollinaire-ratatui/README.md) draws lettering, catalogue pieces or any frame as a widget. Until it is on crates.io, depend on it as `apollinaire-ratatui = { git = "https://github.com/yungSNAT/ApollinaireASCII" }`.
+
 ## Build the browser editor
 
 ```sh
