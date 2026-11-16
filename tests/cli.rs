@@ -1705,3 +1705,30 @@ fn generate_builds_mazes_skies_and_patterns_from_the_library() {
         "at most 20 moons",
     );
 }
+
+#[test]
+fn binary_text_art_loads_by_name_and_bin_only_with_its_flag() {
+    let dir = scratch("binary-art");
+    // A 2 by 1 XBIN screen: a full block and a heart.
+    let xbin = dir.join("heart.xb");
+    std::fs::write(&xbin, b"XBIN\x1a\x02\x00\x01\x00\x10\x00\xdb\x1f\x03\x4f").unwrap();
+    let imported = cli(&["import", xbin.to_str().unwrap()]);
+    assert_eq!(text(&imported.stdout), "#*\n", "{}", text(&imported.stderr));
+    // BIN: 2 cells and a BinaryText SAUCE record of 2 columns (FileType holds half the width).
+    let mut bin = b"\xc4\x07\xb3\x07\x1aSAUCE00".to_vec();
+    bin.resize(5 + 94, b' ');
+    bin.extend([5, 1]);
+    bin.resize(5 + 128, 0);
+    let path = dir.join("line.bin");
+    std::fs::write(&path, &bin).unwrap();
+    let imported = cli(&["import", "--bin", path.to_str().unwrap()]);
+    assert_eq!(text(&imported.stdout), "-|\n", "{}", text(&imported.stderr));
+    let piped = cli_stdin(&["import", "--bin", "-"], &bin);
+    assert_eq!(text(&piped.stdout), "-|\n");
+    // Without --bin the name alone does not make it art, and --bin cannot pad text.
+    refused(&cli(&["import", path.to_str().unwrap()]), "UTF-8");
+    refused(
+        &cli(&["import", "--bin", "--pad", path.to_str().unwrap()]),
+        "cannot be used with",
+    );
+}
