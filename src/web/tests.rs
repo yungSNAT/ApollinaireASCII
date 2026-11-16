@@ -2024,6 +2024,84 @@ fn effect_animates_the_selected_frame_and_undoes() {
 }
 
 #[wasm_bindgen_test]
+fn the_generator_source_draws_mazes_skies_and_patterns_with_only_their_settings_shown() {
+    use crate::generator;
+    blank(4, 1);
+    let shown = |id: &str| !element::<HtmlElement>(id).hidden();
+    let mode = element::<HtmlSelectElement>("mode");
+    let source = element::<HtmlSelectElement>("generator");
+    mode.set_value("generator");
+    change_event("mode");
+    assert!(shown("generator-fields") && shown("maze-fields") && shown("seed-fields"));
+    assert!(!shown("sky-fields") && !shown("scene-fields") && !shown("text-fields"));
+    set_value("width", "9");
+    set_value("height", "5");
+    set_value("seed", "7");
+    element::<HtmlSelectElement>("maze-algorithm").set_value("wilson");
+    element::<HtmlSelectElement>("maze-style").set_value("lines");
+    check("maze-solution", true);
+    click("generate");
+    let solved = generator::maze(
+        9,
+        5,
+        7,
+        &generator::MazeOptions {
+            algorithm: generator::Algorithm::Wilson,
+            style: generator::MazeStyle::Lines,
+            solution: true,
+        },
+    )
+    .unwrap();
+    assert_eq!(art(), solved.text());
+    check("maze-solution", false);
+    source.set_value("sky");
+    change_event("generator");
+    assert!(shown("sky-fields") && !shown("maze-fields") && shown("seed-fields"));
+    set_value("width", "20");
+    set_value("sky-stars", "6");
+    for id in ["sky-big-stars", "sky-moons", "sky-asteroids"] {
+        set_value(id, "0");
+    }
+    click("generate");
+    assert_eq!(art().bytes().filter(|b| !b" \n".contains(b)).count(), 6);
+    set_value("sky-moons", "21");
+    click("generate");
+    assert_eq!(status(), "Error: A sky has at most 20 moons");
+    for (id, value) in [
+        ("sky-stars", "60"),
+        ("sky-big-stars", "4"),
+        ("sky-moons", "1"),
+        ("sky-asteroids", "2"),
+    ] {
+        set_value(id, value);
+    }
+    source.set_value("pattern");
+    change_event("generator");
+    assert!(shown("pattern-fields") && shown("text-fields") && !shown("seed-fields"));
+    let options = element::<HtmlSelectElement>("pattern").children();
+    let names: Vec<String> = (0..options.length())
+        .map(|i| {
+            options
+                .item(i)
+                .unwrap()
+                .get_attribute("value")
+                .unwrap_or_else(|| options.item(i).unwrap().text_content().unwrap())
+        })
+        .collect();
+    assert_eq!(names, generator::PATTERNS);
+    element::<HtmlSelectElement>("pattern").set_value("bricks");
+    set_value("width", "8");
+    set_value("height", "2");
+    click("generate");
+    assert_eq!(art(), rows(&["|___|___", "__|___|_"]));
+    source.set_value("maze");
+    mode.set_value("scene");
+    change_event("mode");
+    assert!(!shown("generator-fields") && shown("scene-fields") && shown("seed-fields"));
+    set_value("seed", "42");
+}
+
+#[wasm_bindgen_test]
 fn artwork_search_filters_the_catalogue() {
     blank(4, 1);
     input_event("art-search", "bird");

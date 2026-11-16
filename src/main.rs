@@ -5,7 +5,7 @@ use apollinaire_ascii::{
     Animation, BorderStyle, Canvas, EffectOptions, Frame, Layered, MAX_INPUT_BYTES,
     MAX_MEDIA_BYTES, RenderOptions, Result, SceneOptions, TimedFrame, animation, ansi, art, bubble,
     diagram::{self, TableRules},
-    effects, export, lettering,
+    effects, export, generator, lettering,
 };
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use std::{
@@ -104,6 +104,123 @@ fn separator(value: &str) -> Result<u8> {
     }
 }
 #[derive(Clone, Copy, ValueEnum)]
+enum Algorithm {
+    /// Depth-first search: long, winding passages.
+    DepthFirst,
+    /// Randomised Prim: many short dead ends.
+    Prim,
+    /// Wilson's loop-erased random walks: every maze equally likely.
+    Wilson,
+    /// Row by row, with an open top row.
+    Sidewinder,
+}
+impl From<Algorithm> for generator::Algorithm {
+    fn from(algorithm: Algorithm) -> Self {
+        match algorithm {
+            Algorithm::DepthFirst => Self::DepthFirst,
+            Algorithm::Prim => Self::Prim,
+            Algorithm::Wilson => Self::Wilson,
+            Algorithm::Sidewinder => Self::Sidewinder,
+        }
+    }
+}
+#[derive(Clone, Copy, ValueEnum)]
+enum MazeStyle {
+    /// # walls.
+    Hash,
+    /// +, - and | walls.
+    Lines,
+}
+impl From<MazeStyle> for generator::MazeStyle {
+    fn from(style: MazeStyle) -> Self {
+        match style {
+            MazeStyle::Hash => Self::Hash,
+            MazeStyle::Lines => Self::Lines,
+        }
+    }
+}
+#[derive(Clone, Copy, ValueEnum)]
+enum Phase {
+    Full,
+    /// Lit on the right.
+    Waxing,
+    /// Lit on the left.
+    Waning,
+    /// Each moon full, waxing or waning by the seed.
+    Random,
+}
+impl From<Phase> for generator::Phase {
+    fn from(phase: Phase) -> Self {
+        match phase {
+            Phase::Full => Self::Full,
+            Phase::Waxing => Self::Waxing,
+            Phase::Waning => Self::Waning,
+            Phase::Random => Self::Random,
+        }
+    }
+}
+/// The size and seed every generator takes.
+#[derive(clap::Args)]
+struct Size {
+    /// Columns, 1 to 512.
+    #[arg(long, default_value_t = 72)]
+    width: usize,
+    /// Rows, 1 to 256.
+    #[arg(long, default_value_t = 24)]
+    height: usize,
+    /// The same seed always gives the same picture.
+    #[arg(long, default_value_t = 42)]
+    seed: u32,
+}
+#[derive(Subcommand)]
+enum Generator {
+    /// A perfect maze with an entrance at the top left and an exit at the bottom right.
+    Maze {
+        #[command(flatten)]
+        size: Size,
+        #[arg(long, value_enum, default_value_t = Algorithm::DepthFirst)]
+        algorithm: Algorithm,
+        #[arg(long, value_enum, default_value_t = MazeStyle::Hash)]
+        style: MazeStyle,
+        /// Mark the path from the entrance to the exit with `.`.
+        #[arg(long)]
+        solution: bool,
+    },
+    /// A still night sky of moons, stars and asteroids, none touching.
+    Sky {
+        #[command(flatten)]
+        size: Size,
+        /// Single-character stars, 0 to 5000.
+        #[arg(long, default_value_t = 60)]
+        stars: usize,
+        /// 3 by 3 stars with rays, 0 to 200.
+        #[arg(long, default_value_t = 4)]
+        big_stars: usize,
+        /// 6 by 4 moons, 0 to 20.
+        #[arg(long, default_value_t = 1)]
+        moons: usize,
+        #[arg(long, value_enum, default_value_t = Phase::Full)]
+        phase: Phase,
+        /// 3 by 2 asteroids, 0 to 200.
+        #[arg(long, default_value_t = 2)]
+        asteroids: usize,
+    },
+    /// A repeating pattern; `apollinaire list` names them.
+    Pattern {
+        /// Pattern name.
+        name: String,
+        /// Columns, 1 to 512.
+        #[arg(long, default_value_t = 72)]
+        width: usize,
+        /// Rows, 1 to 256.
+        #[arg(long, default_value_t = 24)]
+        height: usize,
+        /// Printable ASCII for the text pattern, 1 to 512 characters.
+        #[arg(long, default_value = "HELLO, FRIEND")]
+        text: String,
+    },
+}
+#[derive(Clone, Copy, ValueEnum)]
 enum Transform {
     Horizontal,
     Vertical,
@@ -112,7 +229,7 @@ enum Transform {
 }
 #[derive(Subcommand)]
 enum Command {
-    /// List artwork, fonts, scenes, effects and conversion ramps.
+    /// List artwork, fonts, scenes, patterns, effects and conversion ramps.
     List {
         /// Show only artwork whose name, category or tag contains this text.
         #[arg(long)]
@@ -265,6 +382,11 @@ enum Command {
         #[arg(long, default_value = "HELLO, FRIEND")]
         text: String,
     },
+    /// Deterministic still pictures built to a size: mazes, night skies and patterns.
+    Generate {
+        #[command(subcommand)]
+        generator: Generator,
+    },
     /// Animate text art or lettering with a deterministic effect, exported as timed JSON.
     Effect {
         /// Effect to apply.
@@ -409,9 +531,10 @@ fn run(args: Args) -> Result<()> {
                 list += &format!("  {category}: {}\n", names.join(", "));
             }
             list += &format!(
-                "Fonts: {}\nScenes: {}\nEffects: {}\nRamps: {}\n",
+                "Fonts: {}\nScenes: {}\nPatterns: {}\nEffects: {}\nRamps: {}\n",
                 lettering::FONTS.join(", "),
                 animation::SCENES.join(", "),
+                generator::PATTERNS.join(", "),
                 effects::EFFECTS.join(", "),
                 apollinaire_ascii::image_renderer::RAMPS
                     .iter()
@@ -603,6 +726,48 @@ fn run(args: Args) -> Result<()> {
                 text,
             },
         )?,
+        Command::Generate { generator } => Animation::still(match generator {
+            Generator::Maze {
+                size,
+                algorithm,
+                style,
+                solution,
+            } => generator::maze(
+                size.width,
+                size.height,
+                size.seed,
+                &generator::MazeOptions {
+                    algorithm: algorithm.into(),
+                    style: style.into(),
+                    solution,
+                },
+            )?,
+            Generator::Sky {
+                size,
+                stars,
+                big_stars,
+                moons,
+                phase,
+                asteroids,
+            } => generator::sky(
+                size.width,
+                size.height,
+                size.seed,
+                &generator::SkyOptions {
+                    stars,
+                    big_stars,
+                    moons,
+                    phase: phase.into(),
+                    asteroids,
+                },
+            )?,
+            Generator::Pattern {
+                name,
+                width,
+                height,
+                text,
+            } => generator::pattern(width, height, &name, &text)?,
+        }),
         Command::Import { input, pad } => load(&input, pad)?,
         Command::Compose {
             background,

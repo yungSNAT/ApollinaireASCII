@@ -4,7 +4,7 @@
 use crate::{
     Animation, BorderStyle, Canvas, EffectOptions, Frame, Layer, Layered, MAX_INPUT_BYTES,
     RenderOptions, Result, SceneOptions, TimedFrame, animation, ansi, art, decode_media, effects,
-    export, image_renderer::RAMPS, lettering,
+    export, generator, image_renderer::RAMPS, lettering,
 };
 use js_sys::{Array, Uint8Array};
 use std::cell::RefCell;
@@ -430,7 +430,7 @@ pub fn start() -> std::result::Result<(), JsValue> {
     ] {
         listen(id, "click", move |_| report(action(id)))?;
     }
-    for id in ["mode", "border"] {
+    for id in ["mode", "border", "generator"] {
         listen(id, "change", move |_| report(fields()))?;
     }
     for id in ["range-first", "range-last", "range-duration"] {
@@ -594,11 +594,24 @@ fn listen(
 }
 fn fields() -> Result<()> {
     let mode = select("mode")?;
+    let generator = select("generator")?;
+    let pattern = mode == "generator" && generator == "pattern";
     for (id, visible) in [
         ("scene-fields", mode == "scene"),
+        ("generator-fields", mode == "generator"),
+        ("maze-fields", generator == "maze"),
+        ("sky-fields", generator == "sky"),
+        ("pattern-fields", generator == "pattern"),
+        (
+            "seed-fields",
+            mode == "scene" || (mode == "generator" && !pattern),
+        ),
         ("art-fields", mode == "art"),
         ("letter-fields", mode == "letters"),
-        ("text-fields", mode == "letters" || mode == "scene"),
+        (
+            "text-fields",
+            mode == "letters" || mode == "scene" || pattern,
+        ),
     ] {
         let element = node::<Element>(id)?;
         if visible {
@@ -619,6 +632,7 @@ fn generate(app: &mut App) -> Result<()> {
     app.clean()?;
     let width = number("width")?;
     let height = number("height")?;
+    let seed = || u32::try_from(number("seed")?).map_err(|_| "Seed is too large".to_string());
     let mut project = match select("mode")?.as_str() {
         "scene" => animation::generate(
             &select("scene")?,
@@ -627,7 +641,7 @@ fn generate(app: &mut App) -> Result<()> {
                 height,
                 frames: number("frames")?,
                 fps: u32::try_from(number("fps")?).map_err(|_| "FPS is too large")?,
-                seed: u32::try_from(number("seed")?).map_err(|_| "Seed is too large")?,
+                seed: seed()?,
                 text: text("message")?,
             },
         )?,
@@ -679,6 +693,44 @@ fn generate(app: &mut App) -> Result<()> {
                 &options,
             )?)
         }
+        "generator" => Animation::still(match select("generator")?.as_str() {
+            "maze" => generator::maze(
+                width,
+                height,
+                seed()?,
+                &generator::MazeOptions {
+                    algorithm: match select("maze-algorithm")?.as_str() {
+                        "prim" => generator::Algorithm::Prim,
+                        "wilson" => generator::Algorithm::Wilson,
+                        "sidewinder" => generator::Algorithm::Sidewinder,
+                        _ => generator::Algorithm::DepthFirst,
+                    },
+                    style: match select("maze-style")?.as_str() {
+                        "lines" => generator::MazeStyle::Lines,
+                        _ => generator::MazeStyle::Hash,
+                    },
+                    solution: checked("maze-solution")?,
+                },
+            )?,
+            "sky" => generator::sky(
+                width,
+                height,
+                seed()?,
+                &generator::SkyOptions {
+                    stars: number("sky-stars")?,
+                    big_stars: number("sky-big-stars")?,
+                    moons: number("sky-moons")?,
+                    phase: match select("sky-phase")?.as_str() {
+                        "waxing" => generator::Phase::Waxing,
+                        "waning" => generator::Phase::Waning,
+                        "random" => generator::Phase::Random,
+                        _ => generator::Phase::Full,
+                    },
+                    asteroids: number("sky-asteroids")?,
+                },
+            )?,
+            _ => generator::pattern(width, height, &select("pattern")?, &text("message")?)?,
+        }),
         "blank" => Animation::still(Frame::blank(width, height)?),
         _ => return Err("Choose a valid artwork source".into()),
     };
