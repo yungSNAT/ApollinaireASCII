@@ -249,7 +249,16 @@ fn tool_schemas_come_from_the_command_line() {
     );
     assert_eq!(
         art["properties"]["format"]["enum"],
-        json!(["text", "json", "html", "cast"])
+        json!([
+            "text",
+            "json",
+            "html",
+            "cast",
+            "react",
+            "ink",
+            "opentui",
+            "bubbletea"
+        ])
     );
     assert_eq!(art["properties"]["frame"]["type"], "integer");
     let image = schema("image");
