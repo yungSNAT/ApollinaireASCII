@@ -27,7 +27,7 @@ fn draws_from_the_top_left_and_leaves_the_rest_of_the_area() {
 #[test]
 fn aligns_within_the_area() {
     for (alignment, rows) in [
-        (Alignment::Center, ["~ab~~~", "~ c~~~"]),
+        (Alignment::Center, ["~~ab~~", "~~ c~~"]),
         (Alignment::Right, ["~~~~ab", "~~~~ c"]),
     ] {
         let mut buf = filled(6, 2);
