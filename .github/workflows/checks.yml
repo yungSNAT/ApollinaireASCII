@@ -118,8 +118,36 @@ jobs:
           disable_search: true
           fail_ci_if_error: true
 
-  # Formula/ makes this repository a Homebrew tap, as the README says: install the release its
-  # formula names and run the formula's test.
+  # The React, Ink, OpenTUI and Bubble Tea exports of 2 projects, run in Node, Bun and Go at
+  # the versions pinned in tests/code_exports.
+  code-exports:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+          no-cache: true
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: tests/code_exports/go/go.mod
+          cache: false
+      - run: cargo build --locked --bin apollinaire
+      - run: bash tests/code_exports/run.sh target/debug/apollinaire
+
+  # Formula/ makes this repository a Homebrew tap, as the README says: check it is the latest
+  # release's formula, install the release it names and run the formula's test.
   homebrew:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -130,6 +158,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # The tap serves the latest release: after each release, a pull request copies the
+      # release's apollinaire.rb into Formula/. Until that merges, this check fails.
+      - name: Formula/ is the latest release's formula
+        run: |
+          curl --proto '=https' --tlsv1.2 -fsSLo "$RUNNER_TEMP/latest.rb" "https://github.com/$GITHUB_REPOSITORY/releases/latest/download/apollinaire.rb"
+          if ! cmp -s "$RUNNER_TEMP/latest.rb" Formula/apollinaire.rb; then
+            echo "::error file=Formula/apollinaire.rb::Not the latest release's apollinaire.rb: copy it from https://github.com/$GITHUB_REPOSITORY/releases/latest"
+            diff "$RUNNER_TEMP/latest.rb" Formula/apollinaire.rb
+            exit 1
+          fi
       - run: |
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
           brew tap yungsnat/apollinaire "$GITHUB_WORKSPACE"

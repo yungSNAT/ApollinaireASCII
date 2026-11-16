@@ -27,8 +27,11 @@ apollinaire image movie.gif --width 72 --output movie.json
 apollinaire image logo.png --width 72 --edges --invert --background 255
 apollinaire image logo.png --width 72 --edge-glyphs
 apollinaire image logo.png --width 72 --edges --edge-glyphs
+apollinaire image logo.png --width 72 --shapes
 apollinaire image shots/*.png intro.gif --width 72 --output-dir ascii
 apollinaire image https://example.com/photo.jpg --width 80 --output photo.txt
+apollinaire model teapot.obj --width 72 --height 24 --light top --output teapot.json
+apollinaire model part.stl --spin xy --frames 60 --format html --output part.html
 apollinaire import art.txt --pad --format json --output art.json
 apollinaire import movie.json --format html --output movie.html
 apollinaire import movie.json --format text --frame 0 --output first.txt
@@ -38,6 +41,7 @@ apollinaire transform movie.json horizontal --output flipped.json
 apollinaire transform art.txt crop --x 2 --y 1 --width 20 --height 10
 apollinaire transform art.txt border
 apollinaire transform art.txt border --style dotted
+apollinaire transform art.txt rotate --turns 3
 apollinaire check movie.json
 apollinaire play movie.json --loops 3
 apollinaire edit cat.txt
@@ -46,11 +50,13 @@ apollinaire completions zsh > _apollinaire
 apollinaire man | man -l -
 ```
 
-`--output` creates a new file. An existing file causes an error, even when its contents are identical. Without it, exports go to stdout. Errors go to stderr and return a nonzero exit status. A reader that closes the pipe early, as `head` does, ends the command quietly with status 0. `check` reports validated dimensions and timing on stdout.
+`--output` creates a new file. An existing file causes an error, even when its contents are identical. Without it, exports go to stdout. Errors go to stderr and return a nonzero exit status. A reader that closes the pipe early, as `head` does, ends the command quietly with status 0. `check` reports validated dimensions and timing on stdout. Given text that is not valid art, it lists every problem on stderr by line and column, such as a tab, a curly quote with the ASCII to use instead, bytes that are not UTF-8 or a row shorter than the widest: the first 200, then how many more there are. JSON projects and ANSI files report their first error.
 
 Borders come in 4 styles: `plain` (`+-|`, the default), `rounded` (`.-'|`), `dotted` (`.:`) and `heavy` (`#=`). `art` takes one as `--border=<style>` (with the `=`, so `--border` alone still works before the piece's name), and `transform ... border` and `say` as `--style <style>`.
 
-`--format text|json|html|cast` overrides extension/default inference. `.json`, `.html` and `.cast` output extensions select those formats; otherwise a still defaults to text and an animation to JSON. Animated text export requires an explicit zero-based `--frame`. `--frame` is valid only with text export.
+`transform ... rotate` turns every frame clockwise by `--turns` quarter turns (1 by default, up to 3), and turns `-`, `|`, `/` and `\` with it; arrowheads keep their glyphs, as they do in the flips. Cells are about twice as tall as they are wide, so a quarter turn stretches a shape, and a turn whose result would pass 256 rows is refused. The editor's Rotate area buttons also turn arrowheads when Mirror directional characters is on.
+
+`--format text|json|html|cast|react|ink|opentui|bubbletea` overrides extension/default inference. `.json`, `.html` and `.cast` output extensions select those formats and `.go` selects `bubbletea`; the 3 JavaScript formats share `.js`, so they need `--format`. [The format notes](FORMAT.md) describe each code export. Otherwise a still defaults to text and an animation to JSON. Animated text export requires an explicit zero-based `--frame`. `--frame` is valid only with text export.
 
 Use `-` as the input path for stdin. `.json` input is always parsed as a project and `.txt` as text. A project with layers or keyframes (versions 2 and 3 in [the format notes](FORMAT.md)) is read flattened to its visible layers, each drawn through its keys. Ambiguous input, including stdin, is treated as JSON when it begins with `{` and is syntactically JSON; otherwise it is text. Give literal artwork that is also valid JSON a `.txt` filename to force text interpretation. CRLF is normalised to LF for text imports. `--pad` explicitly pads ragged rows; the browser pads text imports automatically.
 
@@ -58,7 +64,9 @@ Files named `.ans`, `.asc`, `.nfo` or `.diz`, in any letter case, are ANSI or CP
 
 Files named `.xb`, `.adf`, `.idf` or `.tnd` are XBIN, Artworx, iCE Draw and TundraDraw art, read the same way: only each cell's character code is kept, drawn as CP437 draws it, and colour, palettes and fonts are dropped, so a file's own font may have drawn some codes as other shapes. XBIN is as wide and tall as its header says, with or without its run-length compression; ADF and TND are 80 columns wide (TND, or the width a TundraDraw SAUCE record gives); IDF spans its header's first column to its last. BIN art (`.bin`) has no signature, so it is read only with `import --bin` (or the browser editor's **Read the file as BIN art** option): character and attribute pairs, as wide as a BinaryText SAUCE record says or 160 columns. A truncated file, or art wider than 512 columns or taller than 256 rows, is refused. `edit` does not open these files, since saving would replace the art with plain text; import one to `.txt` first.
 
-`image` accepts a named ramp (`standard`, `fine`, `simple`, `binary`) or a literal sequence ordered from light to dense. Quote literal ramps containing spaces or shell characters. `--cell-aspect` defaults to `0.5`; use `--height` to set rows explicitly. The background is a greyscale value from 0 to 255 for compositing transparency. Gamma and contrast accept 0.1 to 5.0. `--edges` maps edge strength through the ramp, tracing outlines. `--edge-glyphs` draws strong edges (at least a quarter of a full black-to-white step) as `|`, `/`, `-` or `\` along their direction: over the picture's own tones alone, or over the traced outlines with `--edges`. Animated GIF input retains each frame's delay, normalising zero delay to 100 ms and applying the format's 10 to 60,000 ms limits.
+`image` accepts a named ramp (`standard`, `fine`, `simple`, `binary`) or a literal sequence ordered from light to dense. Quote literal ramps containing spaces or shell characters. `--cell-aspect` defaults to `0.5`; use `--height` to set rows explicitly. The background is a greyscale value from 0 to 255 for compositing transparency. Gamma and contrast accept 0.1 to 5.0. `--edges` maps edge strength through the ramp, tracing outlines. `--edge-glyphs` draws strong edges (at least a quarter of a full black-to-white step) as `|`, `/`, `-` or `\` along their direction: over the picture's own tones alone, or over the traced outlines with `--edges`. `--shapes` gives each cell the printable character whose shape best fits its pixels (8 by 16 per cell, by least squares against font8x8 bitmaps) instead of a ramp character for its brightness; it takes no `--ramp`, `--dither`, `--edges` or `--edge-glyphs`, and the browser editor's converter has the same option. Animated GIF input retains each frame's delay, normalising zero delay to 100 ms and applying the format's 10 to 60,000 ms limits.
+
+`model FILE` draws a 3D model turning one full circle over `--frames` frames (36 by default, at `--fps` 12): about the upright axis (`--spin y`), head over heels (`x`) or both (`xy`). It reads binary STL, text STL (a file beginning `solid` that is not binary STL's exact size) and OBJ, taking `v` and `f` lines, negative indices and polygons as triangle fans and ignoring comments and the rest, such as normals, textures and materials. glTF and GLB files are not read; convert one to OBJ or STL first, as Blender can. The model is centred and scaled so it stays inside `--width` by `--height` cells (72 by 24) at every angle, with columns half as wide as rows are tall. Each cell takes the nearest surface, shaded by how squarely it faces `--light` (`top-left` by default, `top`, `front`, `left` or `right`) through `--ramp`, so lit faces take its dense end; both sides of a face are lit. A model may have up to 1,000,000 triangles and the file 16 MiB. One render may do at most 400,000,000 units of work, counting 20 for each triangle in each frame and 1 for each cell of a triangle's bounding box tested in each frame, so at most 20,000,000 triangle draws; the work is counted before drawing, and a heavy model needs fewer frames, a smaller size or fewer triangles. A file with a broken facet, a face corner that names no vertex or a coordinate that is not a finite number is refused, naming the line where there is one, as is a model with no triangles or no size. The browser editor's converter turns `.stl` and `.obj` files the same way, 36 frames at 12 per second, at its width and height.
 
 `list --tag TEXT` prints each catalogue piece whose name, category or tag contains the text, ignoring case, with its category and tags. It fails when nothing matches.
 
