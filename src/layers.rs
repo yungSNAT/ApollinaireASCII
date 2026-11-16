@@ -8,8 +8,8 @@
 //! let sky = Animation::still(Frame::from_text("* *")?);
 //! let bird = Animation::still(Frame::from_text(" v ")?);
 //! let project = Layered::new(vec![
-//!     Layer { name: "Sky".into(), visible: true, art: sky, motion: Default::default() },
-//!     Layer { name: "Bird".into(), visible: true, art: bird, motion: Default::default() },
+//!     Layer { name: "Sky".into(), visible: true, locked: false, art: sky, motion: Default::default() },
+//!     Layer { name: "Bird".into(), visible: true, locked: false, art: bird, motion: Default::default() },
 //! ])?;
 //! assert_eq!(project.flatten().frames()[0].frame.text(), "*v*");
 //! assert_eq!(Layered::from_json(&project.to_json())?, project);
@@ -30,6 +30,8 @@ pub struct Layer {
     /// 1 to 32 printable ASCII characters.
     pub name: String,
     pub visible: bool,
+    /// The browser editor refuses to change a locked layer's characters, keys or name.
+    pub locked: bool,
     pub art: Animation,
     /// Keys that move, scale and turn the layer over the frames; empty for none.
     pub motion: Motion,
@@ -137,6 +139,7 @@ impl Layered {
             layers: vec![Layer {
                 name: DEFAULT_NAME.into(),
                 visible: true,
+                locked: false,
                 art,
                 motion: Motion::default(),
             }],
@@ -145,11 +148,16 @@ impl Layered {
     pub fn layers(&self) -> &[Layer] {
         &self.layers
     }
-    /// The animation, when the project is one visible layer named [`DEFAULT_NAME`] with no
-    /// keys: the project a version 1 file holds.
+    /// The animation, when the project is one visible, unlocked layer named [`DEFAULT_NAME`]
+    /// with no keys: the project a version 1 file holds.
     pub fn plain(&self) -> Option<&Animation> {
         match &self.layers[..] {
-            [layer] if layer.visible && layer.name == DEFAULT_NAME && layer.motion.is_empty() => {
+            [layer]
+                if layer.visible
+                    && !layer.locked
+                    && layer.name == DEFAULT_NAME
+                    && layer.motion.is_empty() =>
+            {
                 Some(&layer.art)
             }
             _ => None,
@@ -300,6 +308,7 @@ impl Layered {
                 Ok(Layer {
                     name: layer.name.clone(),
                     visible: layer.visible,
+                    locked: layer.locked,
                     art,
                     motion,
                 })
@@ -317,9 +326,12 @@ impl Layered {
     }
 }
 
-/// A layer's entry in the `layers` list, with its keys in version 3.
+/// A layer's entry in the `layers` list: `locked` only when true, and its keys in version 3.
 fn layer_json(layer: &Layer) -> Value {
     let mut entry = json!({"name":layer.name,"visible":layer.visible});
+    if layer.locked {
+        entry["locked"] = Value::Bool(true);
+    }
     if !layer.motion.is_empty() {
         let tracks: Map<String, Value> = Property::ALL
             .into_iter()
@@ -408,6 +420,7 @@ mod tests {
         let layer = Layer {
             name: "\"".repeat(32),
             visible: false,
+            locked: true,
             art,
             motion,
         };

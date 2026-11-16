@@ -1,11 +1,12 @@
+mod check;
 mod edit;
 mod fetch;
 
 use apollinaire_ascii::{
-    Animation, BorderStyle, Canvas, EffectOptions, Frame, Layered, MAX_INPUT_BYTES,
+    Animation, BorderStyle, Canvas, EffectOptions, Frame, Glyphs, Layered, MAX_INPUT_BYTES,
     MAX_MEDIA_BYTES, RenderOptions, Result, SceneOptions, TimedFrame, animation, ansi, art, bubble,
     diagram::{self, TableRules},
-    effects, export, lettering, model,
+    effects, export, generator, lettering, model,
 };
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use std::{
@@ -141,15 +142,136 @@ impl From<Light> for model::Light {
     }
 }
 #[derive(Clone, Copy, ValueEnum)]
+enum Algorithm {
+    /// Depth-first search: long, winding passages.
+    DepthFirst,
+    /// Randomised Prim: many short dead ends.
+    Prim,
+    /// Wilson's loop-erased random walks: every maze equally likely.
+    Wilson,
+    /// Row by row, with an open top row.
+    Sidewinder,
+}
+impl From<Algorithm> for generator::Algorithm {
+    fn from(algorithm: Algorithm) -> Self {
+        match algorithm {
+            Algorithm::DepthFirst => Self::DepthFirst,
+            Algorithm::Prim => Self::Prim,
+            Algorithm::Wilson => Self::Wilson,
+            Algorithm::Sidewinder => Self::Sidewinder,
+        }
+    }
+}
+#[derive(Clone, Copy, ValueEnum)]
+enum MazeStyle {
+    /// # walls.
+    Hash,
+    /// +, - and | walls.
+    Lines,
+}
+impl From<MazeStyle> for generator::MazeStyle {
+    fn from(style: MazeStyle) -> Self {
+        match style {
+            MazeStyle::Hash => Self::Hash,
+            MazeStyle::Lines => Self::Lines,
+        }
+    }
+}
+#[derive(Clone, Copy, ValueEnum)]
+enum Phase {
+    Full,
+    /// Lit on the right.
+    Waxing,
+    /// Lit on the left.
+    Waning,
+    /// Each moon full, waxing or waning by the seed.
+    Random,
+}
+impl From<Phase> for generator::Phase {
+    fn from(phase: Phase) -> Self {
+        match phase {
+            Phase::Full => Self::Full,
+            Phase::Waxing => Self::Waxing,
+            Phase::Waning => Self::Waning,
+            Phase::Random => Self::Random,
+        }
+    }
+}
+/// The size and seed every generator takes.
+#[derive(clap::Args)]
+struct Size {
+    /// Columns, 1 to 512.
+    #[arg(long, default_value_t = 72)]
+    width: usize,
+    /// Rows, 1 to 256.
+    #[arg(long, default_value_t = 24)]
+    height: usize,
+    /// The same seed always gives the same picture.
+    #[arg(long, default_value_t = 42)]
+    seed: u32,
+}
+#[derive(Subcommand)]
+enum Generator {
+    /// A perfect maze with an entrance at the top left and an exit at the bottom right.
+    Maze {
+        #[command(flatten)]
+        size: Size,
+        /// How the passages are carved.
+        #[arg(long, value_enum, default_value_t = Algorithm::DepthFirst)]
+        algorithm: Algorithm,
+        /// The characters the walls are drawn with.
+        #[arg(long, value_enum, default_value_t = MazeStyle::Hash)]
+        style: MazeStyle,
+        /// Mark the path from the entrance to the exit with `.`.
+        #[arg(long)]
+        solution: bool,
+    },
+    /// A still night sky of moons, stars and asteroids, none touching.
+    Sky {
+        #[command(flatten)]
+        size: Size,
+        /// Single-character stars, 0 to 5000.
+        #[arg(long, default_value_t = 60)]
+        stars: usize,
+        /// 3 by 3 stars with rays, 0 to 200.
+        #[arg(long, default_value_t = 4)]
+        big_stars: usize,
+        /// 6 by 4 moons, 0 to 20.
+        #[arg(long, default_value_t = 1)]
+        moons: usize,
+        /// How the moons are lit.
+        #[arg(long, value_enum, default_value_t = Phase::Full)]
+        phase: Phase,
+        /// 3 by 2 asteroids, 0 to 200.
+        #[arg(long, default_value_t = 2)]
+        asteroids: usize,
+    },
+    /// A repeating pattern; `apollinaire list` names them.
+    Pattern {
+        /// Pattern name.
+        name: String,
+        /// Columns, 1 to 512.
+        #[arg(long, default_value_t = 72)]
+        width: usize,
+        /// Rows, 1 to 256.
+        #[arg(long, default_value_t = 24)]
+        height: usize,
+        /// Printable ASCII for the text pattern, 1 to 512 characters.
+        #[arg(long, default_value = "HELLO, FRIEND")]
+        text: String,
+    },
+}
+#[derive(Clone, Copy, ValueEnum)]
 enum Transform {
     Horizontal,
     Vertical,
     Border,
     Crop,
+    Rotate,
 }
 #[derive(Subcommand)]
 enum Command {
-    /// List artwork, fonts, scenes, effects and conversion ramps.
+    /// List artwork, fonts, scenes, patterns, effects and conversion ramps.
     List {
         /// Show only artwork whose name, category or tag contains this text.
         #[arg(long)]
@@ -264,6 +386,10 @@ enum Command {
         /// --edges, over the traced outlines.
         #[arg(long)]
         edge_glyphs: bool,
+        /// Give each cell the printable character whose shape best fits its pixels, from all 95,
+        /// instead of a ramp character for its brightness.
+        #[arg(long, conflicts_with_all = ["ramp", "dither", "edges", "edge_glyphs"])]
+        shapes: bool,
         /// Gamma correction, 0.1 to 5.0.
         #[arg(long, default_value_t = 1.0)]
         gamma: f64,
@@ -329,6 +455,11 @@ enum Command {
         #[arg(long, default_value = "standard")]
         ramp: String,
     },
+    /// Deterministic still pictures built to a size: mazes, night skies and patterns.
+    Generate {
+        #[command(subcommand)]
+        generator: Generator,
+    },
     /// Animate text art or lettering with a deterministic effect, exported as timed JSON.
     Effect {
         /// Effect to apply.
@@ -385,7 +516,8 @@ enum Command {
     Transform {
         /// A .txt or .json project, or `-` for stdin.
         input: PathBuf,
-        /// Flip horizontally or vertically, add a border (see `--style`), or crop.
+        /// Flip horizontally or vertically, add a border (see `--style`), crop, or rotate
+        /// clockwise (see `--turns`).
         #[arg(value_enum)]
         operation: Transform,
         /// Crop: zero-based column of the left edge.
@@ -403,6 +535,9 @@ enum Command {
         /// Border style for the `border` operation; plain `+-|` by default.
         #[arg(long, value_enum)]
         style: Option<Border>,
+        /// Rotate: quarter turns clockwise, 1 (the default) to 3. Line characters turn too.
+        #[arg(long, value_parser = clap::value_parser!(u8).range(1..=3))]
+        turns: Option<u8>,
     },
     /// Play a project in a terminal. Escape codes are playback transport only.
     Play {
@@ -424,7 +559,8 @@ enum Command {
         #[arg(long)]
         height: Option<usize>,
     },
-    /// Validate an existing text or JSON project.
+    /// Validate an existing text or JSON project. Text that is not valid art gets every
+    /// problem by line and column: the first 200, and how many there are.
     Check {
         /// A .txt or .json project, or `-` for stdin.
         input: PathBuf,
@@ -473,9 +609,10 @@ fn run(args: Args) -> Result<()> {
                 list += &format!("  {category}: {}\n", names.join(", "));
             }
             list += &format!(
-                "Fonts: {}\nScenes: {}\nEffects: {}\nRamps: {}\n",
+                "Fonts: {}\nScenes: {}\nPatterns: {}\nEffects: {}\nRamps: {}\n",
                 lettering::FONTS.join(", "),
                 animation::SCENES.join(", "),
+                generator::PATTERNS.join(", "),
                 effects::EFFECTS.join(", "),
                 apollinaire_ascii::image_renderer::RAMPS
                     .iter()
@@ -579,11 +716,13 @@ fn run(args: Args) -> Result<()> {
             dither,
             edges,
             edge_glyphs,
+            shapes,
             gamma,
             contrast,
             cell_aspect,
             background,
         } => {
+            let glyphs = if shapes { Glyphs::Shapes } else { Glyphs::Ramp };
             let ramp = apollinaire_ascii::image_renderer::RAMPS
                 .iter()
                 .find(|(n, _)| *n == ramp)
@@ -607,7 +746,7 @@ fn run(args: Args) -> Result<()> {
                     Some(url) => fetch::image(url)?,
                     None => read_bounded(input, MAX_MEDIA_BYTES)?,
                 };
-                apollinaire_ascii::decode_media(&bytes, &options)
+                apollinaire_ascii::decode_media_as(&bytes, &options, glyphs)
             };
             if let Some(dir) = output_dir {
                 return batch(&inputs, &dir, &args.export, convert);
@@ -696,6 +835,48 @@ fn run(args: Args) -> Result<()> {
                 },
             )?
         }
+        Command::Generate { generator } => Animation::still(match generator {
+            Generator::Maze {
+                size,
+                algorithm,
+                style,
+                solution,
+            } => generator::maze(
+                size.width,
+                size.height,
+                size.seed,
+                &generator::MazeOptions {
+                    algorithm: algorithm.into(),
+                    style: style.into(),
+                    solution,
+                },
+            )?,
+            Generator::Sky {
+                size,
+                stars,
+                big_stars,
+                moons,
+                phase,
+                asteroids,
+            } => generator::sky(
+                size.width,
+                size.height,
+                size.seed,
+                &generator::SkyOptions {
+                    stars,
+                    big_stars,
+                    moons,
+                    phase: phase.into(),
+                    asteroids,
+                },
+            )?,
+            Generator::Pattern {
+                name,
+                width,
+                height,
+                text,
+            } => generator::pattern(width, height, &name, &text)?,
+        }),
         Command::Import { input, pad } => load(&input, pad)?,
         Command::Compose {
             background,
@@ -721,9 +902,13 @@ fn run(args: Args) -> Result<()> {
             width,
             height,
             style,
+            turns,
         } => {
             if style.is_some() && !matches!(operation, Transform::Border) {
                 return Err("Only the border operation takes --style".into());
+            }
+            if turns.is_some() && !matches!(operation, Transform::Rotate) {
+                return Err("Only the rotate operation takes --turns".into());
             }
             let project = load(&input, false)?;
             let mut frames = Vec::with_capacity(project.frames().len());
@@ -740,6 +925,7 @@ fn run(args: Args) -> Result<()> {
                         width.ok_or("Crop needs --width")?,
                         height.ok_or("Crop needs --height")?,
                     )?,
+                    Transform::Rotate => entry.frame.rotate(turns.unwrap_or(1), false)?,
                 };
                 frames.push(TimedFrame {
                     frame,
@@ -798,7 +984,11 @@ fn run(args: Args) -> Result<()> {
         }
         Command::Check { input } => {
             no_export(&args.export, "Check")?;
-            let project = load(&input, false)?;
+            let bytes = read_bounded(&input, MAX_INPUT_BYTES)?;
+            if ansi_name(&input).is_none() && !is_json(&input, &bytes) {
+                problems(&input, &bytes)?;
+            }
+            let project = parse(&input, bytes, false)?;
             let report = format!(
                 "Valid ASCII: {} x {}, {} frame(s), {} ms\n",
                 project.width(),
@@ -993,24 +1183,38 @@ fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 fn read_text(path: &Path) -> Result<String> {
-    String::from_utf8(read_bounded(path, MAX_INPUT_BYTES)?)
+    utf8(read_bounded(path, MAX_INPUT_BYTES)?)
+}
+fn utf8(bytes: Vec<u8>) -> Result<String> {
+    String::from_utf8(bytes)
         .map_err(|_| "Text input must be UTF-8 containing printable ASCII".into())
 }
 fn load(path: &Path, pad: bool) -> Result<Animation> {
-    if let Some(name) = path
-        .file_name()
+    parse(path, read_bounded(path, MAX_INPUT_BYTES)?, pad)
+}
+/// The input's file name when it names ANSI or binary art.
+fn ansi_name(path: &Path) -> Option<&str> {
+    path.file_name()
         .and_then(|n| n.to_str())
         .filter(|n| ansi::is_ansi_name(n))
-    {
-        let art = ansi::read(name, &read_bounded(path, MAX_INPUT_BYTES)?)?;
-        return Ok(Animation::still(art));
-    }
-    let text = read_text(path)?;
-    if path.extension().is_some_and(|e| e == "json")
+}
+/// Whether input is a JSON project: a .json file, or any but a .txt file that is JSON with an
+/// object first.
+fn is_json(path: &Path, bytes: &[u8]) -> bool {
+    path.extension().is_some_and(|e| e == "json")
         || (!path.extension().is_some_and(|e| e == "txt")
-            && text.trim_start().starts_with('{')
-            && serde_json::from_str::<serde::de::IgnoredAny>(&text).is_ok())
-    {
+            && std::str::from_utf8(bytes).is_ok_and(|text| {
+                text.trim_start().starts_with('{')
+                    && serde_json::from_str::<serde::de::IgnoredAny>(text).is_ok()
+            }))
+}
+fn parse(path: &Path, bytes: Vec<u8>, pad: bool) -> Result<Animation> {
+    if let Some(name) = ansi_name(path) {
+        return Ok(Animation::still(ansi::read(name, &bytes)?));
+    }
+    let json = is_json(path, &bytes);
+    let text = utf8(bytes)?;
+    if json {
         Animation::from_json(&text)
     } else {
         let text = text.replace("\r\n", "\n");
@@ -1020,6 +1224,27 @@ fn load(path: &Path, pad: bool) -> Result<Animation> {
             Frame::from_text(&text)?
         }))
     }
+}
+/// Refuse text art with problems, listing them by line and column.
+fn problems(path: &Path, bytes: &[u8]) -> Result<()> {
+    let (listed, total) = check::problems(bytes);
+    if total == 0 {
+        return Ok(());
+    }
+    let name = match path.to_str() {
+        Some("-") => "stdin".into(),
+        _ => path.display().to_string(),
+    };
+    let plural = if total == 1 { "" } else { "s" };
+    let mut report = format!("{total} problem{plural} in {name}:");
+    for problem in &listed {
+        report.push_str("\n  ");
+        report.push_str(problem);
+    }
+    if total > listed.len() {
+        report.push_str(&format!("\n  ... and {} more", total - listed.len()));
+    }
+    Err(report)
 }
 /// Commands that write their own output refuse the export options rather than ignore them.
 fn no_export(args: &Export, command: &str) -> Result<()> {

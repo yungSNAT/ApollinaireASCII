@@ -4,8 +4,8 @@
 //! Sampling and timing for video and camera frames.
 //! The browser decodes media and supplies RGBA pixels; this module never sees a decoder or device.
 use crate::{
-    Frame, MAX_FRAMES, MAX_PROJECT_CELLS, RenderOptions, Result, dimensions,
-    image_renderer::check_pixels, render_image,
+    Frame, Glyphs, MAX_FRAMES, MAX_PROJECT_CELLS, RenderOptions, Result, dimensions,
+    image_renderer::check_pixels, render_image_as,
 };
 use image::{DynamicImage, RgbaImage};
 
@@ -106,7 +106,17 @@ pub fn render_rgba(
     rgba: Vec<u8>,
     options: &RenderOptions,
 ) -> Result<Frame> {
+    render_rgba_as(width, height, rgba, options, Glyphs::Ramp)
+}
+/// [`render_rgba`], choosing characters as `glyphs` says.
+pub fn render_rgba_as(
+    width: u32,
+    height: u32,
+    rgba: Vec<u8>,
+    options: &RenderOptions,
+    glyphs: Glyphs,
+) -> Result<Frame> {
     let image = RgbaImage::from_raw(width, height, rgba)
         .ok_or("Pixel data does not match the frame size")?;
-    render_image(&DynamicImage::ImageRgba8(image), options)
+    render_image_as(&DynamicImage::ImageRgba8(image), options, glyphs)
 }

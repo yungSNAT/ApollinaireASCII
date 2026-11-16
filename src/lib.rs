@@ -18,6 +18,7 @@ pub mod diagram;
 pub mod effects;
 pub mod export;
 pub mod frame;
+pub mod generator;
 mod gif;
 pub mod image_renderer;
 pub mod layers;
@@ -34,7 +35,9 @@ pub use animation::{Animation, SceneOptions, TimedFrame};
 pub use canvas::Canvas;
 pub use effects::EffectOptions;
 pub use frame::{BorderStyle, Frame};
-pub use image_renderer::{RenderOptions, decode_media, render_image};
+pub use image_renderer::{
+    Glyphs, RenderOptions, decode_media, decode_media_as, render_image, render_image_as,
+};
 pub use layers::{Layer, Layered};
 
 pub type Result<T> = std::result::Result<T, String>;
