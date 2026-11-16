@@ -762,6 +762,13 @@ fn flowcharts_refuse_drawings_over_512_columns_or_256_rows() {
         flowchart(&format!("graph LR\nA {}> B", "-".repeat(301))).unwrap_err(),
         "The flowchart needs at least 601 columns; the limit is 512"
     );
+    // Links that each fit can still chain into more ranks than fit: 511 ranks need 1,021
+    // columns at least, refused before any rank is measured.
+    let long = "-".repeat(256);
+    assert_eq!(
+        flowchart(&format!("graph LR\nA {long}> B {long}> C")).unwrap_err(),
+        "The flowchart needs at least 1021 columns; the limit is 512"
+    );
     // Input over 16 MiB is refused before it is read.
     assert_eq!(
         flowchart(&format!(
