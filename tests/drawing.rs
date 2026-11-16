@@ -360,3 +360,140 @@ fn trees_refuse_unmatched_dedents_tabs_and_blank_outlines() {
     assert!(tree("root\r").is_err());
     assert!(tree(&"x\n".repeat(300)).is_err());
 }
+
+#[test]
+fn cow_files_give_their_art_under_a_tailless_bubble() {
+    use apollinaire_ascii::{BorderStyle, bubble::cowsay};
+    // An owl drawn for this test, using each substitution and escape a cow file may hold.
+    let owl = r#"## An owl drawn for these tests
+$the_cow = <<EOC
+  $thoughts
+   $thoughts  {${eyes}}
+      /)  (\\  \$5
+     ("\@)$tongue@)  $
+EOC
+
+# A comment after the art
+"#;
+    let expected = [
+        "+-----+         ",
+        "| Hoo |         ",
+        "+-----+         ",
+        "  \\             ",
+        "   \\  {oo}      ",
+        "      /)  (\\  $5",
+        "     (\"@)  @)  $",
+    ];
+    assert_eq!(
+        cowsay("Hoo", 40, BorderStyle::Plain, owl).unwrap().text(),
+        expected.join("\n")
+    );
+    assert_eq!(
+        cowsay("Hoo", 40, BorderStyle::Plain, &owl.replace('\n', "\r\n"))
+            .unwrap()
+            .text(),
+        expected.join("\n")
+    );
+    // A single-quoted heredoc is taken as it stands, as Perl would.
+    let raw = "$the_cow = <<'EOC';\n$thoughts \\\\\nEOC\n";
+    assert_eq!(
+        cowsay("Hoo", 40, BorderStyle::Plain, raw).unwrap().text(),
+        "+-----+     \n| Hoo |     \n+-----+     \n$thoughts \\\\"
+    );
+    // Perl ends the variable before these, as the drawing does.
+    let ends = "$the_cow = <<EOC;\n$eyes-x\n$eyes'\n$eyes-> |\nEOC\n";
+    assert_eq!(
+        cowsay("Hoo", 40, BorderStyle::Plain, ends).unwrap().text(),
+        "+-----+\n| Hoo |\n+-----+\noo-x   \noo'    \noo-> | "
+    );
+    for (cow, error) in [
+        (
+            "$eyes = \"..\" unless ($eyes);\n$the_cow = <<EOC;\nx\nEOC\n",
+            "Line 1: only the art is read, and this Perl code would be needed to draw it",
+        ),
+        (
+            "$the_cow = <<EOC;\nx\nEOC\nprint 1;\n",
+            "Line 4: only the art is read, and this Perl code would be needed to draw it",
+        ),
+        (
+            "$the_cow = <<EOC;\n$foo\nEOC\n",
+            "Line 2: the variable $foo is not drawn",
+        ),
+        (
+            "$the_cow = <<EOC;\n\\e[31m\nEOC\n",
+            "Line 2: the escape \\e is not drawn; a backslash keeps only punctuation",
+        ),
+        (
+            "$the_cow = <<EOC;\n@ARGV\nEOC\n",
+            "Line 2: an unescaped @ would be read by Perl as an array",
+        ),
+        (
+            "$the_cow = <<EOC;\n$)\nEOC\n",
+            "Line 2: an unescaped $ would be read by Perl as a variable",
+        ),
+        // Perl would read these as array elements, hash entries or package variables, and
+        // @- and @+ as its match arrays.
+        (
+            "$the_cow = <<EOC;\n$eyes[0]\nEOC\n",
+            "Line 2: $eyes followed by [ would be read by Perl as part of a larger variable expression",
+        ),
+        (
+            "$the_cow = <<EOC;\n${eyes}[0]\nEOC\n",
+            "Line 2: $eyes followed by [ would be read by Perl as part of a larger variable expression",
+        ),
+        (
+            "$the_cow = <<EOC;\n$thoughts{key}\nEOC\n",
+            "Line 2: $thoughts followed by { would be read by Perl as part of a larger variable expression",
+        ),
+        (
+            "$the_cow = <<EOC;\n$tongue::x\nEOC\n",
+            "Line 2: $tongue followed by :: would be read by Perl as part of a larger variable expression",
+        ),
+        (
+            "$the_cow = <<EOC;\n$eyes'x\nEOC\n",
+            "Line 2: $eyes followed by ' would be read by Perl as part of a larger variable expression",
+        ),
+        (
+            "$the_cow = <<EOC;\n$eyes->[0]\nEOC\n",
+            "Line 2: $eyes followed by ->[ would be read by Perl as part of a larger variable expression",
+        ),
+        (
+            "$the_cow = <<EOC;\n(@-@)\nEOC\n",
+            "Line 2: an unescaped @ would be read by Perl as an array",
+        ),
+        (
+            "$the_cow = <<EOC;\n@+\nEOC\n",
+            "Line 2: an unescaped @ would be read by Perl as an array",
+        ),
+        (
+            "$the_cow = <<EOC;\ncaf\u{e9}\nEOC\n",
+            "Line 2: Only printable ASCII is allowed: byte 3 is 0xc3",
+        ),
+        ("$the_cow = <<EOC;\nx\n", "The art has no closing line EOC"),
+        (
+            "$the_cow = <<EOC;\nx \\\nEOC\n",
+            "Line 2: a backslash ends the line",
+        ),
+        (
+            "## no art\n",
+            "The cow file has no art: no line such as $the_cow = <<\"EOC\";",
+        ),
+    ] {
+        assert_eq!(
+            cowsay("Hoo", 40, BorderStyle::Plain, cow).unwrap_err(),
+            error,
+            "{cow}"
+        );
+    }
+    // Art that fits on its own can still be too tall under the bubble.
+    let tall = format!("$the_cow = <<EOC;\n{}EOC\n", "x\n".repeat(254));
+    assert_eq!(
+        cowsay("Hoo", 40, BorderStyle::Plain, &tall).unwrap_err(),
+        "Dimensions must be 1..=512 columns and 1..=256 rows"
+    );
+    let huge = "#".repeat(apollinaire_ascii::MAX_INPUT_BYTES + 1);
+    assert_eq!(
+        cowsay("Hoo", 40, BorderStyle::Plain, &huge).unwrap_err(),
+        "The cow file exceeds the 16 MiB input limit"
+    );
+}
