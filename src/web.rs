@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: MIT
 
 use crate::{
-    Animation, BorderStyle, Canvas, EffectOptions, Frame, Layer, Layered, MAX_INPUT_BYTES,
-    RenderOptions, Result, SceneOptions, TimedFrame, animation, ansi, art, decode_media, effects,
-    export, generator, image_renderer::RAMPS, lettering,
+    Animation, BorderStyle, Canvas, EffectOptions, Frame, Glyphs, Layer, Layered, MAX_INPUT_BYTES,
+    RenderOptions, Result, SceneOptions, TimedFrame, animation, ansi, art, decode_media_as,
+    effects, export, generator, image_renderer::RAMPS, lettering,
 };
 use js_sys::{Array, Uint8Array};
 use std::cell::RefCell;
@@ -521,6 +521,7 @@ pub fn start() -> std::result::Result<(), JsValue> {
         "dither",
         "edges",
         "edge-glyphs",
+        "shapes",
         "gamma",
         "contrast",
     ] {
@@ -1122,7 +1123,7 @@ fn begin_file(id: &'static str) {
             ));
         }
         let options = if id == "media-file" {
-            Some(render_options()?)
+            Some(conversion()?)
         } else {
             None
         };
@@ -1166,7 +1167,8 @@ fn begin_file(id: &'static str) {
             } else {
                 if let Some(options) = options {
                     // Opening a file or picture replaces every layer.
-                    app.replace_layers(Layered::single(decode_media(&bytes, &options)?), 0);
+                    let project = decode_media_as(&bytes, &options.render, options.glyphs)?;
+                    app.replace_layers(Layered::single(project), 0);
                 } else {
                     let name = file.name();
                     let project = if ansi::is_ansi_name(&name) {
@@ -1215,6 +1217,7 @@ fn apply_preset() -> Result<()> {
     input("dither")?.set_checked(dither);
     input("edges")?.set_checked(lines);
     input("edge-glyphs")?.set_checked(lines);
+    input("shapes")?.set_checked(false);
     input("gamma")?.set_value("1");
     input("contrast")?.set_value(contrast);
     status(
@@ -1223,8 +1226,13 @@ fn apply_preset() -> Result<()> {
     );
     Ok(())
 }
+/// Conversion settings: the render options and how each cell's character is chosen.
+struct Conversion {
+    render: RenderOptions,
+    glyphs: Glyphs,
+}
 /// Validated conversion settings shared by image, video and camera input.
-fn render_options() -> Result<RenderOptions> {
+fn conversion() -> Result<Conversion> {
     let options = RenderOptions {
         width: number("width")?,
         height: if checked("auto-height")? {
@@ -1242,7 +1250,14 @@ fn render_options() -> Result<RenderOptions> {
         ..RenderOptions::default()
     };
     options.validate()?;
-    Ok(options)
+    Ok(Conversion {
+        render: options,
+        glyphs: if checked("shapes")? {
+            Glyphs::Shapes
+        } else {
+            Glyphs::Ramp
+        },
+    })
 }
 fn download(content: &str, name: &str, mime: &str) -> Result<()> {
     let parts = Array::new();
