@@ -70,6 +70,27 @@ fn horizontal_layouts_match_figlet() {
         render("Ab c", "ivrit", Options::default()),
         fixture("ivrit-default")
     );
+    // Bubble, digital and term are bundled with empty German FIGcharacters; figlet draws the
+    // same with them as with the distribution's files.
+    for font in ["bubble", "digital", "term"] {
+        assert_eq!(
+            render("Ab_|/\\[]{}()<> 9!", font, Options::default()),
+            fixture(&format!("{font}-default")),
+            "{font}"
+        );
+    }
+}
+
+/// Bundled fonts are embedded in the WebAssembly module as they are, so their total size is
+/// held to a budget: 192 KiB, about 4% of the optimised module.
+#[test]
+fn bundled_fonts_fit_their_share_of_the_browser_module() {
+    let dir = format!("{}/src/fonts", env!("CARGO_MANIFEST_DIR"));
+    let total: u64 = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().metadata().unwrap().len())
+        .sum();
+    assert!(total <= 192 * 1024, "{total} bytes of fonts");
 }
 
 #[test]
