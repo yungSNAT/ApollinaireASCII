@@ -264,6 +264,10 @@ fn utf8_ansi_rows_keep_their_own_width_and_end_at_each_line_feed() {
             format!("{}\n{}", "\"".repeat(width), "_".repeat(width))
         );
     }
+    // A glyph past the last column of a SAUCE width still wraps onto the next row.
+    let mut art = "\x1b[0mabcdef".as_bytes().to_vec();
+    art.extend(sauce(1, 1, 4, &[]));
+    assert_eq!(read("a.utf8.ans", &art).unwrap().text(), "abcd\nef  ");
     // Tabs reach the next multiple of 8 when the width is measured.
     assert_eq!(
         read("tab.utf8.ans", "\x1b[0ma\tb\n".as_bytes())
