@@ -153,4 +153,13 @@ fn malformed_files_are_refused_with_the_reason() {
     assert!(sizes.contains("same dimensions"), "{sizes}");
     let huge = gzip(&vec![0; 16 * 1024 * 1024 + 1]);
     assert!(refused(&huge).contains("more than the 16 MiB input limit"));
+    // Every gzip member is read, so nothing after the image passes unseen.
+    let image = xp(&[one()]);
+    let second = [image.clone(), gzip(b"x")].concat();
+    assert!(refused(&second).contains("1 bytes after its last layer"));
+    let junk = [image.clone(), b"junk".to_vec()].concat();
+    assert!(refused(&junk).starts_with("Not a REXPaint .xp file"));
+    let whole = [(-1i32).to_le_bytes(), 1i32.to_le_bytes()].concat();
+    let split = [gzip(&whole), gzip(&one())].concat();
+    assert_eq!(flat(&read(&split).unwrap()), "a");
 }

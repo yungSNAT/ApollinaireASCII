@@ -29,7 +29,7 @@
 use crate::ansi::GLYPHS;
 use crate::layers::{Layer, Layered};
 use crate::{Animation, Frame, MAX_HEIGHT, MAX_INPUT_BYTES, MAX_WIDTH, Result};
-use flate2::read::GzDecoder;
+use flate2::read::MultiGzDecoder;
 use std::io::Read;
 
 /// The most layers REXPaint saves.
@@ -41,13 +41,13 @@ const CUT_SHORT: &str = "The .xp file ends inside its image";
 /// Decode a REXPaint `.xp` image into one layer for each of its layers, bottom first, named
 /// `Layer 1` upwards, each a single frame.
 ///
-/// Refuses a file that is not gzip, unpacks to more than the 16 MiB input limit, ends early or
-/// runs on past its last layer, has other than 1 to 9 layers or layers of different sizes, is
-/// wider than 512 columns or taller than 256 rows, or uses a glyph code above 255 (from an
-/// extended font).
+/// Reads every gzip member. Refuses a file that is not gzip, unpacks to more than the 16 MiB
+/// input limit, ends early or runs on past its last layer, has other than 1 to 9 layers or
+/// layers of different sizes, is wider than 512 columns or taller than 256 rows, or uses a glyph
+/// code above 255 (from an extended font).
 pub fn read(bytes: &[u8]) -> Result<Layered> {
     let mut data = Vec::new();
-    GzDecoder::new(bytes)
+    MultiGzDecoder::new(bytes)
         .take(MAX_INPUT_BYTES as u64 + 1)
         .read_to_end(&mut data)
         .map_err(|error| format!("Not a REXPaint .xp file: {error}"))?;

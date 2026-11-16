@@ -1754,6 +1754,22 @@ fn rexpaint_images_load_flattened_by_their_extension() {
             text(&check.stderr)
         );
     }
+    // Other commands that take art read it the same way.
+    let effect = cli(&[
+        "effect",
+        "scatter",
+        dir.join("mltest.xp").to_str().unwrap(),
+        "--duration",
+        "500",
+        "--fps",
+        "10",
+    ]);
+    assert!(effect.status.success(), "{}", text(&effect.stderr));
+    let effect = apollinaire_ascii::Animation::from_json(text(&effect.stdout)).unwrap();
+    assert_eq!(
+        effect.frames()[4].frame.text(),
+        "AAAAAAAA\nAABBBBAA\nAABBBBAA\nAAAAAAAA"
+    );
     let broken = dir.join("broken.xp");
     std::fs::write(&broken, b"not gzip").unwrap();
     for command in ["import", "check"] {
