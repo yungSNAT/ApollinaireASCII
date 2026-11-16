@@ -409,7 +409,10 @@ EOC
             "$the_cow = <<EOC;\nx\nEOC\nprint 1;\n",
             "Line 4: only the art is read, and this Perl code would be needed to draw it",
         ),
-        ("$the_cow = <<EOC;\n$foo\nEOC\n", "Line 2: the variable $foo is not drawn"),
+        (
+            "$the_cow = <<EOC;\n$foo\nEOC\n",
+            "Line 2: the variable $foo is not drawn",
+        ),
         (
             "$the_cow = <<EOC;\n\\e[31m\nEOC\n",
             "Line 2: the escape \\e is not drawn; a backslash keeps only punctuation",

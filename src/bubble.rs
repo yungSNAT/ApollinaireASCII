@@ -83,7 +83,9 @@ fn cow_art(cow: &str) -> Result<Frame> {
     if cow.len() > MAX_INPUT_BYTES {
         return Err("The cow file exceeds the 16 MiB input limit".into());
     }
-    let mut lines = cow.split('\n').map(|line| line.strip_suffix('\r').unwrap_or(line));
+    let mut lines = cow
+        .split('\n')
+        .map(|line| line.strip_suffix('\r').unwrap_or(line));
     let mut number = 0;
     let (tag, interpolate) = loop {
         let line = lines
@@ -95,7 +97,9 @@ fn cow_art(cow: &str) -> Result<Frame> {
             continue;
         }
         break heredoc(code).ok_or_else(|| {
-            format!("Line {number}: only the art is read, and this Perl code would be needed to draw it")
+            format!(
+                "Line {number}: only the art is read, and this Perl code would be needed to draw it"
+            )
         })?;
     };
     let mut art = Vec::new();
@@ -128,7 +132,10 @@ fn cow_art(cow: &str) -> Result<Frame> {
 
 /// The tag of `$the_cow = <<"TAG";`, and whether the heredoc interpolates.
 fn heredoc(code: &str) -> Option<(&str, bool)> {
-    let start = code.strip_prefix("$the_cow")?.trim_start().strip_prefix('=')?;
+    let start = code
+        .strip_prefix("$the_cow")?
+        .trim_start()
+        .strip_prefix('=')?;
     let start = start.trim_start().strip_prefix("<<")?;
     let start = start.strip_suffix(';').unwrap_or(start).trim_end();
     let quoted = |q: char| start.strip_prefix(q)?.strip_suffix(q);
@@ -189,9 +196,9 @@ fn perl_line(line: &str) -> Result<String> {
                     _ => return Err("an unescaped $ would be read by Perl as a variable".into()),
                 }
             }
-            b'@' if bytes
-                .get(at)
-                .is_some_and(|b| b.is_ascii_alphabetic() || matches!(b, b'_' | b'{' | b'$' | b':')) =>
+            b'@' if bytes.get(at).is_some_and(|b| {
+                b.is_ascii_alphabetic() || matches!(b, b'_' | b'{' | b'$' | b':')
+            }) =>
             {
                 return Err("an unescaped @ would be read by Perl as an array".into());
             }
