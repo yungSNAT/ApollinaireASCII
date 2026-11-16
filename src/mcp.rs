@@ -465,21 +465,21 @@ impl Tool {
         if let Some(missing) = required.into_iter().find(|id| !given.contains_key(*id)) {
             return Err(format!("{missing} is required"));
         }
-        let stdin = match content.and_then(|content| Some((content, given.get(content.name)?))) {
-            Some((content, value)) => {
-                let text = value
-                    .as_str()
-                    .ok_or_else(|| format!("{} must be a string", content.name))?;
-                Some(if content.base64 {
-                    base64::engine::general_purpose::STANDARD
-                        .decode(text)
-                        .map_err(|e| format!("{} is not base64: {e}", content.name))?
-                } else {
-                    text.as_bytes().to_vec()
-                })
-            }
-            None => None,
-        };
+        let mut stdin = None;
+        if let Some(content) = content
+            && let Some(value) = given.get(content.name)
+        {
+            let text = value
+                .as_str()
+                .ok_or_else(|| format!("{} must be a string", content.name))?;
+            stdin = Some(if content.base64 {
+                base64::engine::general_purpose::STANDARD
+                    .decode(text)
+                    .map_err(|e| format!("{} is not base64: {e}", content.name))?
+            } else {
+                text.as_bytes().to_vec()
+            });
+        }
         let mut line: Vec<String> = self.command.iter().map(ToString::to_string).collect();
         let mut positional = Vec::new();
         let replaced = self
@@ -598,6 +598,15 @@ impl Server {
             );
         };
         let id = message.get("id");
+        if message.get("jsonrpc") != Some(&json!("2.0")) {
+            return reply(
+                id.cloned().unwrap_or(Value::Null),
+                Err(error(
+                    INVALID_REQUEST,
+                    r#"A message needs "jsonrpc": "2.0""#,
+                )),
+            );
+        }
         match (message.get("method").and_then(Value::as_str), id) {
             // Notifications need no reply, and the server sends no requests to be answered.
             (Some(_), None) => None,

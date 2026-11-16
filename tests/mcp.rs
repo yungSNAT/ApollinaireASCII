@@ -585,17 +585,34 @@ fn calls_outside_a_tool_schema_are_refused() {
 #[test]
 fn messages_that_are_not_requests_get_json_rpc_errors_or_nothing() {
     let mut input = b"not json\n[1, 2]\n\n   \n".to_vec();
+    let mut missing = call(6, "say", json!({"message": "hi"}));
+    missing.as_object_mut().unwrap().remove("jsonrpc");
+    let mut old = call(7, "say", json!({"message": "hi"}));
+    old["jsonrpc"] = json!("1.0");
+    let mut number = call(8, "say", json!({"message": "hi"}));
+    number["jsonrpc"] = json!(2);
     for message in [
         json!({"jsonrpc": "2.0", "id": {"nested": 1}, "method": "ping"}),
         json!({"jsonrpc": "2.0", "id": 3}),
         json!({"jsonrpc": "2.0", "id": 4, "result": {}}),
         json!({"jsonrpc": "2.0", "id": 5, "error": {"code": 1, "message": "no"}}),
         json!({"jsonrpc": "2.0", "method": "notifications/cancelled"}),
+        missing,
+        old,
+        number,
     ] {
         writeln!(input, "{message}").unwrap();
     }
     let replies = serve_from(BIN, input);
-    assert_eq!(replies.len(), 4, "{replies:?}");
+    assert_eq!(replies.len(), 7, "{replies:?}");
+    // A call without JSON-RPC 2.0's version is refused and its tool never runs.
+    for (reply, id) in replies[4..].iter().zip(6..) {
+        assert_eq!(reply["id"], id);
+        assert_eq!(
+            error(reply),
+            (-32600, r#"A message needs "jsonrpc": "2.0""#)
+        );
+    }
     assert_eq!(
         replies[0],
         json!({"jsonrpc": "2.0", "id": null, "error": {"code": -32700, "message": "Not JSON"}})
