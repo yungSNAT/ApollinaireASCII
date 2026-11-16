@@ -23,9 +23,9 @@ async function until(setup, index) {
   }
 }
 
-// Check every 10 ms for 300 ms, longer than the 3 frames together, that `index` stays.
+// Check every 10 ms for 1000 ms, longer than the 3 frames together, that `index` stays.
 async function stays(setup, index) {
-  for (let ms = 0; ms < 300; ms += 10) {
+  for (let ms = 0; ms < 1000; ms += 10) {
     await wait(10);
     expect(await shown(setup)).toBe(index);
   }

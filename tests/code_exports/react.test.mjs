@@ -33,11 +33,11 @@ test('plays each frame for its duration, then stays on the last', async (t) => {
   assert.equal(pre.getAttribute('aria-label'), 'ASCII artwork');
   assert.equal(pre.className, 'art');
   assert.equal(shown(), 0);
-  await wait(39);
+  await wait(199);
   assert.equal(shown(), 0);
   await wait(1);
   assert.equal(shown(), 1);
-  await wait(60);
+  await wait(300);
   assert.equal(shown(), 2);
   await wait(1000);
   assert.equal(shown(), 2);
@@ -48,7 +48,7 @@ test('loops back to the first frame', async (t) => {
   const { container, root, shown, wait } = await mount(t, looping, { label: 'Ghost' });
   assert.equal(container.querySelector('pre').getAttribute('aria-label'), 'Ghost');
   // Each frame's timer starts once React has shown it, so advance one frame at a time.
-  for (const [ms, index] of [[40, 1], [60, 2], [80, 0], [40, 1]]) {
+  for (const [ms, index] of [[200, 1], [300, 2], [400, 0], [200, 1]]) {
     await wait(ms);
     assert.equal(shown(), index);
   }
@@ -60,7 +60,7 @@ test('holds its frame while paused', async (t) => {
   await wait(1000);
   assert.equal(shown(), 0);
   await act(async () => root.render(createElement(looping, { paused: false })));
-  await wait(40);
+  await wait(200);
   assert.equal(shown(), 1);
   await act(async () => root.unmount());
 });
@@ -78,7 +78,7 @@ test('starts still when reduced motion is asked for, and plays once it is not', 
   assert.equal(shown(), 0);
   query.matches = false;
   await act(async () => query.dispatchEvent(new window.Event('change')));
-  await wait(40);
+  await wait(200);
   assert.equal(shown(), 1);
   await act(async () => root.unmount());
 });
