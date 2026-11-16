@@ -227,7 +227,7 @@ pub(super) fn tnd(bytes: &[u8]) -> Result<Frame> {
 
 /// Character and attribute pairs; an odd last byte is ignored.
 fn pairs(data: &[u8]) -> impl Iterator<Item = (u8, u8)> + '_ {
-    data.chunks_exact(2).map(|pair| (pair[0], pair[1]))
+    data.as_chunks::<2>().0.iter().map(|&[character, attribute]| (character, attribute))
 }
 
 fn check_size(width: usize, height: usize) -> Result<()> {
