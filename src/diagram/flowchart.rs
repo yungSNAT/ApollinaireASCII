@@ -693,6 +693,12 @@ fn layout(chart: &Chart) -> Result<Frame> {
             .unwrap_or_default();
     }
     let ranks = rank.iter().max().copied().unwrap_or_default() + 1;
+    // Each rank takes a row or column, with one between each pair: refuse ranks that cannot
+    // fit before measuring them.
+    let needed = 2 * ranks as i32 - 1;
+    if needed > rank_limit {
+        return Err(too_big(needed, across));
+    }
 
     // Refuse before placing anything when the ranks alone cannot fit.
     let mut depth = vec![1i32; ranks];
