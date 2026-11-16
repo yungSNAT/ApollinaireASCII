@@ -29,6 +29,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "model"
+path = "fuzz_targets/model.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "project_json"
 path = "fuzz_targets/project_json.rs"
 test = false

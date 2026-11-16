@@ -23,11 +23,12 @@ use crate::{dimensions, printable};
 
 /// The most triangles a model may have.
 pub const MAX_TRIANGLES: usize = 1_000_000;
-/// The most triangles one render draws, counted once for each frame.
-pub const MAX_DRAWS: usize = 50_000_000;
+/// The most triangles one render draws, counted once for each frame: about 2 seconds of
+/// native work (docs/VALIDATION.md).
+pub const MAX_DRAWS: usize = 20_000_000;
 /// The most cells one render tests against triangles, summed over every triangle's bounding
-/// box in every frame.
-pub const MAX_TESTS: usize = 1_000_000_000;
+/// box in every frame: about 2 seconds of native work (docs/VALIDATION.md).
+pub const MAX_TESTS: usize = 400_000_000;
 
 type Point = [f64; 3];
 

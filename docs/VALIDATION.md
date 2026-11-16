@@ -155,6 +155,20 @@ Both wrapped the sentence into the same 4 lines. The outputs differ where the pr
 - For `你好`, and for `café` written with a combining accent, cowsay exited 0 but sized its bubble by bytes, so the border came out 2 columns wider than the text line. `say` refuses both, naming the first byte outside printable ASCII.
 - cowsay turned a tab into spaces and drew an empty bubble for empty stdin; `say` refuses both.
 
+## 3D model render budget
+
+On 17 November 2026 a release build (Rust 1.99.1) of `apollinaire model` drew generated OBJ files on a Linux machine with 16 CPUs shared with other jobs (load average 8.5 to 10.4), so the times are indicative. Each time is the slowest of 3 runs and each memory figure the peak resident set size, including process start.
+
+| Model and render | Time | Memory |
+|---|--:|--:|
+| Sphere of 1,000 triangles, 72 x 24, 36 frames | 20 ms | 12 MiB |
+| Sphere of 99,904 triangles, 72 x 24, 36 frames | 340 ms | 19 MiB |
+| The same sphere, 512 x 256, 30 frames | 490 ms | 25 MiB |
+| The same sphere, 160 x 80, 200 frames (the 20,000,000 draw budget) | 1.78 s | 19 MiB |
+| 150 triangles covering a 512 x 256 frame, 60 frames (near the 400,000,000 cell-test budget) | 1.94 s | 37 MiB |
+
+The first build allowed 50,000,000 draws and 1,000,000,000 cell tests: at those budgets the sphere over 500 frames took 4.48 s, and 350 triangles covering a 512 x 256 frame over 60 frames 4.91 s, so both were lowered to about 2 seconds of work. A render over either budget is refused before drawing, in 40 ms for the 99,904-triangle sphere over 201 frames and under 10 ms for 160 covering triangles. A 1,000,000-triangle OBJ sphere is 36 MB and stops at the 16 MiB input limit; an OBJ file reaches the triangle limit only with short face lines. The browser editor runs the same Rust as WebAssembly, which was not timed.
+
 ## Deliberate limits
 
 The Rust code contains no video decoder: the browser decodes video, so supported formats vary by browser, and the CLI has no video or camera input. Only the CLI fetches media over the network, from `https://` image URLs. There is no ANSI-colour artwork mode, raster/vector artwork exporter or Unicode-art mode. GIF is the animated image import format; other image inputs use the image library's still-image decoding. Oversize inputs are refused. Browser work is synchronous Rust after the bounded file read, so the largest valid conversions hold the UI thread for up to about a second (see Conversion responsiveness). Resource limits bound accepted files and projects, not the browser process's total memory.
