@@ -221,7 +221,10 @@ fn stateless_clients_discover_and_send_their_version_each_time() {
         message.contains("protocolVersion") && message.contains("initialize"),
         "{message}"
     );
-    assert_eq!(error(&replies[6]), (-32601, "Unknown method resources/list"));
+    assert_eq!(
+        error(&replies[6]),
+        (-32601, "Unknown method resources/list")
+    );
     assert_eq!(replies[7]["result"]["resultType"], "complete");
 }
 
@@ -258,7 +261,7 @@ fn tool_schemas_come_from_the_command_line() {
     assert!(image["properties"].get("output_dir").is_none());
     assert_eq!(
         image["properties"]["contrast"]["description"],
-        "Contrast around mid-grey, 0.1 to 5.0."
+        "Contrast around mid-grey, 0.1 to 5.0"
     );
     // The command's own description names files and URLs, which the tool does not take.
     assert_eq!(
@@ -266,7 +269,10 @@ fn tool_schemas_come_from_the_command_line() {
         "Convert an image or animated GIF to text."
     );
     assert_eq!(schema("say")["required"], json!(["message"]));
-    assert_eq!(schema("transform")["required"], json!(["text", "operation"]));
+    assert_eq!(
+        schema("transform")["required"],
+        json!(["text", "operation"])
+    );
     assert!(schema("effect")["required"].as_array().unwrap() == &[json!("effect")]);
     // Commands that do not export artwork take no export options.
     for name in ["list", "check"] {
@@ -274,7 +280,14 @@ fn tool_schemas_come_from_the_command_line() {
     }
     // No tool takes a file or directory.
     for tool in tools {
-        for name in ["output", "output_dir", "font_file", "art_file", "input", "inputs"] {
+        for name in [
+            "output",
+            "output_dir",
+            "font_file",
+            "art_file",
+            "input",
+            "inputs",
+        ] {
             assert!(tool["inputSchema"]["properties"].get(name).is_none());
         }
     }
@@ -292,61 +305,167 @@ fn tools_return_what_their_commands_print() {
             printed(&["art", "cat", "--border=rounded"], b""),
         ),
         (
-            call(2, "text", json!({"text": "-Hi", "font": "small", "width": 30, "align": "right"})),
-            printed(&["text", "--font", "small", "--width", "30", "--align", "right", "--", "-Hi"], b""),
+            call(
+                2,
+                "text",
+                json!({"text": "-Hi", "font": "small", "width": 30, "align": "right"}),
+            ),
+            printed(
+                &[
+                    "text", "--font", "small", "--width", "30", "--align", "right", "--", "-Hi",
+                ],
+                b"",
+            ),
         ),
         (
-            call(3, "say", json!({"message": "Moo", "art": "cat", "style": "heavy"})),
+            call(
+                3,
+                "say",
+                json!({"message": "Moo", "art": "cat", "style": "heavy"}),
+            ),
             printed(&["say", "Moo", "--art", "cat", "--style", "heavy"], b""),
         ),
         (
-            call(4, "table", json!({"text": rows, "separator": ",", "rules": "every"})),
-            printed(&["table", "-", "--separator", ",", "--rules", "every"], rows.as_bytes()),
+            call(
+                4,
+                "table",
+                json!({"text": rows, "separator": ",", "rules": "every"}),
+            ),
+            printed(
+                &["table", "-", "--separator", ",", "--rules", "every"],
+                rows.as_bytes(),
+            ),
         ),
         (
             call(5, "tree", json!({"text": outline})),
             printed(&["tree", "-"], outline.as_bytes()),
         ),
         (
-            call(6, "image", json!({"data": data, "width": 20, "invert": true,
-                "dither": false, "gamma": 1.5})),
-            printed(&["image", "-", "--width", "20", "--invert", "--gamma", "1.5"], &picture),
+            call(
+                6,
+                "image",
+                json!({"data": data, "width": 20, "invert": true,
+                "dither": false, "gamma": 1.5}),
+            ),
+            printed(
+                &["image", "-", "--width", "20", "--invert", "--gamma", "1.5"],
+                &picture,
+            ),
         ),
         (
-            call(7, "effect", json!({"effect": "scatter", "text": "ab\nc", "fps": 5})),
+            call(
+                7,
+                "effect",
+                json!({"effect": "scatter", "text": "ab\nc", "fps": 5}),
+            ),
             printed(&["effect", "scatter", "-", "--fps", "5"], b"ab\nc"),
         ),
         (
-            call(8, "effect", json!({"effect": "wave", "art": "cat", "reverse": true})),
+            call(
+                8,
+                "effect",
+                json!({"effect": "wave", "art": "cat", "reverse": true}),
+            ),
             printed(&["effect", "wave", "--art", "cat", "--reverse"], b""),
         ),
         (
-            call(9, "animate", json!({"scene": "donut", "frames": 3, "width": 20,
-                "height": 10, "format": "text", "frame": 2})),
-            printed(&["animate", "donut", "--frames", "3", "--width", "20", "--height", "10",
-                "--frame", "2"], b""),
+            call(
+                9,
+                "animate",
+                json!({"scene": "donut", "frames": 3, "width": 20,
+                "height": 10, "format": "text", "frame": 2}),
+            ),
+            printed(
+                &[
+                    "animate", "donut", "--frames", "3", "--width", "20", "--height", "10",
+                    "--frame", "2",
+                ],
+                b"",
+            ),
         ),
         (
-            call(10, "generate_maze", json!({"width": 11, "height": 7, "seed": 3,
-                "solution": true, "style": "lines"})),
-            printed(&["generate", "maze", "--width", "11", "--height", "7", "--seed", "3",
-                "--solution", "--style", "lines"], b""),
+            call(
+                10,
+                "generate_maze",
+                json!({"width": 11, "height": 7, "seed": 3,
+                "solution": true, "style": "lines"}),
+            ),
+            printed(
+                &[
+                    "generate",
+                    "maze",
+                    "--width",
+                    "11",
+                    "--height",
+                    "7",
+                    "--seed",
+                    "3",
+                    "--solution",
+                    "--style",
+                    "lines",
+                ],
+                b"",
+            ),
         ),
         (
-            call(11, "generate_sky", json!({"width": 30, "height": 10, "stars": 9,
-                "big_stars": 1, "phase": "waning"})),
-            printed(&["generate", "sky", "--width", "30", "--height", "10", "--stars", "9",
-                "--big-stars", "1", "--phase", "waning"], b""),
+            call(
+                11,
+                "generate_sky",
+                json!({"width": 30, "height": 10, "stars": 9,
+                "big_stars": 1, "phase": "waning"}),
+            ),
+            printed(
+                &[
+                    "generate",
+                    "sky",
+                    "--width",
+                    "30",
+                    "--height",
+                    "10",
+                    "--stars",
+                    "9",
+                    "--big-stars",
+                    "1",
+                    "--phase",
+                    "waning",
+                ],
+                b"",
+            ),
         ),
         (
-            call(12, "generate_pattern", json!({"name": "checker", "width": 8, "height": 3})),
-            printed(&["generate", "pattern", "checker", "--width", "8", "--height", "3"], b""),
+            call(
+                12,
+                "generate_pattern",
+                json!({"name": "checker", "width": 8, "height": 3}),
+            ),
+            printed(
+                &[
+                    "generate", "pattern", "checker", "--width", "8", "--height", "3",
+                ],
+                b"",
+            ),
         ),
         (
-            call(13, "transform", json!({"text": "ab\ncd", "operation": "crop", "x": 1,
-                "width": 1, "height": 2})),
-            printed(&["transform", "-", "crop", "--x", "1", "--width", "1", "--height", "2"],
-                b"ab\ncd"),
+            call(
+                13,
+                "transform",
+                json!({"text": "ab\ncd", "operation": "crop", "x": 1,
+                "width": 1, "height": 2}),
+            ),
+            printed(
+                &[
+                    "transform",
+                    "-",
+                    "crop",
+                    "--x",
+                    "1",
+                    "--width",
+                    "1",
+                    "--height",
+                    "2",
+                ],
+                b"ab\ncd",
+            ),
         ),
         (
             call(14, "list", json!({"tag": "cat"})),
@@ -443,7 +562,10 @@ fn calls_outside_a_tool_schema_are_refused() {
             "Invalid arguments for tool art: name must be of type string",
         ),
     ];
-    let messages: Vec<_> = refusals.iter().map(|(message, _)| message.clone()).collect();
+    let messages: Vec<_> = refusals
+        .iter()
+        .map(|(message, _)| message.clone())
+        .collect();
     for ((_, expected), reply) in refusals.iter().zip(serve(&messages)) {
         let (code, message) = error(&reply);
         assert_eq!(code, -32602);

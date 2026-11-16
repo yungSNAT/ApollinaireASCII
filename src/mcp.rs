@@ -415,7 +415,7 @@ impl Tool {
                 let default = default.to_str().expect("defaults are UTF-8");
                 property.insert("default".into(), kind.default(default));
             }
-            if arg.is_required_set() || self.require.iter().any(|name| *name == id) {
+            if arg.is_required_set() || self.require.contains(&id) {
                 required.push(id);
             }
             properties.insert(id.into(), Value::Object(property));
@@ -449,7 +449,9 @@ impl Tool {
         let content = self.content.as_ref();
         if let Some(name) = given.keys().find(|name| {
             content.is_none_or(|content| content.name != name.as_str())
-                && !arguments.iter().any(|(arg, _)| arg.get_id() == name.as_str())
+                && !arguments
+                    .iter()
+                    .any(|(arg, _)| arg.get_id() == name.as_str())
         }) {
             return Err(format!("it has no argument {name}"));
         }
@@ -551,7 +553,10 @@ fn run(line: &[String], stdin: Option<Vec<u8>>) -> Value {
         Ok(output) => {
             let error = String::from_utf8_lossy(&output.stderr);
             let error = error.trim();
-            (error.strip_prefix("apollinaire: ").unwrap_or(error).into(), true)
+            (
+                error.strip_prefix("apollinaire: ").unwrap_or(error).into(),
+                true,
+            )
         }
         Err(e) => (format!("Cannot run apollinaire: {e}"), true),
     };
@@ -631,10 +636,7 @@ impl Server {
                     }));
                 }
                 if method != "server/discover" && !meta[CAPABILITIES].is_object() {
-                    return Err(error(
-                        INVALID_PARAMS,
-                        format!("_meta needs {CAPABILITIES}"),
-                    ));
+                    return Err(error(INVALID_PARAMS, format!("_meta needs {CAPABILITIES}")));
                 }
                 true
             }
