@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 //! `apollinaire mcp`, driven over stdio as an agent's client would.
+#![cfg(feature = "cli")]
 
 use base64::Engine;
 use serde_json::{Value, json};
