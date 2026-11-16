@@ -303,14 +303,25 @@ fn utf8_ansi_rows_keep_their_own_width_and_end_at_each_line_feed() {
 
 #[test]
 fn utf8_ansi_cursor_waits_in_the_last_column_until_a_glyph_wraps() {
-    // Each case shows on a 4-column screen as vim's libvterm terminal shows it.
+    // Each case shows on a 4-column screen as vim's libvterm terminal shows it, except save and
+    // restore, which follow xterm.
     let four = |art: &str| {
         let mut bytes = format!("\x1b[0m{art}").into_bytes();
         bytes.extend(sauce(1, 1, 4, &[]));
         read("a.utf8.ans", &bytes).unwrap().text()
     };
-    // Erasing to the end of a full row includes its last column.
+    // Erasing to the end of a full row includes its last column and leaves the wrap pending.
     assert_eq!(four("abcd\x1b[K"), "abc ");
+    assert_eq!(four("abcd\x1b[KX"), "abc \nX   ");
+    assert_eq!(four("abcd\x1b[JX"), "abc \nX   ");
+    // Clearing the screen homes the cursor, which cancels the wrap.
+    assert_eq!(four("abcd\x1b[2JX"), "X   ");
+    // CR returns to the start of the row and cancels the wrap.
+    assert_eq!(four("abcd\rX"), "Xbcd");
+    // A tab cannot pass the last column, so the wrap stays pending.
+    assert_eq!(four("abcd\t\x1b[31mX"), "abcd\nX   ");
+    // Save and restore keep the pending wrap with the cursor.
+    assert_eq!(four("abcd\x1b[s\x1b[1;1H\x1b[uX"), "abcd\nX   ");
     // Colour leaves the wrap pending, so the next glyph starts the next row.
     assert_eq!(four("abcd\x1b[31me"), "abcd\ne   ");
     // A cursor move stops at the last column rather than past it.
