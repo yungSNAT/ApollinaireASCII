@@ -47,6 +47,14 @@ enum Format {
     Json,
     Html,
     Cast,
+    /// A React component (.js).
+    React,
+    /// An Ink component (.js).
+    Ink,
+    /// An OpenTUI function (.js).
+    Opentui,
+    /// A Bubble Tea v2 program (.go).
+    Bubbletea,
 }
 #[derive(Clone, Copy, ValueEnum)]
 enum Align {
@@ -490,12 +498,16 @@ enum Command {
     },
     /// Load .txt, an ApollinaireASCII .json project or ANSI art. Text CRLF is normalised to LF.
     Import {
-        /// A .txt or .json file, ANSI or CP437 art (.ans, .asc, .nfo or .diz, colour dropped),
-        /// or `-` for stdin.
+        /// A .txt or .json file, ANSI or CP437 art (.ans, .asc, .nfo or .diz) or XBIN, Artworx,
+        /// iCE Draw or TundraDraw art (.xb, .adf, .idf or .tnd), colour dropped, or `-` for stdin.
         input: PathBuf,
         /// Pad ragged text rows with spaces instead of refusing them.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "bin")]
         pad: bool,
+        /// Read the input as BIN art: character and attribute pairs, as wide as its SAUCE record
+        /// says or 160 columns. BIN has no signature, so a .bin name alone is not enough.
+        #[arg(long)]
+        bin: bool,
     },
     /// Overlay one static text frame onto another.
     Compose {
@@ -880,7 +892,10 @@ fn run(args: Args) -> Result<()> {
                 text,
             } => generator::pattern(width, height, &name, &text)?,
         }),
-        Command::Import { input, pad } => load(&input, pad)?,
+        Command::Import {
+            input, bin: true, ..
+        } => Animation::still(ansi::read_bin(&read_bounded(&input, MAX_INPUT_BYTES)?)?),
+        Command::Import { input, pad, .. } => load(&input, pad)?,
         Command::Compose {
             background,
             overlay,
@@ -1030,6 +1045,7 @@ fn export(project: &Animation, args: &Export, output: Option<&Path>) -> Result<(
             Some("json") => Format::Json,
             Some("html") => Format::Html,
             Some("cast") => Format::Cast,
+            Some("go") => Format::Bubbletea,
             _ if project.frames().len() > 1 && args.frame.is_none() => Format::Json,
             _ => Format::Text,
         }
@@ -1053,6 +1069,10 @@ fn export(project: &Animation, args: &Export, output: Option<&Path>) -> Result<(
         Format::Json => format!("{}\n", project.to_json()),
         Format::Html => export::html(project),
         Format::Cast => export::asciicast(project),
+        Format::React => export::react(project),
+        Format::Ink => export::ink(project),
+        Format::Opentui => export::opentui(project),
+        Format::Bubbletea => export::bubbletea(project),
     };
     Ok((format, content))
 }
@@ -1101,6 +1121,8 @@ fn batch(
                 Format::Json => "json",
                 Format::Html => "html",
                 Format::Cast => "cast",
+                Format::React | Format::Ink | Format::Opentui => "js",
+                Format::Bubbletea => "go",
             };
             let path = dir.join(format!("{stem}.{extension}"));
             create_new(&path, &content)?;
