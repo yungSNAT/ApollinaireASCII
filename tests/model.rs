@@ -113,7 +113,8 @@ fn a_cube_seen_face_on_is_a_centred_even_square() {
         light: Light::Front,
         ..small(4)
     };
-    let front = &render(&cube, &options).unwrap().frames()[0].frame;
+    let turning = render(&cube, &options).unwrap();
+    let front = &turning.frames()[0].frame;
     let rows: Vec<&[u8]> = front.cells().chunks(40).collect();
     let drawn: Vec<(usize, usize)> = (0..20)
         .flat_map(|y| (0..40).map(move |x| (x, y)))
@@ -154,7 +155,8 @@ fn the_nearest_surface_hides_the_ones_behind_it_and_light_shades_them() {
         height: 21,
         ..small(1)
     };
-    let frame = &render(&mesh, &options).unwrap().frames()[0].frame;
+    let drawn = render(&mesh, &options).unwrap();
+    let frame = &drawn.frames()[0].frame;
     let rows: Vec<&[u8]> = frame.cells().chunks(41).collect();
     let centre = rows[10][20];
     assert!(
