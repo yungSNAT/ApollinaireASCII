@@ -46,6 +46,14 @@ enum Format {
     Json,
     Html,
     Cast,
+    /// A React component (.js).
+    React,
+    /// An Ink component (.js).
+    Ink,
+    /// An OpenTUI function (.js).
+    Opentui,
+    /// A Bubble Tea v2 program (.go).
+    Bubbletea,
 }
 #[derive(Clone, Copy, ValueEnum)]
 enum Align {
@@ -1023,6 +1031,7 @@ fn export(project: &Animation, args: &Export, output: Option<&Path>) -> Result<(
             Some("json") => Format::Json,
             Some("html") => Format::Html,
             Some("cast") => Format::Cast,
+            Some("go") => Format::Bubbletea,
             _ if project.frames().len() > 1 && args.frame.is_none() => Format::Json,
             _ => Format::Text,
         }
@@ -1046,6 +1055,10 @@ fn export(project: &Animation, args: &Export, output: Option<&Path>) -> Result<(
         Format::Json => format!("{}\n", project.to_json()),
         Format::Html => export::html(project),
         Format::Cast => export::asciicast(project),
+        Format::React => export::react(project),
+        Format::Ink => export::ink(project),
+        Format::Opentui => export::opentui(project),
+        Format::Bubbletea => export::bubbletea(project),
     };
     Ok((format, content))
 }
@@ -1094,6 +1107,8 @@ fn batch(
                 Format::Json => "json",
                 Format::Html => "html",
                 Format::Cast => "cast",
+                Format::React | Format::Ink | Format::Opentui => "js",
+                Format::Bubbletea => "go",
             };
             let path = dir.join(format!("{stem}.{extension}"));
             create_new(&path, &content)?;

@@ -1857,6 +1857,32 @@ async fn playback_and_saves_keep_unsaved_edits() {
     let (name, player) = save("download-html").await;
     assert_eq!(name, "artwork.html");
     assert!(player.contains(&json));
+    for (format, file, data) in [
+        (
+            "react",
+            "artwork-react.js",
+            "const frames = [\"#  \",\"  #\"];",
+        ),
+        ("ink", "artwork-ink.js", "const frames = [\"#  \",\"  #\"];"),
+        (
+            "opentui",
+            "artwork-opentui.js",
+            "const durations = [50,50];",
+        ),
+        (
+            "bubbletea",
+            "artwork.go",
+            "var frames = []string{\"#  \", \"  #\"}",
+        ),
+    ] {
+        element::<web_sys::HtmlSelectElement>("code-format").set_value(format);
+        let (name, code) = save("download-code").await;
+        assert_eq!(
+            (name.as_str(), code.contains(data)),
+            (file, true),
+            "{format}"
+        );
+    }
 
     // A save is only a request, so leaving still warns, and undo still reaches both edits.
     assert!(leaving_warns());
