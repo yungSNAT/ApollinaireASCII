@@ -657,12 +657,12 @@ fn layout(chart: &Chart) -> Result<Frame> {
         line[rank[node]] += size;
         count[rank[node]] += 1;
     }
-    for index in 0..links.len() {
+    for (index, link) in links.iter().enumerate() {
         let (upper, lower) = ends(index);
         let (first, last) = (rank[upper] + 1, rank[lower]);
         line[first..last].iter_mut().for_each(|l| *l += 1);
         count[first..last].iter_mut().for_each(|c| *c += 1);
-        if let Some(text) = &links[index].text {
+        if let Some(text) = &link.text {
             let (size, along) = text_size(text);
             line[first] += size - 1;
             depth[first] = depth[first].max(along);
@@ -695,7 +695,7 @@ fn layout(chart: &Chart) -> Result<Frame> {
     let mut hops: Vec<Hop> = Vec::new();
     let mut chains: Vec<Vec<usize>> = Vec::with_capacity(links.len());
     let mut hop_link = Vec::new();
-    for index in 0..links.len() {
+    for (index, link) in links.iter().enumerate() {
         let (upper, lower) = ends(index);
         let mut chain = Vec::new();
         let mut previous = upper;
@@ -703,7 +703,7 @@ fn layout(chart: &Chart) -> Result<Frame> {
             let slot = if r == rank[lower] {
                 lower
             } else {
-                let (kind, (size, depth)) = match &links[index].text {
+                let (kind, (size, depth)) = match &link.text {
                     Some(text) if r == rank[upper] + 1 => (Kind::Text(index), text_size(text)),
                     _ => (Kind::Pass, (1, 1)),
                 };
@@ -817,28 +817,24 @@ fn layout(chart: &Chart) -> Result<Frame> {
     number(&order, &mut place);
 
     // Ports: a box's links leave and arrive 2 cells apart, in the order of their other ends.
-    for slot in 0..slots.len() {
-        let mut ins = std::mem::take(&mut slots[slot].ins);
-        let mut outs = std::mem::take(&mut slots[slot].outs);
-        ins.sort_by_key(|&h| place[hops[h].upper]);
-        outs.sort_by_key(|&h| place[hops[h].lower]);
-        let size = match slots[slot].kind {
-            Kind::Node(node) => side(box_size(&chart.labels[node]).0, ins.len().max(outs.len())),
-            _ => slots[slot].size,
-        };
-        let centre = |count: usize, index: usize| match slots[slot].kind {
-            Kind::Node(_) => port(size, count, index),
-            _ => (size - 1) / 2,
-        };
-        for (index, &h) in ins.iter().enumerate() {
-            hops[h].entry = centre(ins.len(), index);
+    for slot in &mut slots {
+        slot.ins.sort_by_key(|&h| place[hops[h].upper]);
+        slot.outs.sort_by_key(|&h| place[hops[h].lower]);
+        if let Kind::Node(node) = slot.kind {
+            let least = box_size(&chart.labels[node]).0;
+            slot.size = side(least, slot.ins.len().max(slot.outs.len()));
         }
-        for (index, &h) in outs.iter().enumerate() {
-            hops[h].exit = centre(outs.len(), index);
+        // Placeholders and text pass their link through their middle.
+        let centre = |count: usize, index: usize| match slot.kind {
+            Kind::Node(_) => port(slot.size, count, index),
+            _ => (slot.size - 1) / 2,
+        };
+        for (index, &h) in slot.ins.iter().enumerate() {
+            hops[h].entry = centre(slot.ins.len(), index);
         }
-        slots[slot].size = size;
-        slots[slot].ins = ins;
-        slots[slot].outs = outs;
+        for (index, &h) in slot.outs.iter().enumerate() {
+            hops[h].exit = centre(slot.outs.len(), index);
+        }
     }
 
     // Place across the ranks: over the ports of the rank above, then under those below.
@@ -1089,16 +1085,14 @@ fn arrow(dx: i32, dy: i32) -> u8 {
     }
 }
 
+/// Each jogging hop with its turning points, as (column, lane).
+type Plans = Vec<(usize, Vec<(i32, i32)>)>;
+
 /// Route one channel's hops. Returns the lanes used and, for each hop that jogs, its turning
 /// points as (column, lane). A hop whose exit is another's entry must turn in a higher lane, so
 /// their vertical runs do not overlap; where such hops form a cycle, the one latest in source
 /// order detours through a free column, turning in the cycle's first lane and its last.
-fn route(
-    channel: &[usize],
-    hops: &[Hop],
-    slots: &[Slot],
-    detours: &mut Vec<i32>,
-) -> (i32, Vec<(usize, Vec<(i32, i32)>)>) {
+fn route(channel: &[usize], hops: &[Hop], slots: &[Slot], detours: &mut Vec<i32>) -> (i32, Plans) {
     let mut jogs: Vec<usize> = channel
         .iter()
         .copied()
@@ -1195,11 +1189,11 @@ fn route(
     let mut after: Vec<Option<usize>> = vec![None; items.len()];
     let mut before = vec![false; items.len()];
     for (index, item) in items.iter().enumerate() {
-        if leaving(item.hop) == Some(index) {
-            if let Some(follow) = next(item.hop).and_then(entering) {
-                after[index] = Some(follow);
-                before[follow] = true;
-            }
+        if leaving(item.hop) == Some(index)
+            && let Some(follow) = next(item.hop).and_then(entering)
+        {
+            after[index] = Some(follow);
+            before[follow] = true;
         }
     }
     let mut lanes: Vec<Vec<(i32, i32)>> = Vec::new();
