@@ -171,6 +171,7 @@ const TOOLS: &[Tool] = &[
             ("contrast", Number),
             ("cell_aspect", Number),
             ("background", Integer),
+            ("shapes", Boolean),
         ],
         require: &[],
         content: Some(Content {
