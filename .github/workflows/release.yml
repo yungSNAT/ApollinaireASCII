@@ -176,8 +176,9 @@ jobs:
             gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --generate-notes --title "$GITHUB_REF_NAME"
           fi
           gh release upload "$GITHUB_REF_NAME" assets/* --repo "$GITHUB_REPOSITORY" --clobber
-      # The formula and manifest are attached for a Homebrew tap and a Scoop bucket; adding them
-      # there is a separate step. Their own sums join the archives' in SHA256SUMS.txt.
+      # The formula and manifest are attached for Homebrew and Scoop. Formula/ holds the tap's
+      # copy: after a release, a pull request replaces it with this one. Their own sums join the
+      # archives' in SHA256SUMS.txt.
       - name: Checksums, Homebrew formula and Scoop manifest
         working-directory: assets
         run: |

@@ -113,6 +113,25 @@ jobs:
           disable_search: true
           fail_ci_if_error: true
 
+  # Formula/ makes this repository a Homebrew tap, as the README says: install the release its
+  # formula names and run the formula's test.
+  homebrew:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: 1
+      HOMEBREW_NO_ANALYTICS: 1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: |
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          brew tap yungsnat/apollinaire "$GITHUB_WORKSPACE"
+          brew install yungsnat/apollinaire/apollinaire
+          brew test yungsnat/apollinaire/apollinaire
+          apollinaire art ghost
+
   browser:
     runs-on: ubuntu-latest
     timeout-minutes: 20
