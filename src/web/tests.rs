@@ -2333,6 +2333,11 @@ async fn keyframes_move_a_layer_draw_where_it_sits_and_save_as_version_3() {
     element::<HtmlSelectElement>("key-property").set_value("scale_x");
     change_event("key-property");
     assert_eq!(element::<HtmlInputElement>("key-value").value(), "100");
+    // Remove key removes the chosen property's key, so it waits for one here.
+    assert!(!enabled("key-remove"));
+    element::<HtmlSelectElement>("key-property").set_value("x");
+    change_event("key-property");
+    assert!(enabled("key-remove"));
 
     // A drawing tool shows the layer where its characters sit, so the pencil lands under the
     // pointer; Select text shows it moved again.

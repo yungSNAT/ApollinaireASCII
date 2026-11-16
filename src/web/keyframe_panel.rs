@@ -83,7 +83,8 @@ fn command(id: &str) -> Result<()> {
                     .value_at(property, frame)
                     .unwrap_or_else(|| property.default_value(art.width(), art.height()));
                 input("key-value")?.set_value(&value.to_string());
-                return Ok(());
+                // Remove key follows the chosen property.
+                return app.display(false);
             }
             "key-set" => {
                 let property = property()?;
@@ -222,12 +223,10 @@ pub(super) fn controls(app: &App, busy: bool) -> Result<()> {
         list.set_attribute("data-labels", &joined)
             .map_err(|_| "Cannot list the keys")?;
     }
-    let here = Property::ALL.into_iter().any(|property| {
-        motion
-            .keys(property)
-            .iter()
-            .any(|key| key.frame == app.selected)
-    });
+    let here = motion
+        .keys(property()?)
+        .iter()
+        .any(|key| key.frame == app.selected);
     for (id, disabled) in [
         ("key-property", busy),
         ("key-value", busy),

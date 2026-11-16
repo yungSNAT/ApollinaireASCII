@@ -125,8 +125,8 @@ impl Layered {
         let names: usize = self
             .layers
             .iter()
-            // A key is at most about 140 bytes (a value and an easing curve of 4 long decimals); the
-            // tracks' names and brackets fit in the extra 128.
+            // A key is at most about 140 bytes (a frame, a value and a curve of 4 long
+            // decimals); the layer's other fields and its track names fit in 160.
             .map(|layer| 2 * layer.name.len() + 160 + 160 * layer.motion.len())
             .sum();
         // Per frame: {"duration_ms":60000,"layers":[]}, and the header with its brackets.
