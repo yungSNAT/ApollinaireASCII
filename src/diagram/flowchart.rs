@@ -213,7 +213,9 @@ fn parse(source: &str) -> Result<Chart> {
         }
         reader.statement(number, text)?;
     }
-    Err(format!("The code block opened on line {opened} is not closed"))
+    Err(format!(
+        "The code block opened on line {opened} is not closed"
+    ))
 }
 
 /// Statements in order: the header, then the nodes and links.
@@ -259,22 +261,24 @@ impl Reader {
 
 /// The direction in a header line such as `flowchart LR`.
 fn direction(number: usize, header: &str) -> Result<Flow> {
-    Ok(match header.split_whitespace().take(3).collect::<Vec<_>>()[..] {
-        ["flowchart" | "graph"] | ["flowchart" | "graph", "TD" | "TB"] => Flow::Down,
-        ["flowchart" | "graph", "BT"] => Flow::Up,
-        ["flowchart" | "graph", "LR"] => Flow::Right,
-        ["flowchart" | "graph", "RL"] => Flow::Left,
-        ["flowchart" | "graph", direction] => {
-            return Err(format!(
-                "Line {number}: the direction {direction} is not one of TD, TB, BT, LR or RL"
-            ));
-        }
-        _ => {
-            return Err(format!(
-                "Line {number}: a flowchart starts with flowchart or graph and a direction"
-            ));
-        }
-    })
+    Ok(
+        match header.split_whitespace().take(3).collect::<Vec<_>>()[..] {
+            ["flowchart" | "graph"] | ["flowchart" | "graph", "TD" | "TB"] => Flow::Down,
+            ["flowchart" | "graph", "BT"] => Flow::Up,
+            ["flowchart" | "graph", "LR"] => Flow::Right,
+            ["flowchart" | "graph", "RL"] => Flow::Left,
+            ["flowchart" | "graph", direction] => {
+                return Err(format!(
+                    "Line {number}: the direction {direction} is not one of TD, TB, BT, LR or RL"
+                ));
+            }
+            _ => {
+                return Err(format!(
+                    "Line {number}: a flowchart starts with flowchart or graph and a direction"
+                ));
+            }
+        },
+    )
 }
 
 impl Parser {
