@@ -1,3 +1,4 @@
+mod check;
 mod edit;
 mod fetch;
 
@@ -368,7 +369,8 @@ enum Command {
         #[arg(long)]
         height: Option<usize>,
     },
-    /// Validate an existing text or JSON project.
+    /// Validate an existing text or JSON project. Text that is not valid art gets every
+    /// problem by line and column: the first 200, and how many there are.
     Check {
         /// A .txt or .json project, or `-` for stdin.
         input: PathBuf,
@@ -713,7 +715,11 @@ fn run(args: Args) -> Result<()> {
         }
         Command::Check { input } => {
             no_export(&args.export, "Check")?;
-            let project = load(&input, false)?;
+            let bytes = read_bounded(&input, MAX_INPUT_BYTES)?;
+            if ansi_name(&input).is_none() && !is_json(&input, &bytes) {
+                problems(&input, &bytes)?;
+            }
+            let project = parse(&input, bytes, false)?;
             let report = format!(
                 "Valid ASCII: {} x {}, {} frame(s), {} ms\n",
                 project.width(),
@@ -915,24 +921,38 @@ fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 fn read_text(path: &Path) -> Result<String> {
-    String::from_utf8(read_bounded(path, MAX_INPUT_BYTES)?)
+    utf8(read_bounded(path, MAX_INPUT_BYTES)?)
+}
+fn utf8(bytes: Vec<u8>) -> Result<String> {
+    String::from_utf8(bytes)
         .map_err(|_| "Text input must be UTF-8 containing printable ASCII".into())
 }
 fn load(path: &Path, pad: bool) -> Result<Animation> {
-    if let Some(name) = path
-        .file_name()
+    parse(path, read_bounded(path, MAX_INPUT_BYTES)?, pad)
+}
+/// The input's file name when it names ANSI or binary art.
+fn ansi_name(path: &Path) -> Option<&str> {
+    path.file_name()
         .and_then(|n| n.to_str())
         .filter(|n| ansi::is_ansi_name(n))
-    {
-        let art = ansi::read(name, &read_bounded(path, MAX_INPUT_BYTES)?)?;
-        return Ok(Animation::still(art));
-    }
-    let text = read_text(path)?;
-    if path.extension().is_some_and(|e| e == "json")
+}
+/// Whether input is a JSON project: a .json file, or any but a .txt file that is JSON with an
+/// object first.
+fn is_json(path: &Path, bytes: &[u8]) -> bool {
+    path.extension().is_some_and(|e| e == "json")
         || (!path.extension().is_some_and(|e| e == "txt")
-            && text.trim_start().starts_with('{')
-            && serde_json::from_str::<serde::de::IgnoredAny>(&text).is_ok())
-    {
+            && std::str::from_utf8(bytes).is_ok_and(|text| {
+                text.trim_start().starts_with('{')
+                    && serde_json::from_str::<serde::de::IgnoredAny>(text).is_ok()
+            }))
+}
+fn parse(path: &Path, bytes: Vec<u8>, pad: bool) -> Result<Animation> {
+    if let Some(name) = ansi_name(path) {
+        return Ok(Animation::still(ansi::read(name, &bytes)?));
+    }
+    let json = is_json(path, &bytes);
+    let text = utf8(bytes)?;
+    if json {
         Animation::from_json(&text)
     } else {
         let text = text.replace("\r\n", "\n");
@@ -942,6 +962,27 @@ fn load(path: &Path, pad: bool) -> Result<Animation> {
             Frame::from_text(&text)?
         }))
     }
+}
+/// Refuse text art with problems, listing them by line and column.
+fn problems(path: &Path, bytes: &[u8]) -> Result<()> {
+    let (listed, total) = check::problems(bytes);
+    if total == 0 {
+        return Ok(());
+    }
+    let name = match path.to_str() {
+        Some("-") => "stdin".into(),
+        _ => path.display().to_string(),
+    };
+    let plural = if total == 1 { "" } else { "s" };
+    let mut report = format!("{total} problem{plural} in {name}:");
+    for problem in &listed {
+        report.push_str("\n  ");
+        report.push_str(problem);
+    }
+    if total > listed.len() {
+        report.push_str(&format!("\n  ... and {} more", total - listed.len()));
+    }
+    Err(report)
 }
 /// Commands that write their own output refuse the export options rather than ignore them.
 fn no_export(args: &Export, command: &str) -> Result<()> {

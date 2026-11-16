@@ -285,9 +285,16 @@ fn layers_panel_works_from_the_keyboard_alone() {
     browser.press(ENTER, 1);
     browser.settles(json!(true), |b| b.script(open));
 
-    // With one layer, only the list, name, visibility and Add take focus.
+    // With one layer, only the list, name, the 3 checkboxes and Add take focus.
     browser.tab_through(
-        &["layer", "layer-name", "layer-visible", "layer-add"],
+        &[
+            "layer",
+            "layer-name",
+            "layer-visible",
+            "layer-locked",
+            "layer-solo",
+            "layer-add",
+        ],
         false,
     );
     browser.press(ENTER, 1);
@@ -329,14 +336,24 @@ fn layers_panel_works_from_the_keyboard_alone() {
     });
 
     // Sky is on top, so Move down is next after Add; Move up disables itself in turn.
-    browser.tab_through(&["layer-add", "layer-down"], false);
+    browser.tab_through(
+        &["layer-locked", "layer-solo", "layer-add", "layer-down"],
+        false,
+    );
     browser.press(ENTER, 1);
     browser.settles(["Layer 2", "Sky"].map(String::from).to_vec(), |b| {
         b.layers().0
     });
     browser.settles("layer".to_string(), Browser::focused);
     browser.tab_through(
-        &["layer-name", "layer-visible", "layer-add", "layer-up"],
+        &[
+            "layer-name",
+            "layer-visible",
+            "layer-locked",
+            "layer-solo",
+            "layer-add",
+            "layer-up",
+        ],
         false,
     );
     browser.press(ENTER, 1);
@@ -350,6 +367,8 @@ fn layers_panel_works_from_the_keyboard_alone() {
         &[
             "layer-name",
             "layer-visible",
+            "layer-locked",
+            "layer-solo",
             "layer-add",
             "layer-down",
             "layer-delete",
@@ -361,7 +380,16 @@ fn layers_panel_works_from_the_keyboard_alone() {
     browser.settles("layer".to_string(), Browser::focused);
 
     // Merge does the same.
-    browser.tab_through(&["layer-name", "layer-visible", "layer-add"], false);
+    browser.tab_through(
+        &[
+            "layer-name",
+            "layer-visible",
+            "layer-locked",
+            "layer-solo",
+            "layer-add",
+        ],
+        false,
+    );
     browser.press(ENTER, 1);
     browser.tab_through(&["layer-down", "layer-delete", "layer-merge"], false);
     browser.press(ENTER, 1);
