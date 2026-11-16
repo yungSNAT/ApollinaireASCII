@@ -1047,6 +1047,33 @@ async fn convert(contents: &str) {
     wait_for(|| !status().starts_with("Reading")).await;
     assert!(status().contains("File opened"), "{}", status());
 }
+#[wasm_bindgen_test]
+async fn the_converter_turns_a_3d_model_into_a_looping_animation() {
+    blank(4, 1);
+    preset("standard");
+    set_value("width", "20");
+    check("auto-height", true);
+    let triangle = "v -1 -1 0\nv 1 -1 0\nv 0 1 0\nf 1 2 3\n";
+    choose("media-file", "triangle.obj", triangle.as_bytes());
+    click("convert");
+    wait_for(|| !status().starts_with("Reading")).await;
+    assert!(status().contains("File opened"), "{}", status());
+    assert_eq!(grid_size(), (20, 10));
+    assert!(frame_count().ends_with("/ 36"), "{}", frame_count());
+    assert!(art().bytes().any(|b| b != b' ' && b != b'\n'));
+    choose("media-file", "broken.stl", b"solid\nfacet\n");
+    click("convert");
+    wait_for(|| !status().starts_with("Reading")).await;
+    assert!(status().contains("ends inside a facet"), "{}", status());
+    // Shape matching is for pictures; a model asks for a ramp instead of being drawn without.
+    check("shapes", true);
+    choose("media-file", "triangle.obj", triangle.as_bytes());
+    click("convert");
+    wait_for(|| !status().starts_with("Reading")).await;
+    assert!(status().contains("shaded with a ramp"), "{}", status());
+    // The page is shared by the tests, so the standard preset turns shape matching off again.
+    preset("standard");
+}
 fn preset(name: &str) {
     let picker = element::<HtmlSelectElement>("preset");
     picker.set_value(name);
@@ -1571,6 +1598,26 @@ async fn presets_fill_the_conversion_settings_and_reach_the_output() {
     assert_eq!(settings(), edited);
     preset("standard");
     assert_eq!(settings(), standard);
+
+    // Shape matching chooses from every character, so a black cell is a space and a white one
+    // is inked; it refuses dithering, and a preset turns it off.
+    check("shapes", true);
+    assert_eq!(chosen(), "custom");
+    convert(STEP).await;
+    let shaped = art();
+    assert!(
+        shaped.starts_with("   ") && !shaped.ends_with(' '),
+        "{shaped:?}"
+    );
+    check("dither", true);
+    choose("media-file", "step.pgm", STEP.as_bytes());
+    click("convert");
+    wait_for(|| !status().starts_with("Reading")).await;
+    assert!(status().contains("Shape matching"), "{}", status());
+    assert_eq!(art(), shaped);
+    preset("standard");
+    assert!(!element::<HtmlInputElement>("shapes").checked());
+    assert_eq!(settings(), standard);
 }
 
 #[wasm_bindgen_test]
@@ -1830,6 +1877,32 @@ async fn playback_and_saves_keep_unsaved_edits() {
     let (name, player) = save("download-html").await;
     assert_eq!(name, "artwork.html");
     assert!(player.contains(&json));
+    for (format, file, data) in [
+        (
+            "react",
+            "artwork-react.js",
+            "const frames = [\"#  \",\"  #\"];",
+        ),
+        ("ink", "artwork-ink.js", "const frames = [\"#  \",\"  #\"];"),
+        (
+            "opentui",
+            "artwork-opentui.js",
+            "const durations = [50,50];",
+        ),
+        (
+            "bubbletea",
+            "artwork.go",
+            "var frames = []string{\"#  \", \"  #\"}",
+        ),
+    ] {
+        element::<web_sys::HtmlSelectElement>("code-format").set_value(format);
+        let (name, code) = save("download-code").await;
+        assert_eq!(
+            (name.as_str(), code.contains(data)),
+            (file, true),
+            "{format}"
+        );
+    }
 
     // A save is only a request, so leaving still warns, and undo still reaches both edits.
     assert!(leaving_warns());
