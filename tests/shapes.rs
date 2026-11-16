@@ -93,7 +93,11 @@ fn shapes_refuse_ramp_options_and_follow_the_size_rules() {
     assert!(render_image_as(&cell(letter_a), &wide, Glyphs::Shapes).is_err());
     // Rows follow the picture's shape as the ramp's do: 3 cells across a 24 by 16 picture.
     let row = DynamicImage::ImageLuma8(GrayImage::from_fn(24, 16, |x, y| {
-        Luma([if x >= 8 && letter_a(x - 8, y) { 255 } else { 0 }])
+        Luma([if (8..16).contains(&x) && letter_a(x - 8, y) {
+            255
+        } else {
+            0
+        }])
     }));
     let options = RenderOptions {
         width: 3,
