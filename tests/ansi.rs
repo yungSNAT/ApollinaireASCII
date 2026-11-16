@@ -1,7 +1,7 @@
 // Copyright 2026 Ryan Duguid
 // SPDX-License-Identifier: MIT
 
-use apollinaire_ascii::ansi::{DEFAULT_WIDTH, decode, is_ansi_name};
+use apollinaire_ascii::ansi::{DEFAULT_WIDTH, decode, is_ansi_name, read};
 
 /// The decoded rows with their padding to the frame width removed.
 fn rows(bytes: &[u8]) -> Vec<String> {
@@ -188,6 +188,172 @@ fn oversized_and_empty_art_is_refused() {
     }
     // Short input that cannot hold a SAUCE record is art.
     assert_eq!(rows(b"SAUCE00"), ["SAUCE00"]);
+}
+
+#[test]
+fn utf8_ansi_art_maps_each_character_back_to_its_cp437_glyph() {
+    // The colour test's box as text0wnz saves it in a .utf8.ans file.
+    let art = "\x1b[0;1;34;44m╔══╗\x1b[0m\r\n║\x1b[31mHi\x1b[m║\r\n╚══╝\x1a";
+    let text = read("box.UTF8.ans", art.as_bytes()).unwrap().text();
+    let rows: Vec<&str> = text.lines().map(str::trim_end).collect();
+    assert_eq!(rows, ["+==+", "|Hi|", "+==+"]);
+    // Every glyph CP437 draws above 0x7F decodes as its byte does.
+    let high = "ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐\
+                └┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■\u{a0}";
+    let bytes: Vec<u8> = (0x80..=0xff).collect();
+    // A SAUCE width of 128 holds them in one row, as CP437 text keeps its line.
+    let mut art = high.as_bytes().to_vec();
+    art.extend(sauce(1, 1, 128, &[]));
+    assert_eq!(read("a.utf8.ans", &art).unwrap(), decode(&bytes).unwrap());
+    // The pictures CP437 draws for control bytes are drawn, never acted on as controls.
+    let low = "☺☻♥♦♣♠•◘○◙♂♀♪♫☼►◄↕‼¶§▬↨↑↓→←∟↔▲▼⌂";
+    assert_eq!(
+        read("a.utf8.ans", low.as_bytes()).unwrap().text(),
+        "oo****.#oo*****><|!PS_|^v><L-^v^"
+    );
+    // A SAUCE record's bytes need not be UTF-8: a width of 200 is the byte 0xC8.
+    let mut art = "░".as_bytes().to_vec();
+    art.extend(sauce(1, 1, 200, &[]));
+    assert_eq!(read("a.utf8.ans", &art).unwrap().width(), 200);
+    // A character with no CP437 glyph, or bytes that are not UTF-8, are refused.
+    assert_eq!(
+        read("a.utf8.ans", "a€".as_bytes()).unwrap_err(),
+        "Byte 2: U+20AC has no CP437 glyph"
+    );
+    assert_eq!(
+        read("a.utf8.ans", b"a\xffb").unwrap_err(),
+        "Byte 2: the art is not UTF-8"
+    );
+    // Bytes after the end-of-file byte are not read, so they need not be UTF-8.
+    assert_eq!(
+        read("a.utf8.ans", b"\xe2\x96\x91\x1a\xff").unwrap(),
+        read("a.utf8.ans", "░".as_bytes()).unwrap()
+    );
+    // Other ANSI names are CP437, whatever their bytes.
+    assert_eq!(
+        read("a.ans", "░".as_bytes()).unwrap().text(),
+        decode("░".as_bytes()).unwrap().text()
+    );
+}
+
+/// Rows as text0wnz writes a .utf8.ans file: a reset, then each row's cells, a reset and LF.
+fn text0wnz(rows: &[String]) -> Vec<u8> {
+    let mut out = String::from("\x1b[0m");
+    for row in rows {
+        out.push_str(&format!("\x1b[1;33m{row}\x1b[0m\n"));
+    }
+    out.push_str("\x1b[0m");
+    out.into_bytes()
+}
+
+#[test]
+fn utf8_ansi_rows_keep_their_own_width_and_end_at_each_line_feed() {
+    // A full 80-column row and its LF make one row, not a row and a blank one.
+    let full = vec!["█".repeat(80), "░".repeat(80)];
+    let frame = read("full.utf8.ans", &text0wnz(&full)).unwrap();
+    assert_eq!(
+        frame.text(),
+        format!("{}\n{}", "#".repeat(80), ".".repeat(80))
+    );
+    // With no SAUCE record the screen is 80 columns wide, as text0wnz loads it, and the art is
+    // as wide as its rightmost glyph, so narrower rows keep their width.
+    let rows = vec!["▀".repeat(40), "▄".repeat(40)];
+    let frame = read("narrow.utf8.ans", &text0wnz(&rows)).unwrap();
+    assert_eq!(
+        frame.text(),
+        format!("{}\n{}", "\"".repeat(40), "_".repeat(40))
+    );
+    // Art drawn for an 80-column terminal wraps there rather than growing wider.
+    let rows = vec!["▀".repeat(132), "▄".repeat(132)];
+    let frame = read("wide.utf8.ans", &text0wnz(&rows)).unwrap();
+    let pad = " ".repeat(28);
+    assert_eq!(
+        frame.text(),
+        format!(
+            "{}\n{}{pad}\n{}\n{}{pad}",
+            "\"".repeat(80),
+            "\"".repeat(52),
+            "_".repeat(80),
+            "_".repeat(52)
+        )
+    );
+    // A glyph past the last column of a SAUCE width still wraps onto the next row.
+    let mut art = "\x1b[0mabcdef".as_bytes().to_vec();
+    art.extend(sauce(1, 1, 4, &[]));
+    assert_eq!(read("a.utf8.ans", &art).unwrap().text(), "abcd\nef  ");
+    // Cursor moves count towards the width, as a terminal places what follows them.
+    assert_eq!(
+        read("a.utf8.ans", "\x1b[0mA\x1b[5CB".as_bytes())
+            .unwrap()
+            .text(),
+        "A     B"
+    );
+    assert_eq!(
+        read("a.utf8.ans", "\x1b[0m\x1b[1;10Hx".as_bytes())
+            .unwrap()
+            .text(),
+        "         x"
+    );
+    // A move back over drawn cells does not widen the art.
+    assert_eq!(
+        read("a.utf8.ans", "\x1b[0mabcd\x1b[3Def".as_bytes())
+            .unwrap()
+            .text(),
+        "aefd"
+    );
+    // Tabs reach the next multiple of 8 when the width is measured.
+    assert_eq!(
+        read("tab.utf8.ans", "\x1b[0ma\tb\n".as_bytes())
+            .unwrap()
+            .text(),
+        "a       b"
+    );
+    // A cursor move stops at the 80th column.
+    assert_eq!(
+        read("a.utf8.ans", "\x1b[0mA\x1b[200CB".as_bytes())
+            .unwrap()
+            .text(),
+        format!("A{}B", " ".repeat(78))
+    );
+}
+
+#[test]
+fn utf8_ansi_cursor_waits_in_the_last_column_until_a_glyph_wraps() {
+    // Each case shows on a 4-column screen as vim's libvterm terminal shows it, except save and
+    // restore, which follow xterm.
+    let four = |art: &str| {
+        let mut bytes = format!("\x1b[0m{art}").into_bytes();
+        bytes.extend(sauce(1, 1, 4, &[]));
+        read("a.utf8.ans", &bytes).unwrap().text()
+    };
+    // Erasing to the end of a full row includes its last column and leaves the wrap pending.
+    assert_eq!(four("abcd\x1b[K"), "abc ");
+    assert_eq!(four("abcd\x1b[KX"), "abc \nX   ");
+    assert_eq!(four("abcd\x1b[JX"), "abc \nX   ");
+    // Clearing the screen homes the cursor, which cancels the wrap.
+    assert_eq!(four("abcd\x1b[2JX"), "X   ");
+    // CR returns to the start of the row and cancels the wrap.
+    assert_eq!(four("abcd\rX"), "Xbcd");
+    // A tab cannot pass the last column, so the wrap stays pending.
+    assert_eq!(four("abcd\t\x1b[31mX"), "abcd\nX   ");
+    // Save and restore keep the pending wrap with the cursor.
+    assert_eq!(four("abcd\x1b[s\x1b[1;1H\x1b[uX"), "abcd\nX   ");
+    // Colour leaves the wrap pending, so the next glyph starts the next row.
+    assert_eq!(four("abcd\x1b[31me"), "abcd\ne   ");
+    // A cursor move stops at the last column rather than past it.
+    assert_eq!(four("a\x1b[9Cb"), "a  b");
+    // Art with no escape sequence plays on the same screen.
+    let plain = |art: &str| {
+        let mut bytes = art.as_bytes().to_vec();
+        bytes.extend(sauce(1, 1, 4, &[]));
+        read("a.utf8.ans", &bytes).unwrap().text()
+    };
+    assert_eq!(plain("abcd\rX"), "Xbcd");
+    assert_eq!(plain("abcde"), "abcd\ne   ");
+    assert_eq!(
+        read("a.utf8.ans", "ab\ncd".as_bytes()).unwrap().text(),
+        "ab\ncd"
+    );
 }
 
 #[test]

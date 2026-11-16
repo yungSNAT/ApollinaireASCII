@@ -1,10 +1,10 @@
 // Copyright 2026 Ryan Duguid
 // SPDX-License-Identifier: MIT
 
-//! ANSI and CP437 art (`.ans`, `.asc`, `.nfo`, `.diz`) as an input. Art with escape sequences
-//! plays on a virtual screen as libansilove draws it, and plain CP437 text is read line by line;
-//! colour and attributes are dropped, and each CP437 glyph becomes its nearest printable ASCII
-//! character.
+//! ANSI and CP437 art (`.ans`, `.asc`, `.nfo`, `.diz`, and UTF-8 ANSI as `.utf8.ans`) as an
+//! input. Art with escape sequences plays on a virtual screen as libansilove draws it, and plain
+//! CP437 text is read line by line; colour and attributes are dropped, and each CP437 glyph
+//! becomes its nearest printable ASCII character.
 //!
 //! ```
 //! use apollinaire_ascii::ansi;
@@ -19,7 +19,7 @@ use crate::{Frame, MAX_HEIGHT, MAX_WIDTH, Result};
 pub const DEFAULT_WIDTH: usize = 80;
 
 /// Whether a file name ends in .ans, .asc, .nfo or .diz, in any case: the names ANSI and CP437
-/// art goes by, which the CLI and the browser editor read with [`decode`].
+/// art goes by, which the CLI and the browser editor read with [`read`].
 pub fn is_ansi_name(name: &str) -> bool {
     name.rsplit_once('.').is_some_and(|(_, extension)| {
         ["ans", "asc", "nfo", "diz"]
@@ -42,6 +42,63 @@ aiounNao?--//!<>\
 +++++++++++#_||\"\
 aBrnEoutOOOd8one\
 =+><||/~o..vn2# ";
+
+/// The characters CP437 draws for bytes 0x80 to 0xFF, in order.
+const HIGH: &str = "ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐\
+                    └┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■\u{a0}";
+/// The pictures CP437 draws for bytes 0x01 to 0x1F, then 0x7F.
+const PICTURES: &str = "☺☻♥♦♣♠•◘○◙♂♀♪♫☼►◄↕‼¶§▬↨↑↓→←∟↔▲▼⌂";
+
+/// Decode art by its file name: a `.utf8.ans` name, in any case, holds UTF-8 ANSI art as text0wnz
+/// saves it, and the other names [`is_ansi_name`] accepts hold CP437, read with [`decode`].
+///
+/// In UTF-8 art each character becomes the CP437 byte that draws it, and a picture CP437 draws
+/// for a control byte becomes that picture's ASCII character, so it is drawn rather than acted
+/// on. A character CP437 cannot draw, or text that is not UTF-8, is refused. The SAUCE record is
+/// read as bytes, as it need not be UTF-8.
+///
+/// UTF-8 art, with or without escape sequences, is shown as a terminal shows it: on a screen as
+/// wide as the SAUCE record says, or else 80 columns as text0wnz loads it, cropped to the
+/// rightmost glyph drawn, with moves stopping at the last column. A glyph that fills the last
+/// column leaves the cursor there and wraps only when another glyph follows, so the LF text0wnz
+/// writes after each full row ends that row and an erase escape before it reaches the last
+/// column. CR returns to the start of the row.
+pub fn read(name: &str, bytes: &[u8]) -> Result<Frame> {
+    let lower = name.to_ascii_lowercase();
+    if !lower.ends_with(".utf8.ans") {
+        return decode(bytes);
+    }
+    let (art, sauce_width) = sauce(bytes);
+    let art = &art[..art.iter().position(|b| *b == 0x1a).unwrap_or(art.len())];
+    let text = std::str::from_utf8(art)
+        .map_err(|e| format!("Byte {}: the art is not UTF-8", e.valid_up_to() + 1))?;
+    let mut cp437 = Vec::with_capacity(art.len());
+    for (index, character) in text.char_indices() {
+        cp437.push(if character.is_ascii() {
+            character as u8
+        } else if let Some(position) = HIGH.chars().position(|c| c == character) {
+            0x80 + position as u8
+        } else if let Some(position) = PICTURES.chars().position(|c| c == character) {
+            GLYPHS[if position == 31 { 0x7f } else { position + 1 }]
+        } else {
+            return Err(format!(
+                "Byte {}: U+{:04X} has no CP437 glyph",
+                index + 1,
+                u32::from(character)
+            ));
+        });
+    }
+    render(&cp437, sauce_width, Wrap::NextGlyph)
+}
+
+/// When a screen wraps after a glyph is drawn in its last column.
+#[derive(Clone, Copy, PartialEq)]
+enum Wrap {
+    /// When the next byte of any kind arrives, as libansilove draws CP437 art.
+    NextByte,
+    /// When the next glyph is drawn, as a terminal shows UTF-8 art.
+    NextGlyph,
+}
 
 /// Split off a SAUCE record and its comment block, returning the art and the record's width
 /// for character art.
@@ -80,15 +137,28 @@ fn sauce(bytes: &[u8]) -> (&[u8], Option<usize>) {
 /// a byte outside `@` to `~`, is refused. The frame is as tall as the last row written.
 pub fn decode(bytes: &[u8]) -> Result<Frame> {
     let (art, sauce_width) = sauce(bytes);
-    let art = &art[..art.iter().position(|b| *b == 0x1a).unwrap_or(art.len())];
+    render(
+        &art[..art.iter().position(|b| *b == 0x1a).unwrap_or(art.len())],
+        sauce_width,
+        Wrap::NextByte,
+    )
+}
+
+/// Draw CP437 art that ends before any end-of-file byte, at least `sauce_width` columns wide.
+fn render(art: &[u8], sauce_width: Option<usize>, wrap: Wrap) -> Result<Frame> {
     if sauce_width.is_some_and(|w| w > MAX_WIDTH) {
         return Err(format!(
             "The SAUCE record gives a width of {}; the limit is {MAX_WIDTH} columns",
             sauce_width.unwrap_or_default()
         ));
     }
-    let rows = if art.windows(2).any(|pair| pair == b"\x1b[") {
-        screen(art, sauce_width.unwrap_or(DEFAULT_WIDTH))?
+    let rows = if wrap == Wrap::NextGlyph || art.windows(2).any(|pair| pair == b"\x1b[") {
+        let (mut rows, drawn) = screen(art, sauce_width.unwrap_or(DEFAULT_WIDTH), wrap)?;
+        // With no SAUCE width, UTF-8 art keeps the columns up to its rightmost glyph.
+        if wrap == Wrap::NextGlyph && sauce_width.is_none() {
+            rows.iter_mut().for_each(|row| row.truncate(drawn));
+        }
+        rows
     } else {
         lines(art)
     };
@@ -138,21 +208,30 @@ fn lines(art: &[u8]) -> Vec<Vec<u8>> {
     rows
 }
 
-/// ANSI art on a screen `width` columns wide, growing downwards.
-fn screen(art: &[u8], width: usize) -> Result<Vec<Vec<u8>>> {
+/// ANSI art on a screen `width` columns wide, growing downwards, and the column after the
+/// rightmost glyph drawn.
+fn screen(art: &[u8], width: usize, wrap: Wrap) -> Result<(Vec<Vec<u8>>, usize)> {
     let mut rows: Vec<Vec<u8>> = Vec::new();
-    let (mut x, mut y, mut saved) = (0usize, 0usize, (0usize, 0usize));
+    let mut drawn = 0;
+    let (mut x, mut y, mut saved) = (0usize, 0usize, (0usize, 0usize, false));
+    // Under `Wrap::NextGlyph` the cursor stays in the last column after a glyph fills it, and
+    // the wrap waits here until the next glyph arrives. Erasing, colour and a tab, which cannot
+    // pass the last column, leave it waiting; CR, LF and cursor moves cancel it.
+    let mut pending = false;
     let mut index = 0;
     while let Some(&byte) = art.get(index) {
         index += 1;
-        if x >= width {
+        if x >= width && wrap == Wrap::NextByte {
             (x, y) = (0, y.saturating_add(1));
         }
         match byte {
-            // libansilove ignores CR: LF alone starts the next row.
+            // A terminal returns to the row's start on CR; libansilove ignores it, so LF alone
+            // starts the next row.
+            b'\r' if wrap == Wrap::NextGlyph => (x, pending) = (0, false),
             b'\r' => {}
-            b'\n' => (x, y) = (0, y.saturating_add(1)),
-            b'\t' => x = ((x / 8 + 1) * 8).min(width),
+            b'\n' => (x, y, pending) = (0, y.saturating_add(1), false),
+            b'\t' if !pending => x = ((x / 8 + 1) * 8).min(width),
+            b'\t' => {}
             0x1b if art.get(index) == Some(&b'[') => {
                 let parameters = index + 1;
                 index = parameters;
@@ -176,6 +255,7 @@ fn screen(art: &[u8], width: usize) -> Result<Vec<Vec<u8>>> {
                             v.saturating_mul(10).saturating_add(usize::from(d - b'0'))
                         })
                 });
+                pending &= !b"ABCDHf".contains(&command);
                 let first = numbers.next().unwrap_or(0);
                 let count = first.max(1);
                 let erase = match first {
@@ -196,7 +276,7 @@ fn screen(art: &[u8], width: usize) -> Result<Vec<Vec<u8>>> {
                     }
                     b'J' if first == 2 => {
                         rows.clear();
-                        (x, y) = (0, 0);
+                        (x, y, pending) = (0, 0, false);
                     }
                     b'J' | b'K' => {
                         if let Some(cells) = erase {
@@ -210,14 +290,17 @@ fn screen(art: &[u8], width: usize) -> Result<Vec<Vec<u8>>> {
                             }
                         }
                     }
-                    b's' => saved = (x, y),
-                    b'u' => (x, y) = saved,
+                    b's' => saved = (x, y, pending),
+                    b'u' => (x, y, pending) = saved,
                     _ => {}
                 }
             }
             // A lone ESC is skipped; the byte after it is drawn.
             0x1b => {}
             _ => {
+                if x >= width || pending {
+                    (x, y) = (0, y.saturating_add(1));
+                }
                 if y >= MAX_HEIGHT {
                     return Err(format!("The art is taller than {MAX_HEIGHT} rows"));
                 }
@@ -226,8 +309,14 @@ fn screen(art: &[u8], width: usize) -> Result<Vec<Vec<u8>>> {
                 }
                 rows[y][x] = GLYPHS[usize::from(byte)];
                 x += 1;
+                drawn = drawn.max(x);
+                pending = wrap == Wrap::NextGlyph && x == width;
             }
         }
+        // A terminal keeps the cursor on the screen, so moves stop at the last column.
+        if wrap == Wrap::NextGlyph {
+            x = x.min(width.saturating_sub(1));
+        }
     }
-    Ok(rows)
+    Ok((rows, drawn))
 }

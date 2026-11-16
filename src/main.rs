@@ -903,12 +903,12 @@ fn read_text(path: &Path) -> Result<String> {
         .map_err(|_| "Text input must be UTF-8 containing printable ASCII".into())
 }
 fn load(path: &Path, pad: bool) -> Result<Animation> {
-    if path
+    if let Some(name) = path
         .file_name()
         .and_then(|n| n.to_str())
-        .is_some_and(ansi::is_ansi_name)
+        .filter(|n| ansi::is_ansi_name(n))
     {
-        let art = ansi::decode(&read_bounded(path, MAX_INPUT_BYTES)?)?;
+        let art = ansi::read(name, &read_bounded(path, MAX_INPUT_BYTES)?)?;
         return Ok(Animation::still(art));
     }
     let text = read_text(path)?;

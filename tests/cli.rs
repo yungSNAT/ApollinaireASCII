@@ -1321,6 +1321,16 @@ fn ansi_and_cp437_art_files_load_as_ascii_by_their_extension() {
         &cli(&["import", empty.to_str().unwrap()]),
         "The file draws no characters",
     );
+    // UTF-8 ANSI art is read by its .utf8.ans name.
+    let utf8 = dir.join("box.utf8.ans");
+    std::fs::write(&utf8, "\x1b[31m┌──┐\r\n└──┘\x1b[0m").unwrap();
+    let imported = cli(&["import", utf8.to_str().unwrap(), "--format", "text"]);
+    assert_eq!(
+        text(&imported.stdout),
+        "+--+\n+--+\n",
+        "{}",
+        text(&imported.stderr)
+    );
     // The same bytes named .txt are still text, which must be printable ASCII.
     let txt = dir.join("box.txt");
     std::fs::write(&txt, &art).unwrap();

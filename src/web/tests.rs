@@ -1615,6 +1615,11 @@ async fn open_reads_ansi_art_as_ascii_without_its_colour() {
     // The same bytes in a .txt file are refused as text, and the box stays.
     assert!(open("box.txt", box_art).await.contains("printable ASCII"));
     assert_eq!(grid_size(), (80, 2));
+    // The same box saved as UTF-8 ANSI is as wide as its rows.
+    let utf8 = "\x1b[1;34m╔═╗\r\n╚═╝\x1b[0m";
+    assert!(open("box.utf8.ans", utf8).await.contains("File opened"));
+    assert_eq!(art(), rows(&["+=+", "+=+"]));
+    assert_eq!(grid_size(), (3, 2));
 }
 
 #[wasm_bindgen_test]

@@ -1101,7 +1101,7 @@ fn begin_file(id: &'static str) {
                 } else {
                     let name = file.name();
                     let project = if ansi::is_ansi_name(&name) {
-                        Layered::single(Animation::still(ansi::decode(&bytes)?))
+                        Layered::single(Animation::still(ansi::read(&name, &bytes)?))
                     } else {
                         let text = String::from_utf8(bytes)
                             .map_err(|_| "Text must contain printable ASCII")?;
