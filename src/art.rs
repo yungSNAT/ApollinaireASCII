@@ -1091,23 +1091,6 @@ pub const CATALOGUE: &[Piece] = &[
       | |
       | |"
     ),
-    art!(
-        "skeleton",
-        "characters",
-        ["bones", "halloween", "spooky"],
-        r"    .-'''-.
-   /  0 0  \
-   \   ^   /
-    '.www.'
-  ___ |+| ___
- /   -=+=-   \
-|    -=+=-    |
-|    -=+=-    |
-m     (+)     m
-      / \
-     /   \
-    _|   |_"
-    ),
     // Borders and dividers
     art!(
         "frame-double",
