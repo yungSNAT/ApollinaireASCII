@@ -425,6 +425,40 @@ EOC
             "$the_cow = <<EOC;\n$)\nEOC\n",
             "Line 2: an unescaped $ would be read by Perl as a variable",
         ),
+        // Perl would read these as array elements, hash entries or package variables, and
+        // @- and @+ as its match arrays.
+        (
+            "$the_cow = <<EOC;\n$eyes[0]\nEOC\n",
+            "Line 2: $eyes followed by [ would be read by Perl as another variable",
+        ),
+        (
+            "$the_cow = <<EOC;\n${eyes}[0]\nEOC\n",
+            "Line 2: $eyes followed by [ would be read by Perl as another variable",
+        ),
+        (
+            "$the_cow = <<EOC;\n$thoughts{key}\nEOC\n",
+            "Line 2: $thoughts followed by { would be read by Perl as another variable",
+        ),
+        (
+            "$the_cow = <<EOC;\n$tongue::x\nEOC\n",
+            "Line 2: $tongue followed by :: would be read by Perl as another variable",
+        ),
+        (
+            "$the_cow = <<EOC;\n$eyes'x\nEOC\n",
+            "Line 2: $eyes followed by ' would be read by Perl as another variable",
+        ),
+        (
+            "$the_cow = <<EOC;\n$eyes->[0]\nEOC\n",
+            "Line 2: $eyes followed by ->[ would be read by Perl as another variable",
+        ),
+        (
+            "$the_cow = <<EOC;\n(@-@)\nEOC\n",
+            "Line 2: an unescaped @ would be read by Perl as an array",
+        ),
+        (
+            "$the_cow = <<EOC;\n@+\nEOC\n",
+            "Line 2: an unescaped @ would be read by Perl as an array",
+        ),
         (
             "$the_cow = <<EOC;\ncaf\u{e9}\nEOC\n",
             "Line 2: Only printable ASCII is allowed: byte 3 is 0xc3",

@@ -54,8 +54,9 @@ pub fn say(message: &str, width: usize, style: BorderStyle, art: Option<&Frame>)
 /// with any tag) and the line holding just the tag. The file is never run as Perl. In the
 /// art, `$thoughts` becomes `\`, `$eyes` `oo` and `$tongue` 2 spaces (also written `${...}`),
 /// and a backslash before punctuation, as in `\\`, `\$` and `\@`, gives that character, as in
-/// Perl. Other variables, a backslash before a letter or digit (such as `\e`), an `@` that Perl
-/// would read as an array, Perl code outside the art (such as a line that changes the eyes)
+/// Perl. Other variables, one of the 3 followed by what Perl would read as part of it (such as
+/// `$eyes[0]`), a backslash before a letter or digit (such as `\e`), an `@` that Perl would read
+/// as an array, Perl code outside the art (such as a line that changes the eyes)
 /// and bytes outside printable ASCII are refused with their line number. Lines starting `#`
 /// and blank lines outside the art are comments.
 ///
@@ -189,6 +190,20 @@ fn perl_line(line: &str) -> Result<String> {
                             _ => "  ",
                         });
                         at += name.len() + if rest.starts_with('{') { 2 } else { 0 };
+                        // Perl reads a subscript, package name or arrow after it as one variable.
+                        let after = &line[at..];
+                        let joined = ["[", "{", "::", "->[", "->{"]
+                            .into_iter()
+                            .find(|mark| after.starts_with(mark))
+                            .or_else(|| {
+                                let next = after.strip_prefix('\'')?.bytes().next()?;
+                                (next.is_ascii_alphabetic() || next == b'_').then_some("'")
+                            });
+                        if let Some(mark) = joined {
+                            return Err(format!(
+                                "${name} followed by {mark} would be read by Perl as another variable"
+                            ));
+                        }
                     }
                     Some(name) if !name.is_empty() => {
                         return Err(format!("the variable ${name} is not drawn"));
@@ -197,7 +212,7 @@ fn perl_line(line: &str) -> Result<String> {
                 }
             }
             b'@' if bytes.get(at).is_some_and(|b| {
-                b.is_ascii_alphabetic() || matches!(b, b'_' | b'{' | b'$' | b':')
+                b.is_ascii_alphabetic() || matches!(b, b'_' | b'{' | b'$' | b':' | b'+' | b'-')
             }) =>
             {
                 return Err("an unescaped @ would be read by Perl as an array".into());
