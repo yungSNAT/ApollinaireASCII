@@ -294,12 +294,16 @@ enum Command {
     },
     /// Load .txt, an ApollinaireASCII .json project or ANSI art. Text CRLF is normalised to LF.
     Import {
-        /// A .txt or .json file, ANSI or CP437 art (.ans, .asc, .nfo or .diz, colour dropped),
-        /// or `-` for stdin.
+        /// A .txt or .json file, ANSI or CP437 art (.ans, .asc, .nfo or .diz) or XBIN, Artworx,
+        /// iCE Draw or TundraDraw art (.xb, .adf, .idf or .tnd), colour dropped, or `-` for stdin.
         input: PathBuf,
         /// Pad ragged text rows with spaces instead of refusing them.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "bin")]
         pad: bool,
+        /// Read the input as BIN art: character and attribute pairs, as wide as its SAUCE record
+        /// says or 160 columns. BIN has no signature, so a .bin name alone is not enough.
+        #[arg(long)]
+        bin: bool,
     },
     /// Overlay one static text frame onto another.
     Compose {
@@ -603,7 +607,10 @@ fn run(args: Args) -> Result<()> {
                 text,
             },
         )?,
-        Command::Import { input, pad } => load(&input, pad)?,
+        Command::Import {
+            input, bin: true, ..
+        } => Animation::still(ansi::read_bin(&read_bounded(&input, MAX_INPUT_BYTES)?)?),
+        Command::Import { input, pad, .. } => load(&input, pad)?,
         Command::Compose {
             background,
             overlay,

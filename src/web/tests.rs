@@ -1623,6 +1623,28 @@ async fn open_reads_ansi_art_as_ascii_without_its_colour() {
 }
 
 #[wasm_bindgen_test]
+async fn open_reads_binary_text_art_and_bin_only_when_asked() {
+    blank(3, 1);
+    // A 2 by 1 XBIN screen of a shaded block and a heart, with no palette or font.
+    let xbin = b"XBIN\x1a\x02\x00\x01\x00\x10\x00\xdb\x1f\x03\x4f";
+    assert!(open("heart.xb", xbin).await.contains("File opened"));
+    assert_eq!(art(), "#*");
+    // BIN has no signature, so a .bin name is refused until the user says it is BIN art.
+    let bin = [b"\xc4\x07".repeat(160), b"\xb3\x07".repeat(160)].concat();
+    assert!(
+        open("line.bin", &bin)
+            .await
+            .contains("Read the file as BIN art")
+    );
+    assert_eq!(art(), "#*");
+    click("open-bin");
+    assert!(open("line.bin", &bin).await.contains("File opened"));
+    let (dashes, bars) = ("-".repeat(160), "|".repeat(160));
+    assert_eq!(art(), rows(&[dashes.as_str(), bars.as_str()]));
+    click("open-bin");
+}
+
+#[wasm_bindgen_test]
 async fn refused_and_cancelled_picture_imports_leave_the_project_and_history() {
     const PICTURE: &[u8] = b"P2\n4 1\n255\n0 0 255 255\n";
     blank(4, 1);
