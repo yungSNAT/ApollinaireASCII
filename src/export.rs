@@ -85,6 +85,8 @@ export default function ApollinaireArt({{ paused = false, className, label = 'AS
     const query = window.matchMedia(motionQuery);
     const change = () => setStill(query.matches);
     query.addEventListener('change', change);
+    // The preference may have changed since rendering, with no event to say so.
+    change();
     return () => query.removeEventListener('change', change);
   }}, []);
   const index = useFrame(paused || still);
