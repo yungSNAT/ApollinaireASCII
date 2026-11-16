@@ -153,8 +153,8 @@ mod with_ffmpeg {
             out.to_str().unwrap(),
         ]);
         assert!(batch.status.success(), "{}", stderr(&batch));
-        assert!(out.join("still.txt").is_file());
-        let json = std::fs::read_to_string(out.join("clip.json")).unwrap();
+        assert!(out.join("still.png.txt").is_file());
+        let json = std::fs::read_to_string(out.join("clip.mp4.json")).unwrap();
         assert_eq!(apollinaire_ascii::Animation::from_json(&json).unwrap().frames().len(), 4);
         let _ = std::fs::remove_dir_all(&dir);
     }
