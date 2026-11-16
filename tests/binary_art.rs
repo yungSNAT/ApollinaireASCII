@@ -44,13 +44,10 @@ fn bin_fills_160_columns_or_the_sauce_width() {
     let mut art = pairs(b"abcdefg");
     art.extend(sauce(5, 2, 0));
     assert_eq!(read_bin(&art).unwrap().text(), "abcd\nefg ");
-    // An odd last byte is a character with no attribute, and is ignored.
+    // An odd last byte is a cell cut short, and the file is refused rather than drawn without it.
     assert_eq!(
-        read_bin(&[pairs(b"ab"), vec![b'c']].concat())
-            .unwrap()
-            .text()
-            .trim_end(),
-        "ab"
+        read_bin(&[pairs(b"ab"), vec![b'c']].concat()).unwrap_err(),
+        "The file ends inside a cell"
     );
     // Without a SAUCE record, 0x1A is a glyph like any other code.
     let art = pairs(&[0x1a, b'z']);
@@ -127,6 +124,12 @@ fn xbin_runs_of_each_kind_expand() {
         refused("a.xb", &raw),
         "The XBIN file holds 3 of its 10 cells"
     );
+    // A last run longer than the cells left is refused rather than cut to fit.
+    let long = [&body[..body.len() - 3], &[0xc3, b'f', 4]].concat();
+    assert_eq!(
+        refused("a.xb", &xbin(5, 2, 16, 4, &[], &long)),
+        "The XBIN file has a run past its last cell"
+    );
 }
 
 #[test]
@@ -147,6 +150,12 @@ fn xbin_headers_and_sizes_are_checked() {
         refused("a.xb", &xbin(1, 257, 16, 0, &[], &pairs(&[b'x'; 257]))),
         "The art is taller than 256 rows"
     );
+    // libansilove refuses fonts over 32 pixels high, so no viewer draws such a file.
+    assert_eq!(
+        refused("a.xb", &xbin(1, 1, 33, 0, &[], &pairs(b"x"))),
+        "The XBIN font is 33 pixels high; the limit is 32"
+    );
+    assert_eq!(text("a.xb", &xbin(1, 1, 32, 0, &[], &pairs(b"x"))), "x");
 }
 
 #[test]
@@ -165,6 +174,8 @@ fn adf_skips_its_palette_and_font_and_fills_80_columns() {
         refused("a.adf", &[1u8; 100]),
         "The ADF file ends inside its palette or font"
     );
+    file.push(b'#');
+    assert_eq!(refused("a.adf", &file), "The file ends inside a cell");
 }
 
 /// An IDF file `last_column + 1` wide: the header, `body`, then a font and palette.
@@ -188,14 +199,25 @@ fn idf_reads_pairs_and_runs_up_to_its_font() {
         "The IDF file ends inside a run"
     );
     assert_eq!(
+        refused("a.idf", &idf(3, &[pairs(b"ab"), vec![b'c']].concat())),
+        "The file ends inside a cell"
+    );
+    assert_eq!(
         refused("a.idf", b"\x041.4"),
         "The IDF file is shorter than its header, font and palette"
     );
-    // A huge run stops at the height limit instead of expanding in full.
+    // A run past the height limit is refused before it expands; one that fills it is drawn.
+    // The count is a word, as PabloDraw reads it (libansilove reads its low byte only).
     assert_eq!(
         refused("a.idf", &idf(0, &[1, 0, 0xff, 0xff, b'x', 7])),
         "The art is taller than 256 rows"
     );
+    assert_eq!(
+        refused("a.idf", &idf(0, &[1, 0, 1, 1, b'x', 7])),
+        "The art is taller than 256 rows"
+    );
+    let full = read("a.idf", &idf(0, &[1, 0, 0, 1, b'x', 7])).unwrap();
+    assert_eq!((full.width(), full.height()), (1, 256));
 }
 
 #[test]
@@ -235,15 +257,35 @@ fn tnd_moves_and_skips_colours_but_draws_their_characters() {
         refused("a.tnd", b"\x18TUNDRA24"),
         "The file draws no characters"
     );
+    // The last row and a column past the edge, then a character: it wraps to a row that does
+    // not exist, and the error counts it without overflowing.
+    let last = [
+        &b"\x18TUNDRA24"[..],
+        &[1, 0xff, 0xff, 0xff, 0xff, 0, 0, 0, 80, b'x'],
+    ]
+    .concat();
+    assert_eq!(
+        refused("a.tnd", &last),
+        "The art draws at row 4294967297 column 1, outside 80 columns and 256 rows"
+    );
 }
 
 #[test]
 fn every_format_draws_only_printable_ascii() {
+    const ADF_HEADER: usize = 1 + 192 + 4096;
     let codes: Vec<u8> = (0..=255).collect();
+    // TND's commands are 1, 2, 4 and 6; each other code is a character.
+    let tnd: Vec<u8> = b"\x18TUNDRA24"
+        .iter()
+        .copied()
+        .chain(codes.iter().copied().filter(|c| ![1, 2, 4, 6].contains(c)))
+        .collect();
     for frame in [
         read_bin(&pairs(&codes)).unwrap(),
         read("a.xb", &xbin(16, 16, 16, 0, &[], &pairs(&codes))).unwrap(),
         read("a.idf", &idf(15, &pairs(&codes[2..]))).unwrap(),
+        read("a.adf", &[vec![1u8; ADF_HEADER], pairs(&codes)].concat()).unwrap(),
+        read("a.tnd", &tnd).unwrap(),
     ] {
         assert!(frame.cells().iter().all(|b| (32..=126).contains(b)));
     }

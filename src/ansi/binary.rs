@@ -27,7 +27,7 @@ pub(super) fn bin(bytes: &[u8]) -> Result<Frame> {
         }
         _ => BIN_WIDTH,
     };
-    grid(pairs(data).map(|(character, _)| character), width)
+    grid(characters(data)?, width)
 }
 
 /// XBIN: an 11-byte header with the width and height, an optional palette and font, then
@@ -42,7 +42,13 @@ pub(super) fn xbin(bytes: &[u8]) -> Result<Frame> {
     let height = usize::from(u16::from_le_bytes([header[7], header[8]]));
     let font_height = match header[9] {
         0 => 16,
-        size => usize::from(size),
+        size @ 1..=32 => usize::from(size),
+        // libansilove's limit, so no viewer draws such a file.
+        size => {
+            return Err(format!(
+                "The XBIN font is {size} pixels high; the limit is 32"
+            ));
+        }
     };
     let flags = header[10];
     let mut offset = 11;
@@ -58,8 +64,12 @@ pub(super) fn xbin(bytes: &[u8]) -> Result<Frame> {
         .ok_or("The XBIN file ends inside its palette or font")?;
     let cells = width * height;
     let codes = if flags & 4 == 0 {
-        let codes: Vec<u8> = pairs(body)
-            .map(|(character, _)| character)
+        // Bytes after the last cell are not art, so only the cells are read in pairs.
+        let codes: Vec<u8> = body
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&[character, _]| character)
             .take(cells)
             .collect();
         if codes.len() < cells {
@@ -90,6 +100,9 @@ fn xbin_runs(body: &[u8], cells: usize) -> Result<Vec<u8>> {
             ));
         };
         let length = usize::from(run & 0x3f) + 1;
+        if length > cells - codes.len() {
+            return Err("The XBIN file has a run past its last cell".into());
+        }
         let mut next = || bytes.next().ok_or_else(truncated);
         match run >> 6 {
             0 => {
@@ -118,7 +131,6 @@ fn xbin_runs(body: &[u8], cells: usize) -> Result<Vec<u8>> {
             }
         }
     }
-    codes.truncate(cells);
     Ok(codes)
 }
 
@@ -128,7 +140,7 @@ pub(super) fn adf(bytes: &[u8]) -> Result<Frame> {
     let body = data
         .get(ADF_HEADER..)
         .ok_or("The ADF file ends inside its palette or font")?;
-    grid(pairs(body).map(|(character, _)| character), SCREEN_WIDTH)
+    grid(characters(body)?, SCREEN_WIDTH)
 }
 
 /// IDF: a 12-byte header whose third word is the last column, then pairs where the word 1
@@ -141,24 +153,26 @@ pub(super) fn idf(bytes: &[u8]) -> Result<Frame> {
     let width = usize::from(u16::from_le_bytes([data[8], data[9]])) + 1;
     check_size(width, 1)?;
     let body = &data[IDF_HEADER..data.len() - IDF_TRAILER];
-    let limit = width * (MAX_HEIGHT + 1);
+    let limit = width * MAX_HEIGHT;
     let mut codes = Vec::new();
     let mut index = 0;
-    while index + 1 < body.len() {
-        if body[index..index + 2] == [1, 0] {
+    while index < body.len() {
+        let cell = body.get(index..index + 2).ok_or(CUT_SHORT)?;
+        if cell == [1, 0] {
             let run = body
                 .get(index + 2..index + 6)
                 .ok_or("The IDF file ends inside a run")?;
+            // A word, as PabloDraw reads it; libansilove reads only its low byte.
             let count = usize::from(u16::from_le_bytes([run[0], run[1]]));
-            codes.extend(std::iter::repeat_n(run[2], count.min(limit)));
+            // Refused before it expands, so a run allocates no more than the art can hold.
+            if codes.len() + count > limit {
+                return Err(format!("The art is taller than {MAX_HEIGHT} rows"));
+            }
+            codes.extend(std::iter::repeat_n(run[2], count));
             index += 6;
         } else {
-            codes.push(body[index]);
+            codes.push(cell[0]);
             index += 2;
-        }
-        // Stop once the art is a row too tall to load, so further runs allocate nothing more.
-        if codes.len() >= limit {
-            break;
         }
     }
     grid(codes.into_iter(), width)
@@ -177,11 +191,13 @@ pub(super) fn tnd(bytes: &[u8]) -> Result<Frame> {
         .map_or(SCREEN_WIDTH, |record| record.width);
     check_size(width, 1)?;
     let mut rows: Vec<Vec<u8>> = Vec::new();
-    let (mut x, mut y) = (0usize, 0usize);
+    // u64, so a move to the last u32 row can still step past it without overflow.
+    let (mut x, mut y) = (0u64, 0u64);
+    let columns = width as u64;
     let mut index = 0;
     let truncated = "The TND file ends inside a command";
     while let Some(&byte) = body.get(index) {
-        if x == width {
+        if x == columns {
             (x, y) = (0, y + 1);
         }
         let character = match byte {
@@ -189,7 +205,7 @@ pub(super) fn tnd(bytes: &[u8]) -> Result<Frame> {
                 let at = body.get(index + 1..index + 9).ok_or(truncated)?;
                 let row = u32::from_be_bytes([at[0], at[1], at[2], at[3]]);
                 let column = u32::from_be_bytes([at[4], at[5], at[6], at[7]]);
-                (y, x) = (row as usize, column as usize);
+                (y, x) = (row.into(), column.into());
                 index += 9;
                 continue;
             }
@@ -205,17 +221,19 @@ pub(super) fn tnd(bytes: &[u8]) -> Result<Frame> {
                 byte
             }
         };
-        if x >= width || y >= MAX_HEIGHT {
+        if x >= columns || y >= MAX_HEIGHT as u64 {
             return Err(format!(
                 "The art draws at row {} column {}, outside {width} columns and {MAX_HEIGHT} rows",
                 y + 1,
                 x + 1
             ));
         }
-        if rows.len() <= y {
-            rows.resize_with(y + 1, || vec![b' '; width]);
+        // Both are within the limits, so they fit a usize.
+        let (row, column) = (y as usize, x as usize);
+        if rows.len() <= row {
+            rows.resize_with(row + 1, || vec![b' '; width]);
         }
-        rows[y][x] = GLYPHS[usize::from(character)];
+        rows[row][column] = GLYPHS[usize::from(character)];
         x += 1;
     }
     if rows.is_empty() {
@@ -225,12 +243,16 @@ pub(super) fn tnd(bytes: &[u8]) -> Result<Frame> {
     Frame::new(width, height, rows.concat())
 }
 
-/// Character and attribute pairs; an odd last byte is ignored.
-fn pairs(data: &[u8]) -> impl Iterator<Item = (u8, u8)> + '_ {
-    data.as_chunks::<2>()
-        .0
-        .iter()
-        .map(|&[character, attribute]| (character, attribute))
+const CUT_SHORT: &str = "The file ends inside a cell";
+
+/// The character of each character and attribute pair. An odd last byte is a cell cut short,
+/// so the file is refused rather than drawn without it.
+fn characters(data: &[u8]) -> Result<impl Iterator<Item = u8> + '_> {
+    let (cells, rest) = data.as_chunks::<2>();
+    if !rest.is_empty() {
+        return Err(CUT_SHORT.into());
+    }
+    Ok(cells.iter().map(|&[character, _]| character))
 }
 
 fn check_size(width: usize, height: usize) -> Result<()> {
