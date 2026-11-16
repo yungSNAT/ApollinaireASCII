@@ -198,6 +198,8 @@ impl<'a> Lexer<'a> {
     }
     /// One design, from its name after `BOX` to its `END` line.
     fn design(&mut self) -> Result<Design> {
+        // A design's DELIM applies to that design only.
+        (self.escape, self.quote) = (b'\\', b'"');
         let mut names = vec![self.name()?];
         while self.eat(b',') {
             names.push(self.name()?);
