@@ -255,15 +255,28 @@ fn utf8_ansi_rows_keep_their_own_width_and_end_at_each_line_feed() {
         frame.text(),
         format!("{}\n{}", "#".repeat(80), ".".repeat(80))
     );
-    // With no SAUCE record, the widest row sets the width, wider or narrower than 80.
-    for width in [132, 40] {
-        let rows = vec!["▀".repeat(width), "▄".repeat(width)];
-        let frame = read("wide.utf8.ans", &text0wnz(&rows)).unwrap();
-        assert_eq!(
-            frame.text(),
-            format!("{}\n{}", "\"".repeat(width), "_".repeat(width))
-        );
-    }
+    // With no SAUCE record the screen is 80 columns wide, as text0wnz loads it, and the art is
+    // as wide as its rightmost glyph, so narrower rows keep their width.
+    let rows = vec!["▀".repeat(40), "▄".repeat(40)];
+    let frame = read("narrow.utf8.ans", &text0wnz(&rows)).unwrap();
+    assert_eq!(
+        frame.text(),
+        format!("{}\n{}", "\"".repeat(40), "_".repeat(40))
+    );
+    // Art drawn for an 80-column terminal wraps there rather than growing wider.
+    let rows = vec!["▀".repeat(132), "▄".repeat(132)];
+    let frame = read("wide.utf8.ans", &text0wnz(&rows)).unwrap();
+    let pad = " ".repeat(28);
+    assert_eq!(
+        frame.text(),
+        format!(
+            "{}\n{}{pad}\n{}\n{}{pad}",
+            "\"".repeat(80),
+            "\"".repeat(52),
+            "_".repeat(80),
+            "_".repeat(52)
+        )
+    );
     // A glyph past the last column of a SAUCE width still wraps onto the next row.
     let mut art = "\x1b[0mabcdef".as_bytes().to_vec();
     art.extend(sauce(1, 1, 4, &[]));
@@ -295,9 +308,12 @@ fn utf8_ansi_rows_keep_their_own_width_and_end_at_each_line_feed() {
             .text(),
         "a       b"
     );
+    // A cursor move stops at the 80th column.
     assert_eq!(
-        read("wide.utf8.ans", &text0wnz(&["x".repeat(513)])).unwrap_err(),
-        "The art is wider than 512 columns"
+        read("a.utf8.ans", "\x1b[0mA\x1b[200CB".as_bytes())
+            .unwrap()
+            .text(),
+        format!("A{}B", " ".repeat(78))
     );
 }
 
@@ -326,6 +342,18 @@ fn utf8_ansi_cursor_waits_in_the_last_column_until_a_glyph_wraps() {
     assert_eq!(four("abcd\x1b[31me"), "abcd\ne   ");
     // A cursor move stops at the last column rather than past it.
     assert_eq!(four("a\x1b[9Cb"), "a  b");
+    // Art with no escape sequence plays on the same screen.
+    let plain = |art: &str| {
+        let mut bytes = art.as_bytes().to_vec();
+        bytes.extend(sauce(1, 1, 4, &[]));
+        read("a.utf8.ans", &bytes).unwrap().text()
+    };
+    assert_eq!(plain("abcd\rX"), "Xbcd");
+    assert_eq!(plain("abcde"), "abcd\ne   ");
+    assert_eq!(
+        read("a.utf8.ans", "ab\ncd".as_bytes()).unwrap().text(),
+        "ab\ncd"
+    );
 }
 
 #[test]
