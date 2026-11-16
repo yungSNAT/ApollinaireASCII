@@ -216,9 +216,9 @@ mod tests {
             ["line 1, column 2: a carriage return inside a row"]
         );
         // The first 200 are listed and the rest counted.
-        let tabs = "\t".repeat(1000);
+        let tabs = "\t".repeat(300);
         let (listed, total) = problems(tabs.as_bytes());
-        assert_eq!((listed.len(), total), (LISTED, 1000));
+        assert_eq!((listed.len(), total), (LISTED, 300));
         assert_eq!(listed[199], "line 1, column 200: a tab; use spaces");
         for character in [
             '\u{a0}', '\u{201c}', '\u{2014}', '\u{2502}', '\u{250c}', '\u{2026}', '\u{d7}',
