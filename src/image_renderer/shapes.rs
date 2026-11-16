@@ -5,7 +5,10 @@
 //! pixels, rather than the ramp character for its average brightness.
 use super::{RAMPS, RenderOptions, adjust, check_pixels, gray};
 use crate::{Frame, Result, dimensions};
-use image::{DynamicImage, imageops::FilterType};
+use image::{
+    DynamicImage, GrayImage,
+    imageops::{FilterType, resize},
+};
 
 /// Pixels across and down one cell: 8 by 8 bitmaps with each row drawn twice, as text cells are
 /// about twice as tall as they are wide.
@@ -120,13 +123,23 @@ pub(super) fn render(resource: &DynamicImage, options: &RenderOptions) -> Result
     check_pixels(resource.width(), resource.height())?;
     let height = options.output_height(resource.width(), resource.height());
     let count = dimensions(options.width, height)?;
-    let resized = resource
-        .resize_exact(
-            (options.width * CELL.0) as u32,
-            (height * CELL.1) as u32,
-            FilterType::Triangle,
-        )
-        .to_rgba8();
+    // Grey before resizing, so the resize works on 1 channel rather than 4: at 512 columns
+    // the resized picture is 4096 pixels square.
+    let grey: Vec<u8> = resource
+        .to_rgba8()
+        .pixels()
+        .map(|pixel| (gray(pixel, options.background) * 255.0).round() as u8)
+        .collect();
+    let grey = GrayImage::from_raw(resource.width(), resource.height(), grey)
+        .expect("one grey byte for each pixel");
+    let resized = resize(
+        &grey,
+        (options.width * CELL.0) as u32,
+        (height * CELL.1) as u32,
+        FilterType::Triangle,
+    );
+    // Contrast, gamma and inversion for each of the 256 greys, rather than for each pixel.
+    let tone: [f64; 256] = std::array::from_fn(|level| adjust(level as f64 / 255.0, options));
     let mut cells = Vec::with_capacity(count);
     for index in 0..count {
         let (left, top) = (
@@ -138,8 +151,8 @@ pub(super) fn render(resource: &DynamicImage, options: &RenderOptions) -> Result
         for (row, sums) in ink.iter_mut().enumerate() {
             for (column, sum) in sums.iter_mut().enumerate() {
                 for y in [top + 2 * row, top + 2 * row + 1] {
-                    let pixel = resized.get_pixel((left + column) as u32, y as u32);
-                    *sum += adjust(gray(pixel, options.background), options);
+                    let [level] = resized.get_pixel((left + column) as u32, y as u32).0;
+                    *sum += tone[usize::from(level)];
                 }
             }
         }
