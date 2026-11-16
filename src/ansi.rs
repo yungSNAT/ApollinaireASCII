@@ -39,7 +39,7 @@ fn extension(name: &str) -> Option<String> {
 }
 
 /// The printable ASCII character drawn for each CP437 byte.
-const GLYPHS: &[u8; 256] = b" oo****.#oo*****\
+pub(crate) const GLYPHS: &[u8; 256] = b" oo****.#oo*****\
 ><|!PS_|^v><L-^v\
 \x20!\"#$%&'()*+,-./0123456789:;<=>?\
 @ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_\

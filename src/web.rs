@@ -4,7 +4,7 @@
 use crate::{
     Animation, BorderStyle, Canvas, EffectOptions, Frame, Glyphs, Layer, Layered, MAX_INPUT_BYTES,
     RenderOptions, Result, SceneOptions, TimedFrame, animation, ansi, art, decode_media_as,
-    effects, export, generator, image_renderer::RAMPS, lettering, model,
+    effects, export, generator, image_renderer::RAMPS, lettering, model, rexpaint,
 };
 use js_sys::{Array, Uint8Array};
 use std::cell::RefCell;
@@ -1216,6 +1216,8 @@ fn begin_file(id: &'static str) {
                         Layered::single(Animation::still(ansi::read_bin(&bytes)?))
                     } else if name.to_ascii_lowercase().ends_with(".bin") {
                         return Err("To open a .bin file, tick Read the file as BIN art".into());
+                    } else if name.to_ascii_lowercase().ends_with(".xp") {
+                        rexpaint::read(&bytes)?
                     } else if ansi::is_ansi_name(&name) {
                         Layered::single(Animation::still(ansi::read(&name, &bytes)?))
                     } else {

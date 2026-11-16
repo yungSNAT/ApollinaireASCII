@@ -22,6 +22,10 @@ Source: https://github.com/cacalabs/toilet, commit `3eb9d58037afb0a1baec6dca82ca
 
 figlet.js 1.12.0 ships 332 fonts. Its fonts are not bundled: 20 of the 21 whose headers state a redistribution licence draw with non-ASCII characters, the remaining one (Font Font, MIT) is not widely used, and the others state no redistribution licence.
 
+## bracket-lib test image
+
+Source: https://github.com/amethyst/bracket-lib, commit `ce9124ad744553b2576e44df44e94b0f72faa8e8`, `bracket-terminal/resources/mltest.xp`. MIT; Copyright 2019 Herbert Wolverson (DBA Bracket Productions). `tests/fixtures/rexpaint/mltest.xp` is that 2-layer REXPaint image, unchanged, used only by the tests; its licence is retained beside it in [bracket-lib-LICENSE.txt](tests/fixtures/rexpaint/bracket-lib-LICENSE.txt).
+
 ## Other dependencies
 
 Cargo.toml and Cargo.lock record direct and transitive Rust dependencies. The [browser notice bundle](web/THIRD_PARTY_NOTICES.txt) includes the root licence files for every locked dependency, the FIGlet, figlet.js and TOIlet licences and the bundled font headers, covering native and browser builds. Release archives include it as `DEPENDENCY_NOTICES.txt`. Refresh it when Cargo.lock changes, as described below. The CLI's HTTPS client (`ureq`, `rustls`, `ring` and `webpki-roots`) adds ISC, BSD-3-Clause and CDLA-Permissive-2.0 terms alongside MIT and Apache-2.0; these crates are not part of the library without the `cli` feature or of the browser build. The CLI's terminal editor reads keys and the mouse with `crossterm` and its platform crates (`mio`, `signal-hook`, `rustix`, `parking_lot` and, on Windows, `winapi`), under MIT, Apache-2.0 and Apache-2.0 WITH LLVM-exception terms; they too come only with the `cli` feature. Dependencies retain their own licences; the repository's MIT licence does not replace those terms. GIF frames are decoded in this repository with `weezl` 0.2.1 rather than the `gif` crate; see [dependency notes](docs/DEPENDENCIES.md).
