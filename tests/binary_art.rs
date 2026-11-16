@@ -180,8 +180,14 @@ fn adf_skips_its_palette_and_font_and_fills_80_columns() {
 
 /// An IDF file `last_column + 1` wide: the header, `body`, then a font and palette.
 fn idf(last_column: u16, body: &[u8]) -> Vec<u8> {
+    idf_from(0, last_column, body)
+}
+
+/// An IDF file from `first_column` to `last_column`, as its header gives them.
+fn idf_from(first_column: u16, last_column: u16, body: &[u8]) -> Vec<u8> {
     let mut out = b"\x041.4".to_vec();
-    out.extend([0, 0, 0, 0]);
+    out.extend(first_column.to_le_bytes());
+    out.extend([0, 0]);
     out.extend(last_column.to_le_bytes());
     out.extend([0, 0]);
     out.extend(body);
@@ -216,13 +222,30 @@ fn idf_reads_pairs_and_runs_up_to_its_font() {
         refused("a.idf", &idf(0, &[1, 0, 1, 1, b'x', 7])),
         "The art is taller than 256 rows"
     );
-    // Single pairs past the limit are refused too.
+    // Single pairs past the limit are refused too, as soon as they pass it.
     assert_eq!(
         refused("a.idf", &idf(0, &pairs(&[b'x'; 257]))),
         "The art is taller than 256 rows"
     );
+    assert_eq!(
+        refused(
+            "a.idf",
+            &idf(0, &[pairs(&[b'x'; 257]), vec![b'y']].concat())
+        ),
+        "The art is taller than 256 rows"
+    );
     let full = read("a.idf", &idf(0, &[1, 0, 0, 1, b'x', 7])).unwrap();
     assert_eq!((full.width(), full.height()), (1, 256));
+}
+
+#[test]
+fn idf_width_runs_from_the_first_column_to_the_last() {
+    // As PabloDraw reads it.
+    assert_eq!(text("a.idf", &idf_from(1, 2, &pairs(b"abcd"))), "ab\ncd");
+    assert_eq!(
+        refused("a.idf", &idf_from(3, 2, &pairs(b"ab"))),
+        "The IDF header's last column, 2, is before its first, 3"
+    );
 }
 
 #[test]

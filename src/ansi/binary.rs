@@ -143,14 +143,20 @@ pub(super) fn adf(bytes: &[u8]) -> Result<Frame> {
     grid(characters(body)?, SCREEN_WIDTH)
 }
 
-/// IDF: a 12-byte header whose third word is the last column, then pairs where the word 1
-/// starts a run (a count word and the pair to repeat), then a font and a palette.
+/// IDF: a 12-byte header whose first and third words are the first and last columns, then
+/// pairs where the word 1 starts a run (a count word and the pair to repeat), then a font and a
+/// palette.
 pub(super) fn idf(bytes: &[u8]) -> Result<Frame> {
     let (data, _) = Sauce::split(bytes);
     if data.len() < IDF_HEADER + IDF_TRAILER {
         return Err("The IDF file is shorter than its header, font and palette".into());
     }
-    let width = usize::from(u16::from_le_bytes([data[8], data[9]])) + 1;
+    let first = u16::from_le_bytes([data[4], data[5]]);
+    let last = u16::from_le_bytes([data[8], data[9]]);
+    // The columns from the first to the last, as PabloDraw reads them.
+    let width = usize::from(last.checked_sub(first).ok_or_else(|| {
+        format!("The IDF header's last column, {last}, is before its first, {first}")
+    })?) + 1;
     check_size(width, 1)?;
     let body = &data[IDF_HEADER..data.len() - IDF_TRAILER];
     let limit = width * MAX_HEIGHT;
@@ -171,6 +177,9 @@ pub(super) fn idf(bytes: &[u8]) -> Result<Frame> {
             codes.extend(std::iter::repeat_n(run[2], count));
             index += 6;
         } else {
+            if codes.len() == limit {
+                return Err(format!("The art is taller than {MAX_HEIGHT} rows"));
+            }
             codes.push(cell[0]);
             index += 2;
         }
