@@ -643,15 +643,44 @@ fn a_cast_extension_or_format_writes_an_asciicast_recording() {
 }
 
 #[test]
+fn code_formats_write_components_and_a_go_name_writes_bubble_tea() {
+    let dir = scratch("code");
+    let file = dir.join("ghost.go");
+    let saved = cli(&["animate", "ghost", "--output", file.to_str().unwrap()]);
+    assert!(saved.status.success(), "{}", text(&saved.stderr));
+    let printed = cli(&["animate", "ghost", "--format", "bubbletea"]);
+    assert_eq!(std::fs::read(&file).unwrap(), printed.stdout);
+    assert!(text(&printed.stdout).contains("tea \"charm.land/bubbletea/v2\""));
+    for (format, signature) in [
+        ("react", "from 'react';"),
+        ("ink", "from 'ink';"),
+        ("opentui", "from '@opentui/core';"),
+    ] {
+        let printed = cli(&["animate", "ghost", "--format", format]);
+        assert!(printed.status.success(), "{}", text(&printed.stderr));
+        assert!(text(&printed.stdout).contains(signature), "{format}");
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn image_batches_use_safe_names_and_the_requested_export_format() {
     let dir = scratch("batch-formats");
     let input = dir.join("two words.pgm");
     std::fs::write(&input, b"P2\n2 1\n255\n0 255\n").unwrap();
     let input = input.to_str().unwrap();
-    for (format, signature) in [
-        ("json", "{"),
-        ("html", "<!doctype html>"),
-        ("cast", "{\"version\":2,"),
+    for (format, extension, signature) in [
+        ("json", "json", "{"),
+        ("html", "html", "<!doctype html>"),
+        ("cast", "cast", "{\"version\":2,"),
+        ("react", "js", "// ApollinaireASCII artwork as a React"),
+        ("ink", "js", "// ApollinaireASCII artwork as an Ink"),
+        ("opentui", "js", "// ApollinaireASCII artwork for OpenTUI"),
+        (
+            "bubbletea",
+            "go",
+            "// ApollinaireASCII artwork as a Bubble Tea",
+        ),
     ] {
         let output = dir.join(format);
         let result = cli(&[
@@ -666,7 +695,7 @@ fn image_batches_use_safe_names_and_the_requested_export_format() {
         ]);
         assert!(result.status.success(), "{}", text(&result.stderr));
         let contents =
-            std::fs::read_to_string(output.join(format!("two_words.pgm.{format}"))).unwrap();
+            std::fs::read_to_string(output.join(format!("two_words.pgm.{extension}"))).unwrap();
         assert!(contents.starts_with(signature));
     }
 
@@ -1699,5 +1728,32 @@ fn generate_builds_mazes_skies_and_patterns_from_the_library() {
     refused(
         &cli(&["generate", "sky", "--moons", "21"]),
         "at most 20 moons",
+    );
+}
+
+#[test]
+fn binary_text_art_loads_by_name_and_bin_only_with_its_flag() {
+    let dir = scratch("binary-art");
+    // A 2 by 1 XBIN screen: a full block and a heart.
+    let xbin = dir.join("heart.xb");
+    std::fs::write(&xbin, b"XBIN\x1a\x02\x00\x01\x00\x10\x00\xdb\x1f\x03\x4f").unwrap();
+    let imported = cli(&["import", xbin.to_str().unwrap()]);
+    assert_eq!(text(&imported.stdout), "#*\n", "{}", text(&imported.stderr));
+    // BIN: 2 cells and a BinaryText SAUCE record of 2 columns (FileType holds half the width).
+    let mut bin = b"\xc4\x07\xb3\x07\x1aSAUCE00".to_vec();
+    bin.resize(5 + 94, b' ');
+    bin.extend([5, 1]);
+    bin.resize(5 + 128, 0);
+    let path = dir.join("line.bin");
+    std::fs::write(&path, &bin).unwrap();
+    let imported = cli(&["import", "--bin", path.to_str().unwrap()]);
+    assert_eq!(text(&imported.stdout), "-|\n", "{}", text(&imported.stderr));
+    let piped = cli_stdin(&["import", "--bin", "-"], &bin);
+    assert_eq!(text(&piped.stdout), "-|\n");
+    // Without --bin the name alone does not make it art, and --bin cannot pad text.
+    refused(&cli(&["import", path.to_str().unwrap()]), "UTF-8");
+    refused(
+        &cli(&["import", "--bin", "--pad", path.to_str().unwrap()]),
+        "cannot be used with",
     );
 }
