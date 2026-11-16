@@ -135,15 +135,15 @@
         </details>
          <p class="hint">Art stamps stay in this session only, up to 16 stamps and 1,000,000 cells in total. Drag a stamp to preview; release to place it.</p>
         <details id="outline-panel">
-          <summary>Tables and trees</summary>
-          <label for="outline-text">Table rows or tree outline</label>
+          <summary>Tables, trees and flowcharts</summary>
+          <label for="outline-text">Table rows, tree outline or Mermaid flowchart</label>
           <textarea id="outline-text" rows="5" wrap="off" spellcheck="false" autocomplete="off"></textarea>
           <div class="tool-options">
-            <div><label for="outline-kind">Draw as</label><select id="outline-kind"><option value="header">Table, header row ruled</option><option value="every">Table, every row ruled</option><option value="none">Table, no inner rules</option><option value="tree">Tree from indented lines</option></select></div>
+            <div><label for="outline-kind">Draw as</label><select id="outline-kind"><option value="header">Table, header row ruled</option><option value="every">Table, every row ruled</option><option value="none">Table, no inner rules</option><option value="tree">Tree from indented lines</option><option value="flowchart">Flowchart from Mermaid</option></select></div>
             <div><label for="outline-separator">Table cell separator</label><select id="outline-separator"><option value="|">Vertical bar |</option><option value=",">Comma ,</option><option value="tab">Tab (pasted from a spreadsheet)</option></select></div>
           </div>
           <div class="actions"><button id="outline-stamp" type="button">Make stamp</button></div>
-          <p class="hint">A table takes one row per line, split into cells at the separator; quotes are not special. A tree takes one item per line, indented with spaces under its parent. Make stamp saves the drawing as an art stamp and chooses Stamp art, ready to place.</p>
+          <p class="hint">A table takes one row per line, split into cells at the separator; quotes are not special. A tree takes one item per line, indented with spaces under its parent. A flowchart takes Mermaid <code>flowchart</code> or <code>graph</code> text, such as <code>graph LR; A --&gt; B</code>. Make stamp saves the drawing as an art stamp and chooses Stamp art, ready to place.</p>
         </details>
         <details id="layers-panel">
           <summary>Layers</summary>

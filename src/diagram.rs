@@ -22,6 +22,9 @@
 
 use crate::{Canvas, Result, canvas::bounds, printable};
 
+mod flowchart;
+pub use flowchart::flowchart;
+
 fn join(existing: u8, stroke: u8) -> u8 {
     match (existing, stroke) {
         (b'|' | b'+' | b'^' | b'v', b'-') | (b'-' | b'+' | b'<' | b'>', b'|') => b'+',

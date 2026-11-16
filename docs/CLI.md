@@ -20,6 +20,7 @@ echo "Build passed" | apollinaire say --width 30 --art-file owl.txt --output owl
 apollinaire table prices.tsv
 apollinaire table drops.csv --separator , --rules every --output drops.txt
 printf 'src\n  lib.rs\n  main.rs\n' | apollinaire tree -
+apollinaire diagram flow.mmd --output flow.txt
 apollinaire animate donut --width 72 --height 24 --frames 120 --fps 30 --output donut.json
 apollinaire animate scroll --text "HELLO, FRIEND" --seed 42 --output scroll.html
 apollinaire image photo.jpg --width 100 --ramp fine --gamma 1.2 --contrast 1.3 --dither
@@ -95,7 +96,26 @@ src
 `-- main.rs
 ```
 
-Both refuse text with no rows and a result over 512 columns or 256 rows; a tree also stops at 256 lines. The browser editor's Tables and trees panel draws the same output from typed or pasted text and keeps it as an art stamp to place.
+Both refuse text with no rows and a result over 512 columns or 256 rows; a tree also stops at 256 lines.
+
+`diagram FILE` lays out a Mermaid flowchart as boxes and arrows. The text starts with `flowchart` or `graph` and a direction, `TD` (or `TB`), `BT`, `LR` or `RL`, and may sit inside one Markdown code block. It reads nodes with their text in any Mermaid shape, each drawn as the same box; links `-->`, `---`, `<-->`, dotted `-.->` and thick `==>`, drawn alike, with an extra `-` asking for a longer link; link text written `-->|text|` or `-- text -->`; chains such as `A --> B --> C`; and groups such as `A & B --> C`. Style lines are skipped, since the output has no colour. Subgraphs, `click`, circle and cross link ends, a link from a node to itself and any other syntax are refused with the line number, as is a byte outside printable ASCII.
+
+Nodes sit in ranks along the direction, and links run between ranks; a link back up the chart keeps its arrowhead where it points. Where 2 links cross, the vertical line is drawn through, so `+` marks only a bend or the edge of a box. A chart is refused over 1,024 nodes, 4,096 links, or 512 columns by 256 rows.
+
+```text
+$ printf 'graph TD\n  A[Start] -->|yes| B[Done]\n' | apollinaire diagram -
++-------+
+| Start |
++---+---+
+    |
+   yes
+    v
+ +------+
+ | Done |
+ +------+
+```
+
+The browser editor's Tables, trees and flowcharts panel draws the same output from typed or pasted text and keeps it as an art stamp to place.
 
 `play` requires a terminal and refuses redirected stdout. It uses ANSI clear/cursor commands solely to update terminal text. It does not put those codes in the project or any text export. It plays the requested number of cycles; the project's loop setting controls the browser and standalone player. Unsupported media and malformed input fail visibly.
 

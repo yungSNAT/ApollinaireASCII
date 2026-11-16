@@ -1,7 +1,7 @@
 // Copyright 2026 Ryan Duguid
 // SPDX-License-Identifier: MIT
 
-use apollinaire_ascii::diagram::{TableRules, table, tree};
+use apollinaire_ascii::diagram::{TableRules, flowchart, table, tree};
 use apollinaire_ascii::{Canvas, Frame, canvas::bounds};
 
 fn canvas(text: &str) -> Canvas {
@@ -359,4 +359,379 @@ fn trees_refuse_unmatched_dedents_tabs_and_blank_outlines() {
     assert!(tree("a\n caf\u{e9}").is_err());
     assert!(tree("root\r").is_err());
     assert!(tree(&"x\n".repeat(300)).is_err());
+}
+
+fn chart(source: &str) -> String {
+    flowchart(source).unwrap().text()
+}
+
+// The expected drawings below follow the layout rules: boxes are their text plus 4 wide, and
+// wider where several links leave or arrive, 2 apart and centred; a rank is placed over the
+// ports above it, then under the ports below it; a link that does not line up turns once in a
+// lane of the channel between ranks, and an arrowhead stops one cell short of its box.
+#[test]
+fn flowcharts_rank_boxes_and_route_links_between_them() {
+    let two = padded(&[
+        "+---+", "| A |", "+-+-+", "  v  ", "+---+", "| B |", "+---+",
+    ]);
+    assert_eq!(chart("flowchart TD\n  A --> B"), two);
+    assert_eq!(
+        chart("```mermaid\nflowchart TD; A-->B; B-.->C; C==>D; D---E\n```"),
+        padded(&[
+            "+---+", "| A |", "+-+-+", "  v  ", "+---+", "| B |", "+-+-+", "  v  ", "+---+",
+            "| C |", "+-+-+", "  v  ", "+---+", "| D |", "+-+-+", "  |  ", "+-+-+", "| E |",
+            "+---+",
+        ])
+    );
+    // Fanning out and back in: each jog takes the first lane where it clears the others.
+    assert_eq!(
+        chart("flowchart TD\n  A --> B & C\n  B --> D\n  C --> D"),
+        padded(&[
+            "  +-----+   ",
+            "  |  A  |   ",
+            "  +-+-+-+   ",
+            "    | |     ",
+            "  +-+ +--+  ",
+            "  v      v  ",
+            "+---+  +---+",
+            "| B |  | C |",
+            "+-+-+  +-+-+",
+            "  |      |  ",
+            "  | +----+  ",
+            "  v v       ",
+            "+-----+     ",
+            "|  D  |     ",
+            "+-----+     ",
+        ])
+    );
+    // A rank is reordered to uncross its links: D moves under A and C under B.
+    assert_eq!(
+        chart("graph TD\nC\nD\nA --> D\nB --> C"),
+        padded(&[
+            "+---+  +---+",
+            "| A |  | B |",
+            "+-+-+  +-+-+",
+            "  v      v  ",
+            "+---+  +---+",
+            "| D |  | C |",
+            "+---+  +---+",
+        ])
+    );
+    // A longer arrow passes through a rank of its own.
+    assert_eq!(
+        chart("graph TD\n  A ---> B"),
+        padded(&[
+            "+---+", "| A |", "+-+-+", "  |  ", "  |  ", "  v  ", "+---+", "| B |", "+---+"
+        ])
+    );
+    // Link text takes the first rank of its link, and the line runs under it.
+    assert_eq!(
+        chart("graph TD\n  A -->|a long label here| B\n  A --> C"),
+        padded(&[
+            "     +-----+            ",
+            "     |  A  |            ",
+            "     +-+-+-+            ",
+            "       | |              ",
+            "  +----+ +-----+        ",
+            "  v            |        ",
+            "+---+          |        ",
+            "| C |  a long label here",
+            "+---+          |        ",
+            "               v        ",
+            "             +---+      ",
+            "             | B |      ",
+            "             +---+      ",
+        ])
+    );
+    // A cycle: the link back up keeps its arrowhead at the box it points to.
+    assert_eq!(
+        chart("graph TD\n  A --> B --> C --> A"),
+        padded(&[
+            " +-----+", " |  A  |", " +-+---+", "   | ^  ", "  ++ +-+", "  v    |", "+---+  |",
+            "| B |  |", "+-+-+  |", "  |    |", "  | +--+", "  v |   ", "+---+-+ ", "|  C  | ",
+            "+-----+ ",
+        ])
+    );
+    // Across and mirrored: LR, BT with text, and RL with arrowheads at both ends.
+    assert_eq!(
+        chart("graph LR\n  A --> B"),
+        padded(&["+---+ +---+", "| A +>| B |", "+---+ +---+"])
+    );
+    assert_eq!(
+        chart("flowchart BT\n  A -- go --> B"),
+        padded(&[
+            "+---+", "| B |", "+---+", "  ^  ", "  go ", "  |  ", "+-+-+", "| A |", "+---+"
+        ])
+    );
+    assert_eq!(
+        chart("flowchart RL\n  A <--> B"),
+        padded(&["+---+  +---+", "| B |<>| A |", "+---+  +---+"])
+    );
+}
+
+#[test]
+fn flowcharts_keep_crossing_links_apart() {
+    // N2 -> N1 and N5 -> N3 each leave from the column where the other arrives, so neither
+    // can turn first: N2 -> N1, the later link, takes a second jog through column 20.
+    assert_eq!(
+        chart("flowchart TD\n  N2 --> N4\n  N5 --> N3\n  N2 --> N3\n  N5 --> N1\n  N2 --> N1"),
+        padded(&[
+            "      +-------+  +-----+",
+            "      |  N2   |  | N5  |",
+            "      +-+-+-+-+  +-+-+-+",
+            "        | | |      | |  ",
+            "  +-----+ | +------|+|  ",
+            "  |       | +------+||  ",
+            "  |       | |      ++|  ",
+            "  v       v v      v v  ",
+            "+----+  +-----+  +-----+",
+            "| N4 |  | N3  |  | N1  |",
+            "+----+  +-----+  +-----+",
+        ])
+    );
+    // Where links cross, the vertical line is kept, so `+` marks only bends and box edges.
+    let k33 = "flowchart TD\n  A & B & C --> D & E & F";
+    let drawn = chart(k33);
+    assert_eq!(drawn.matches('v').count(), 9);
+    assert!(drawn.contains("-|-"), "{drawn}");
+    assert_eq!(chart(k33), drawn);
+}
+
+#[test]
+fn flowcharts_read_every_shape_and_link_form_alike() {
+    let boxed = padded(&[
+        "+---+", "| x |", "+-+-+", "  v  ", "+---+", "| B |", "+---+",
+    ]);
+    for node in [
+        "A[x]",
+        "A(x)",
+        "A{x}",
+        "A((x))",
+        "A(((x)))",
+        "A([x])",
+        "A[[x]]",
+        "A[(x)]",
+        "A{{x}}",
+        "A>x]",
+        "A[/x/]",
+        "A[/x\\]",
+        "A[\\x\\]",
+        "A[\\x/]",
+        "A[\"x\"]",
+        "A[ x ]",
+        "A[\"x\" ]",
+        "A[x]:::warm",
+    ] {
+        assert_eq!(chart(&format!("graph TD\n{node} --> B")), boxed, "{node}");
+    }
+    assert_eq!(chart("graph TD\nA --> B\nA[x]"), boxed);
+    let arrow = chart("graph TD\nA --> B");
+    for source in [
+        "graph\nA -.-> B",
+        "flowchart TB\nA ==> B",
+        "flowchart TD;A-->B;",
+        "graph TD\n%% a comment\n\nA:::warm\t-->\tB\r\nclassDef warm fill:#f96\nclass A warm\nstyle A fill:#f00\nlinkStyle 0 stroke:#f00",
+        "~~~\ngraph TD\nA --> B\n~~~\n",
+        "```\ngraph TD\nA --> B\n```\n\n",
+    ] {
+        assert_eq!(chart(source), arrow, "{source}");
+    }
+    let open = chart("graph TD\nA --- B");
+    assert_eq!(
+        open,
+        padded(&[
+            "+---+", "| A |", "+-+-+", "  |  ", "+-+-+", "| B |", "+---+"
+        ])
+    );
+    // A name starting with o or x is a node, not a circle or cross end.
+    assert_eq!(
+        chart("graph TD\nA --- xray"),
+        padded(&[
+            " +---+", " | A |", " +-+-+", "   |", "+--+---+", "| xray |", "+------+"
+        ])
+    );
+    assert_eq!(chart("graph TD\nA -.- B"), open);
+    assert_eq!(chart("graph TD\nA === B"), open);
+    let text = chart("graph TD\nA -->|t| B");
+    for source in [
+        "graph TD\nA -- t --> B",
+        "graph TD\nA -. t .-> B",
+        "graph TD\nA == t ==> B",
+    ] {
+        assert_eq!(chart(source), text, "{source}");
+    }
+    assert_eq!(
+        chart("graph TD\nA -- t --- B"),
+        chart("graph TD\nA ---|t| B")
+    );
+    assert_eq!(chart("graph TD\nA -..-> B"), chart("graph TD\nA ---> B"));
+    assert_eq!(chart("graph TD\nA ===> B"), chart("graph TD\nA ---> B"));
+    assert_eq!(
+        chart("graph TD\nA <-- t --> B"),
+        chart("graph TD\nA <-->|t| B")
+    );
+}
+
+#[test]
+fn flowcharts_refuse_what_they_cannot_draw_with_its_line() {
+    for (source, error) in [
+        ("", "A flowchart starts with flowchart or graph"),
+        ("graph TD\n", "A flowchart needs at least one node"),
+        (
+            "graph XY",
+            "Line 1: the direction XY is not one of TD, TB, BT, LR or RL",
+        ),
+        (
+            "sequenceDiagram",
+            "Line 1: a flowchart starts with flowchart or graph and a direction",
+        ),
+        (
+            "graph TD\nA --> caf\u{e9}",
+            "Line 2: byte 10 is 0xc3, not printable ASCII",
+        ),
+        ("graph TD\nA[a\tb] --> B", "Line 2: text holds a tab"),
+        (
+            "graph TD\nsubgraph one",
+            "Line 2: subgraph is not supported",
+        ),
+        ("graph TD\nend", "Line 2: end is not supported"),
+        ("graph TD\nclick A go", "Line 2: click is not supported"),
+        (
+            "graph TD\ndirection LR",
+            "Line 2: direction is not supported",
+        ),
+        (
+            "graph TD\nA --> A",
+            "Line 2: a link from a node to itself is not drawn",
+        ),
+        (
+            "graph TD\nA[x",
+            "Line 2: the shape at column 2 is not closed",
+        ),
+        (
+            "graph TD\nA[\"x] --> B",
+            "Line 2: the shape at column 2 is not closed",
+        ),
+        (
+            "graph TD\nA[\"x\" y] --> B",
+            "Line 2: the shape at column 2 is not closed",
+        ),
+        (
+            "graph TD\nA[`x`]",
+            "Line 2: Markdown strings are not supported",
+        ),
+        (
+            "graph TD\nA --o B",
+            "Line 2: circle and cross link ends are not drawn",
+        ),
+        (
+            "graph TD\nA --x B",
+            "Line 2: circle and cross link ends are not drawn",
+        ),
+        (
+            "graph TD\nA <-- B",
+            "Line 2: the link at column 3 has an arrowhead at its start only",
+        ),
+        (
+            "graph TD\nA -> B",
+            "Line 2: expected a link such as --> at column 3",
+        ),
+        (
+            "graph TD\nA B",
+            "Line 2: expected a link such as --> at column 3",
+        ),
+        (
+            "graph TD\nA -.-. B",
+            "Line 2: expected a link such as --> at column 3",
+        ),
+        (
+            "graph TD\nA -- B",
+            "Line 2: the link text at column 3 is not closed",
+        ),
+        (
+            "graph TD\nA -- t -- B",
+            "Line 2: the link text at column 3 is not closed",
+        ),
+        (
+            "graph TD\nA -->|t B",
+            "Line 2: the link text at column 6 is not closed",
+        ),
+        ("graph TD\nA -- s -->|t| B", "Line 2: a link has text twice"),
+        (
+            "graph TD\nA -->|| B",
+            "Line 2: link text must hold printable characters and no tab",
+        ),
+        (
+            "graph TD\nA -->|a\tb| B",
+            "Line 2: link text must hold printable characters and no tab",
+        ),
+        (
+            "graph TD\nA --> ",
+            "Line 2: expected a node name at column 7",
+        ),
+        (
+            "graph TD\n--> B",
+            "Line 2: expected a node name at column 1",
+        ),
+        (
+            "```mermaid\ngraph TD\nA-->B",
+            "The code block opened on line 1 is not closed",
+        ),
+        ("```js\n```", "Line 1: only a mermaid code block is read"),
+        (
+            "```\ngraph TD\nA\n```\nmore",
+            "Line 5: text after the code block",
+        ),
+    ] {
+        assert_eq!(flowchart(source).unwrap_err(), error, "{source}");
+    }
+    let nodes: String = (0..1025).map(|i| format!("N{i}\n")).collect();
+    assert_eq!(
+        flowchart(&format!("graph TD\n{nodes}")).unwrap_err(),
+        "A flowchart has at most 1024 nodes"
+    );
+    let group = |name: &str, count: usize| {
+        (0..count)
+            .map(|i| format!("{name}{i}"))
+            .collect::<Vec<_>>()
+            .join(" & ")
+    };
+    assert_eq!(
+        flowchart(&format!(
+            "graph TD\n{} --> {}",
+            group("A", 65),
+            group("B", 64)
+        ))
+        .unwrap_err(),
+        "A flowchart has at most 4096 links"
+    );
+}
+
+#[test]
+fn flowcharts_refuse_drawings_over_512_columns_or_256_rows() {
+    let chain = |count: usize| -> String {
+        (0..count)
+            .map(|i| format!("  N{i} --> N{}\n", i + 1))
+            .collect()
+    };
+    // 70 ranks of 3 rows with a row between each: refused before any layout.
+    assert_eq!(
+        flowchart(&format!("flowchart TD\n{}", chain(69))).unwrap_err(),
+        "The flowchart needs at least 279 rows; the limit is 256"
+    );
+    let row: String = (0..200).map(|i| format!("  N{i}\n")).collect();
+    assert_eq!(
+        flowchart(&format!("flowchart TD\n{row}")).unwrap_err(),
+        "The flowchart needs at least 1888 columns; the limit is 512"
+    );
+    let column: String = (0..90).map(|i| format!("  N{i}\n")).collect();
+    assert_eq!(
+        flowchart(&format!("flowchart LR\n{column}")).unwrap_err(),
+        "The flowchart needs at least 359 rows; the limit is 256"
+    );
+    // 64 ranks fit in 255 rows until a jog adds a lane and 2 rows.
+    assert_eq!(
+        flowchart(&format!("flowchart TD\n{}  N0 --> M\n", chain(63))).unwrap_err(),
+        "The flowchart needs 14 columns by 257 rows; the limit is 512 by 256"
+    );
 }

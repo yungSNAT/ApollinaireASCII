@@ -805,7 +805,8 @@ fn clipboard(event: Event) -> Result<()> {
         app.display(false)
     })
 }
-/// Draw the Tables and trees text as a table or tree and keep it as an art stamp, then choose
+/// Draw the Tables, trees and flowcharts text as a table, tree or flowchart and keep it as an
+/// art stamp, then choose
 /// Stamp art so it can be placed by pointer or keyboard.
 fn outline_stamp() -> Result<()> {
     let text = super::text("outline-text")?;
@@ -818,6 +819,7 @@ fn outline_stamp() -> Result<()> {
     };
     let (frame, made) = match kind.as_str() {
         "tree" => (diagram::tree(&text)?, "Tree"),
+        "flowchart" => (diagram::flowchart(&text)?, "Flowchart"),
         "header" => (
             diagram::table(&text, separator, TableRules::Header)?,
             "Table",
@@ -827,7 +829,7 @@ fn outline_stamp() -> Result<()> {
             "Table",
         ),
         "none" => (diagram::table(&text, separator, TableRules::None)?, "Table"),
-        _ => return Err("Choose a table or a tree".into()),
+        _ => return Err("Choose a table, a tree or a flowchart".into()),
     };
     state(|app| {
         app.clean()?;
