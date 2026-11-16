@@ -138,6 +138,27 @@ The 16 MiB input limit arrived with the first build on 1 November 2026 as one bu
 
 Peak memory was 2.1 to 3.5 times the file's size, 263 MiB at most, and every output was printable ASCII; the highest ratio was the GIF's. So `image` files and stdin now take up to 128 MiB, matching the decoder's allocation limit; text and project inputs, URL downloads and the browser editor keep 16 MiB. The 125.1 MiB PNG on stdin took 596 ms and 263 MiB. A 128 MiB + 1 byte file was refused with 'Input exceeds 128 MiB' only after reading it, in 183 ms and 132 MiB. A file is now refused from its size before any of it is read: in a later run that day the same refusal took 2 ms and 12.5 MiB, against 74 ms and 132 MiB for the build before. ascii-image-converter plays a GIF in a loop, so it was not given one; chafa printed only 2 bytes for the GIF with `--animate off`, so that row has no comparison. The other programs' figures for the first 2 pictures come from an earlier run that day, in which a build of master with the limit lifted took 343 ms and 139 MiB, and 650 ms and 228 MiB.
 
+## Shape-matched characters against chafa
+
+On 17 November 2026 `image --shapes` was scored against the default ramp and [chafa](https://hpjansson.org/chafa/) 1.18.3 (`--format symbols --symbols ascii --colors none --size 80x<rows> --stretch --animate off`) on 6 pictures drawn by ImageMagick 7.1.2-35: the 3 plasma fractals of the speed run, and 3 white line drawings on black (a circle, a diagonal and a rectangle; the word ASCII in DejaVu Sans Bold; a grid). Each converter wrote 80 columns and the rows the ramp chose. Each output was drawn back to pixels, light ink on black at 8 by 16 pixels a cell, in 2 fonts that no converter chooses characters with: DejaVu Sans Mono and Liberation Mono at 13 pixels. Each drawing was compared with the picture in grey, resized to the same pixels: mean squared error on a 0 to 1 scale, lower is better, and mean SSIM with an 11-tap Gaussian window (sigma 1.5), higher is better. The machine ran Linux 7.3.3 with Python 3.15.0, Pillow 13.0.0 and NumPy 2.5.5.
+
+| Picture | Rows | MSE: ramp | shapes | chafa | SSIM: ramp | shapes | chafa |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| hd.png, DejaVu | 23 | 0.0918 | **0.0768** | 0.0942 | 0.0124 | 0.0084 | **0.0139** |
+| hd.png, Liberation | 23 | 0.0901 | **0.0779** | 0.0786 | 0.0127 | 0.0084 | **0.0154** |
+| big.jpg, DejaVu | 30 | 0.1220 | 0.1106 | **0.1009** | 0.0085 | 0.0048 | **0.0097** |
+| big.jpg, Liberation | 30 | 0.1206 | 0.1113 | **0.0900** | 0.0086 | 0.0048 | **0.0109** |
+| big.png, DejaVu | 30 | 0.0951 | **0.0829** | 0.0866 | 0.0091 | 0.0046 | **0.0105** |
+| big.png, Liberation | 30 | 0.0935 | 0.0830 | **0.0756** | 0.0093 | 0.0046 | **0.0118** |
+| lines, DejaVu | 30 | 0.0326 | 0.0266 | **0.0263** | 0.8568 | **0.8947** | 0.8895 |
+| lines, Liberation | 30 | 0.0322 | **0.0273** | 0.0281 | 0.8571 | **0.8930** | 0.8833 |
+| lettering, DejaVu | 15 | 0.1079 | 0.1016 | **0.0991** | 0.7635 | **0.7923** | 0.7816 |
+| lettering, Liberation | 15 | 0.1085 | 0.1065 | **0.0981** | 0.7612 | **0.7982** | 0.7829 |
+| grid, DejaVu | 30 | 0.0810 | 0.0597 | **0.0596** | 0.5632 | **0.7535** | 0.7333 |
+| grid, Liberation | 30 | 0.0794 | 0.0736 | **0.0707** | 0.5623 | 0.6767 | **0.6810** |
+
+Shape matching beat the ramp on every error figure and on SSIM for every line drawing. Against chafa it had the lower error in 4 of 12 rows and the higher SSIM in 5 of the 6 line-drawing rows; chafa led on the fractals' SSIM, where every figure is near 0 because a character's strokes are not a smooth gradient, and on most error figures. So `--shapes` is the better choice for line art and logos, and chafa keeps a small fidelity lead on photographs. Six pictures are a first check, not proof of a general ranking.
+
 ## Speech bubbles against cowsay
 
 On 14 November 2026 a release build of `apollinaire say` (Rust 1.99.1) and [cowsay](https://github.com/cowsay-org/cowsay) 3.8.4 (its source release, run with Perl 5.44.0 in a UTF-8 locale) were given the same messages at each program's default width of 40. Each time is the fastest and the median of 20 runs, including process start, on the same shared Linux machine as the conversion timings (load average about 7), so the times are indicative.
