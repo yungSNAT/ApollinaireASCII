@@ -53,6 +53,16 @@ fn bin_fills_160_columns_or_the_sauce_width() {
     let art = pairs(&[0x1a, b'z']);
     assert_eq!(read_bin(&art).unwrap().text().trim_end(), ">z");
     assert_eq!(read_bin(&[]).unwrap_err(), "The file draws no characters");
+    // 256 rows are read, and one more cell is refused.
+    let mut art = pairs(&[b'x'; 2 * 256]);
+    art.extend(sauce(5, 1, 0));
+    assert_eq!(read_bin(&art).unwrap().height(), 256);
+    let mut art = pairs(&[b'x'; 2 * 256 + 1]);
+    art.extend(sauce(5, 1, 0));
+    assert_eq!(
+        read_bin(&art).unwrap_err(),
+        "The art is taller than 256 rows"
+    );
     // Another SAUCE type keeps the default width.
     let mut art = pairs(b"x");
     art.extend(sauce(1, 1, 40));
