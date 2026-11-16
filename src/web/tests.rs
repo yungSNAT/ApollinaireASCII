@@ -1051,6 +1051,8 @@ async fn the_converter_turns_a_3d_model_into_a_looping_animation() {
     click("convert");
     wait_for(|| !status().starts_with("Reading")).await;
     assert!(status().contains("shaded with a ramp"), "{}", status());
+    // The page is shared by the tests, so the standard preset turns shape matching off again.
+    preset("standard");
 }
 fn preset(name: &str) {
     let picker = element::<HtmlSelectElement>("preset");
