@@ -2130,10 +2130,7 @@ fn pick_key(key: &str) -> u8 {
 #[wasm_bindgen_test]
 fn the_character_picker_sets_the_brush_and_moves_by_keyboard() {
     blank(3, 1);
-    let buttons = document()
-        .query_selector_all("#char-picker button")
-        .unwrap();
-    assert_eq!(buttons.length(), 95);
+    assert_eq!(element::<Element>("char-picker").children().length(), 95);
     assert_eq!(
         pick(b' ').get_attribute("aria-label").as_deref(),
         Some("Space")
