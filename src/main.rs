@@ -178,8 +178,10 @@ enum Generator {
     Maze {
         #[command(flatten)]
         size: Size,
+        /// How the passages are carved.
         #[arg(long, value_enum, default_value_t = Algorithm::DepthFirst)]
         algorithm: Algorithm,
+        /// The characters the walls are drawn with.
         #[arg(long, value_enum, default_value_t = MazeStyle::Hash)]
         style: MazeStyle,
         /// Mark the path from the entrance to the exit with `.`.
@@ -199,6 +201,7 @@ enum Generator {
         /// 6 by 4 moons, 0 to 20.
         #[arg(long, default_value_t = 1)]
         moons: usize,
+        /// How the moons are lit.
         #[arg(long, value_enum, default_value_t = Phase::Full)]
         phase: Phase,
         /// 3 by 2 asteroids, 0 to 200.
