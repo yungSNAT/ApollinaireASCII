@@ -1343,3 +1343,33 @@ fn ansi_and_cp437_art_files_load_as_ascii_by_their_extension() {
     std::fs::write(&txt, &art).unwrap();
     refused(&cli(&["import", txt.to_str().unwrap()]), "UTF-8");
 }
+
+#[test]
+fn model_draws_an_obj_or_stl_file_turning() {
+    let dir = scratch("model");
+    let cube = dir.join("cube.obj");
+    let mut obj = String::new();
+    for corner in 0..8 {
+        let [x, y, z] = [corner & 1, (corner >> 1) & 1, (corner >> 2) & 1];
+        obj += &format!("v {x} {y} {z}\n");
+    }
+    obj += "f 1 2 4 3\nf 5 6 8 7\nf 1 2 6 5\nf 3 4 8 7\nf 1 3 7 5\nf 2 4 8 6\n";
+    std::fs::write(&cube, obj).unwrap();
+    let path = cube.to_str().unwrap();
+    let json = cli(&[
+        "model", path, "--width", "20", "--height", "10", "--frames", "4",
+    ]);
+    let project = apollinaire_ascii::Animation::from_json(text(&json.stdout)).unwrap();
+    assert_eq!(project.frames().len(), 4, "{}", text(&json.stderr));
+    let frame = cli(&[
+        "model", path, "--width", "20", "--height", "10", "--frames", "4", "--spin", "xy",
+        "--light", "front", "--ramp", "simple", "--format", "text", "--frame", "1",
+    ]);
+    let drawn = text(&frame.stdout);
+    assert_eq!(drawn.lines().count(), 10, "{}", text(&frame.stderr));
+    assert!(drawn.bytes().all(|b| b" .oO#\n".contains(&b)) && drawn.contains('#'));
+    let gltf = dir.join("cube.gltf");
+    std::fs::write(&gltf, "{}").unwrap();
+    refused(&cli(&["model", gltf.to_str().unwrap()]), ".stl or .obj");
+    refused(&cli(&["model", path, "--spin", "z"]), "invalid value");
+}

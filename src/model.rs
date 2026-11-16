@@ -332,36 +332,42 @@ pub fn render(mesh: &Mesh, options: &ModelOptions) -> Result<Animation> {
     // tall.
     let scale = (width as f64 / 2.0).min(height as f64) / radius;
     let light = options.light.direction();
+    let turns: Vec<(f64, f64)> = (0..options.frames)
+        .map(|index| (index as f64 / options.frames as f64 * std::f64::consts::TAU).sin_cos())
+        .collect();
+    let turn =
+        |corner: &[f32; 3], (sin, cos): (f64, f64)| turned(corner, centre, options.spin, sin, cos);
+    // Column, row and depth, a row being 2 columns tall.
+    let project = |[x, y, z]: Point| -> Point {
+        [
+            width as f64 / 2.0 + x * scale,
+            height as f64 / 2.0 - y * scale / 2.0,
+            z,
+        ]
+    };
+    // Each cell in a triangle's bounding box is tested once. The whole render's tests are
+    // counted before any drawing, so a render that would take too long is refused at once.
     let mut tests = 0usize;
+    for &pose in &turns {
+        for triangle in &mesh.triangles {
+            let [a, b, c] = triangle
+                .each_ref()
+                .map(|corner| project(turn(corner, pose)));
+            let columns = span([a[0], b[0], c[0]], width).len();
+            tests = tests.saturating_add(columns * span([a[1], b[1], c[1]], height).len());
+        }
+    }
+    if tests > MAX_TESTS {
+        return Err(format!(
+            "The model covers too much of the frame to draw within {MAX_TESTS} cell tests; use fewer frames or a smaller size"
+        ));
+    }
     let mut frames = Vec::with_capacity(options.frames);
-    for index in 0..options.frames {
-        let angle = index as f64 / options.frames as f64 * std::f64::consts::TAU;
-        let (sin, cos) = angle.sin_cos();
-        // A corner turned about the model's centre, in model units, with z towards the viewer.
-        let turn = |corner: &[f32; 3]| -> Point {
-            let [x, y, z]: Point =
-                std::array::from_fn(|axis| f64::from(corner[axis]) - centre[axis]);
-            let (x, z) = match options.spin {
-                Spin::X => (x, z),
-                Spin::Y | Spin::XY => (x * cos + z * sin, z * cos - x * sin),
-            };
-            match options.spin {
-                Spin::Y => [x, y, z],
-                Spin::X | Spin::XY => [x, y * cos - z * sin, y * sin + z * cos],
-            }
-        };
-        // Column, row and depth, a row being 2 columns tall.
-        let project = |[x, y, z]: Point| -> Point {
-            [
-                width as f64 / 2.0 + x * scale,
-                height as f64 / 2.0 - y * scale / 2.0,
-                z,
-            ]
-        };
+    for &pose in &turns {
         let mut depth = vec![f64::NEG_INFINITY; cells];
         let mut glyphs = vec![b' '; cells];
         for triangle in &mesh.triangles {
-            let turned = triangle.each_ref().map(turn);
+            let turned = triangle.each_ref().map(|corner| turn(corner, pose));
             let [a, b, c] = turned.map(project);
             let area = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
             let [p, q, r] = turned;
@@ -385,24 +391,8 @@ pub fn render(mesh: &Mesh, options: &ModelOptions) -> Result<Animation> {
             let brightness = 0.15 + 0.85 * lit.max(0.0);
             let glyph =
                 ramp[1 + ((brightness * (ramp.len() - 1) as f64) as usize).min(ramp.len() - 2)];
-            let span = |values: [f64; 3], limit: usize| {
-                let low = values.iter().copied().fold(f64::INFINITY, f64::min);
-                let high = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-                let first = (low - 0.5).ceil().max(0.0) as usize;
-                let last = ((high - 0.5).floor() + 1.0).clamp(0.0, limit as f64) as usize;
-                first..last
-            };
-            let (columns, rows) = (
-                span([a[0], b[0], c[0]], width),
-                span([a[1], b[1], c[1]], height),
-            );
-            tests = tests.saturating_add(columns.len() * rows.len());
-            if tests > MAX_TESTS {
-                return Err(format!(
-                    "The model covers too much of the frame to draw within {MAX_TESTS} cell tests; use fewer frames or a smaller size"
-                ));
-            }
-            for row in rows {
+            let columns = span([a[0], b[0], c[0]], width);
+            for row in span([a[1], b[1], c[1]], height) {
                 let py = row as f64 + 0.5;
                 for column in columns.clone() {
                     let px = column as f64 + 0.5;
@@ -428,4 +418,26 @@ pub fn render(mesh: &Mesh, options: &ModelOptions) -> Result<Animation> {
         });
     }
     Animation::new(frames, true)
+}
+
+/// A corner turned about the model's centre, in model units, with z towards the viewer.
+fn turned(corner: &[f32; 3], centre: Point, spin: Spin, sin: f64, cos: f64) -> Point {
+    let [x, y, z]: Point = std::array::from_fn(|axis| f64::from(corner[axis]) - centre[axis]);
+    let (x, z) = match spin {
+        Spin::X => (x, z),
+        Spin::Y | Spin::XY => (x * cos + z * sin, z * cos - x * sin),
+    };
+    match spin {
+        Spin::Y => [x, y, z],
+        Spin::X | Spin::XY => [x, y * cos - z * sin, y * sin + z * cos],
+    }
+}
+
+/// The cells whose centres lie between the lowest and highest of `values`, within `limit`.
+fn span(values: [f64; 3], limit: usize) -> std::ops::Range<usize> {
+    let low = values.iter().copied().fold(f64::INFINITY, f64::min);
+    let high = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let first = (low - 0.5).ceil().clamp(0.0, limit as f64) as usize;
+    let last = ((high - 0.5).floor() + 1.0).clamp(0.0, limit as f64) as usize;
+    first..last.max(first)
 }
