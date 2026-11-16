@@ -361,7 +361,7 @@ enum Command {
         /// Text with one node per line, or `-` for stdin. Deeper indentation makes a child.
         input: PathBuf,
     },
-    /// Lay out a Mermaid flowchart as boxes and arrows.
+    /// Lay out a Mermaid flowchart as boxes and arrows: the subset docs/CLI.md lists.
     Diagram {
         /// A Mermaid `flowchart` or `graph`, or `-` for stdin; one Markdown code block is read.
         input: PathBuf,

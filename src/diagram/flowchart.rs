@@ -9,7 +9,7 @@
 //! crossings, nodes are placed over their neighbours and links are routed through the channel
 //! between each pair of ranks.
 
-use crate::{Canvas, Frame, MAX_HEIGHT, MAX_WIDTH, Result};
+use crate::{Canvas, Frame, MAX_HEIGHT, MAX_INPUT_BYTES, MAX_WIDTH, Result};
 use std::collections::HashMap;
 
 const MAX_NODES: usize = 1024;
@@ -65,11 +65,12 @@ struct Chart {
 ///   each extra `-`, `.` or `=` asks for one more rank. Text on a link, written
 ///   `-->|text|` or `-- text -->`, takes a rank of its own between its ends.
 /// - Chains (`A --> B --> C`) and groups (`A & B --> C`, linking every pair).
-/// - `classDef`, `class`, `style` and `linkStyle` lines and `:::class` suffixes are skipped:
-///   the output has no colour.
+/// - `classDef`, `class`, `style` and `linkStyle` statements and `:::class` suffixes are
+///   skipped: the output has no colour.
 ///
-/// Subgraphs, `click`, `direction`, circle and cross link ends, Markdown strings, a link from
-/// a node to itself and any other syntax are refused with their line number, as is a byte
+/// Subgraphs, `click`, `direction`, shapes written `A@{ shape: .. }`, a link with an
+/// arrowhead at its start only (`A <-- B`), circle and cross link ends, Markdown strings, a link
+/// from a node to itself and any other syntax are refused with their line number, as is a byte
 /// outside printable ASCII. Where links cross, the vertical line is kept, so `+` marks only a
 /// link's own bends and where it meets a box. At most 1,024 nodes and 4,096 links, and the
 /// drawing must fit 512 columns by 256 rows.
@@ -84,6 +85,9 @@ struct Chart {
 /// # Ok::<(), String>(())
 /// ```
 pub fn flowchart(source: &str) -> Result<Frame> {
+    if source.len() > MAX_INPUT_BYTES {
+        return Err("The flowchart exceeds the 16 MiB input limit".into());
+    }
     layout(&parse(source)?)
 }
 
@@ -154,31 +158,108 @@ struct Parser {
 }
 
 fn parse(source: &str) -> Result<Chart> {
-    let mut lines = Vec::new();
-    for (index, line) in source.split('\n').enumerate() {
+    // Lines are read one at a time, so no copy of a long input is made.
+    let mut lines = source.split('\n').enumerate().map(|(index, line)| {
         let line = line.strip_suffix('\r').unwrap_or(line);
-        if let Some((column, byte)) = line
+        match line
             .bytes()
             .enumerate()
             .find(|(_, b)| *b != b'\t' && !(32..=126).contains(b))
         {
-            return Err(format!(
+            Some((column, byte)) => Err(format!(
                 "Line {}: byte {} is 0x{byte:02x}, not printable ASCII",
                 index + 1,
                 column + 1
-            ));
+            )),
+            None => Ok((index + 1, line)),
         }
-        lines.push((index + 1, line));
+    });
+    let mut reader = Reader::default();
+    // The first line with text may open one outer Markdown code fence.
+    let mut fence = None;
+    for line in lines.by_ref() {
+        let (number, text) = line?;
+        let first = text.trim();
+        if first.is_empty() {
+            continue;
+        }
+        match ["```", "~~~"].into_iter().find(|f| first.starts_with(f)) {
+            Some(mark) if matches!(first.trim_start_matches(&mark[..1]).trim(), "" | "mermaid") => {
+                fence = Some((mark, number));
+            }
+            Some(_) => return Err(format!("Line {number}: only a mermaid code block is read")),
+            None => reader.statement(number, text)?,
+        }
+        break;
     }
-    let lines = unfence(&lines)?;
-    let mut statements = lines
-        .iter()
-        .filter(|(_, line)| !line.trim().is_empty() && !line.trim_start().starts_with("%%"));
-    let &(number, header) = statements
-        .next()
-        .ok_or("A flowchart starts with flowchart or graph")?;
-    let (header, after) = header.split_once(';').unwrap_or((header, ""));
-    let flow = match header.split_whitespace().collect::<Vec<_>>()[..] {
+    let Some((mark, opened)) = fence else {
+        for line in lines {
+            let (number, text) = line?;
+            reader.statement(number, text)?;
+        }
+        return reader.finish();
+    };
+    for line in lines.by_ref() {
+        let (number, text) = line?;
+        let trimmed = text.trim();
+        if trimmed.starts_with(mark) && trimmed.bytes().all(|b| b == mark.as_bytes()[0]) {
+            for line in lines {
+                let (number, text) = line?;
+                if !text.trim().is_empty() {
+                    return Err(format!("Line {number}: text after the code block"));
+                }
+            }
+            return reader.finish();
+        }
+        reader.statement(number, text)?;
+    }
+    Err(format!("The code block opened on line {opened} is not closed"))
+}
+
+/// Statements in order: the header, then the nodes and links.
+#[derive(Default)]
+struct Reader {
+    flow: Option<Flow>,
+    parser: Parser,
+}
+
+impl Reader {
+    fn statement(&mut self, number: usize, line: &str) -> Result<()> {
+        if line.trim().is_empty() || line.trim_start().starts_with("%%") {
+            return Ok(());
+        }
+        let line = match self.flow {
+            Some(_) => line,
+            None => {
+                let (header, after) = line.split_once(';').unwrap_or((line, ""));
+                self.flow = Some(direction(number, header)?);
+                after
+            }
+        };
+        self.parser.line(&mut Cursor {
+            line,
+            at: 0,
+            number,
+        })
+    }
+    fn finish(self) -> Result<Chart> {
+        let flow = self
+            .flow
+            .ok_or("A flowchart starts with flowchart or graph")?;
+        if self.parser.labels.is_empty() {
+            return Err("A flowchart needs at least one node".into());
+        }
+        Ok(Chart {
+            flow,
+            labels: self.parser.labels,
+            links: self.parser.links,
+        })
+    }
+}
+
+/// The direction in a header line such as `flowchart LR`.
+fn direction(number: usize, header: &str) -> Result<Flow> {
+    Ok(match header.split_whitespace().take(3).collect::<Vec<_>>()[..] {
         ["flowchart" | "graph"] | ["flowchart" | "graph", "TD" | "TB"] => Flow::Down,
         ["flowchart" | "graph", "BT"] => Flow::Up,
         ["flowchart" | "graph", "LR"] => Flow::Right,
@@ -193,64 +274,7 @@ fn parse(source: &str) -> Result<Chart> {
                 "Line {number}: a flowchart starts with flowchart or graph and a direction"
             ));
         }
-    };
-    let mut parser = Parser::default();
-    parser.line(&mut Cursor {
-        line: after,
-        at: 0,
-        number,
-    })?;
-    for &(number, line) in statements {
-        parser.line(&mut Cursor {
-            line,
-            at: 0,
-            number,
-        })?;
-    }
-    if parser.labels.is_empty() {
-        return Err("A flowchart needs at least one node".into());
-    }
-    Ok(Chart {
-        flow,
-        labels: parser.labels,
-        links: parser.links,
     })
-}
-
-/// The lines inside one outer Markdown code fence, or all of them when there is none.
-fn unfence<'a>(lines: &[(usize, &'a str)]) -> Result<Vec<(usize, &'a str)>> {
-    let Some(open) = lines.iter().position(|(_, l)| !l.trim().is_empty()) else {
-        return Ok(Vec::new());
-    };
-    let first = lines[open].1.trim();
-    let Some(fence) = ["```", "~~~"].into_iter().find(|f| first.starts_with(f)) else {
-        return Ok(lines.to_vec());
-    };
-    if !matches!(first.trim_start_matches(&fence[..1]).trim(), "" | "mermaid") {
-        return Err(format!(
-            "Line {}: only a mermaid code block is read",
-            lines[open].0
-        ));
-    }
-    let close = lines[open + 1..]
-        .iter()
-        .position(|(_, l)| {
-            l.trim().starts_with(fence) && l.trim().bytes().all(|b| b == fence.as_bytes()[0])
-        })
-        .map(|i| open + 1 + i)
-        .ok_or_else(|| {
-            format!(
-                "The code block opened on line {} is not closed",
-                lines[open].0
-            )
-        })?;
-    if let Some((number, _)) = lines[close + 1..]
-        .iter()
-        .find(|(_, l)| !l.trim().is_empty())
-    {
-        return Err(format!("Line {number}: text after the code block"));
-    }
-    Ok(lines[open + 1..close].to_vec())
 }
 
 impl Parser {
@@ -271,8 +295,10 @@ impl Parser {
                 None | Some(b' ' | b'\t')
             );
             match word {
-                // Colour and styling have nothing to draw in ASCII.
-                "classDef" | "class" | "style" | "linkStyle" if keyword => return Ok(()),
+                // Colour and styling have nothing to draw in ASCII: skip to the statement's end.
+                "classDef" | "class" | "style" | "linkStyle" if keyword => {
+                    c.at += c.rest().find(';').unwrap_or(c.rest().len());
+                }
                 "subgraph" | "end" | "click" | "direction" if keyword => {
                     return Err(c.error(&format!("{word} is not supported")));
                 }
@@ -393,6 +419,11 @@ fn link(c: &mut Cursor) -> Result<(Option<String>, bool, bool, usize)> {
     let column = c.at + 1;
     let not_a_link =
         |c: &Cursor| c.error(&format!("expected a link such as --> at column {column}"));
+    let start_only = |c: &Cursor| {
+        c.error(&format!(
+            "the link at column {column} has an arrowhead at its start only"
+        ))
+    };
     let tail = c.eat("<");
     let start = c.at;
     let line = c
@@ -416,7 +447,12 @@ fn link(c: &mut Cursor) -> Result<(Option<String>, bool, bool, usize)> {
     let (mut text, head, length) = match body.len() {
         0 | 1 => return Err(not_a_link(c)),
         2 if !head && (dashes || equals || body == "-.") => {
-            text_link(c, body.as_bytes()[1], column)?
+            let found = text_link(c, body.as_bytes()[1], column);
+            // Without a closing mark, `A <-- B` is a link with a start arrowhead only.
+            if tail && found.is_err() {
+                return Err(start_only(c));
+            }
+            found?
         }
         // The arm above takes 2 marks without a head, so an open link here has at least 3.
         n if dashes || equals => (None, head, if head { n - 1 } else { n - 2 }),
@@ -450,9 +486,7 @@ fn link(c: &mut Cursor) -> Result<(Option<String>, bool, bool, usize)> {
         return Err(c.error("link text must hold printable characters and no tab"));
     }
     if tail && !head {
-        return Err(c.error(&format!(
-            "the link at column {column} has an arrowhead at its start only"
-        )));
+        return Err(start_only(c));
     }
     Ok((text, head, tail, length))
 }
@@ -615,6 +649,15 @@ fn layout(chart: &Chart) -> Result<Frame> {
         }
     };
     let span = |index: usize| links[index].length + usize::from(links[index].text.is_some());
+    // A link takes a row or column in each rank it spans, with one between each pair: refuse
+    // one too long for that before ranking, so ranks stay within the links' reach.
+    if let Some(needed) = (0..links.len())
+        .map(|index| 2 * span(index) as i32 + 1)
+        .max()
+        .filter(|needed| *needed > rank_limit)
+    {
+        return Err(too_big(needed, across));
+    }
 
     // Longest-path ranks, then sources pulled down next to their nearest successor.
     let mut downs = vec![Vec::new(); nodes];
