@@ -132,6 +132,45 @@ fn directional_mirrors_reflect_pairs_and_preserve_literal_flips() {
 }
 
 #[test]
+fn rotation_turns_cells_lines_and_optionally_arrowheads() {
+    // 3 by 2: a quarter turn makes it 2 by 3, and 4 quarter turns give it back.
+    let frame = Frame::from_text("-/<\n|\\^").unwrap();
+    let once = frame.rotate(1, false).unwrap();
+    assert_eq!(once.text(), "-|\n/\\\n^<");
+    assert_eq!(frame.rotate(1, true).unwrap().text(), "-|\n/\\\n>^");
+    assert_eq!(frame.rotate(2, false).unwrap().text(), "^\\|\n</-");
+    assert_eq!(frame.rotate(2, true).unwrap().text(), "v\\|\n>/-");
+    assert_eq!(
+        frame.rotate(3, true).unwrap(),
+        frame.rotate(1, true).unwrap().rotate(2, true).unwrap()
+    );
+    assert_eq!(frame.rotate(0, true).unwrap(), frame);
+    assert_eq!(frame.rotate(4, true).unwrap(), frame);
+    let mut turned = frame.clone();
+    for _ in 0..4 {
+        turned = turned.rotate(1, true).unwrap();
+    }
+    assert_eq!(turned, frame);
+    // Letters and other glyphs stay as they are; every byte stays printable.
+    let all = Frame::new(19, 5, (32..=126).collect()).unwrap();
+    for turns in 0..4 {
+        let turned = all.rotate(turns, true).unwrap();
+        ascii(&turned);
+        let letters = |f: &Frame| {
+            f.cells()
+                .iter()
+                .filter(|c| c.is_ascii_alphanumeric())
+                .count()
+        };
+        assert_eq!(letters(&turned), 62);
+    }
+    // A turn that would pass the 256-row limit is refused.
+    let wide = Frame::blank(300, 2).unwrap();
+    assert!(wide.rotate(1, false).is_err());
+    assert_eq!(wide.rotate(2, false).unwrap().width(), 300);
+}
+
+#[test]
 fn animation_clock_uses_per_frame_durations_and_loop_policy() {
     let mut project = Animation::new(vec![timed("a", 10), timed("b", 30)], true).unwrap();
     for (time, index) in [

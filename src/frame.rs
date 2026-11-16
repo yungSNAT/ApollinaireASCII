@@ -127,6 +127,47 @@ impl Frame {
         }
         frame
     }
+    /// Turn the frame clockwise by `quarter_turns` quarter turns (taken modulo 4), swapping
+    /// width and height for an odd count. `-`, `|`, `/` and `\` turn with it, as they do when a
+    /// keyed layer turns; with `arrows`, the arrowheads `<`, `^`, `>` and `v` turn too. Cells are
+    /// about twice as tall as they are wide, so a quarter turn stretches a shape. A turn whose
+    /// result would pass 512 columns or 256 rows is refused.
+    pub fn rotate(&self, quarter_turns: u8, arrows: bool) -> Result<Self> {
+        let (width, height) = self.turned_size(quarter_turns);
+        dimensions(width, height)?;
+        let mut cells = vec![b' '; self.cells.len()];
+        for (x, y, glyph) in self.turned_cells(quarter_turns, arrows) {
+            cells[y * width + x] = glyph;
+        }
+        Frame::new(width, height, cells)
+    }
+    /// Width and height after [`rotate`](Self::rotate).
+    pub(crate) fn turned_size(&self, quarter_turns: u8) -> (usize, usize) {
+        match quarter_turns % 2 {
+            1 => (self.height, self.width),
+            _ => (self.width, self.height),
+        }
+    }
+    /// Each cell's column, row and character after [`rotate`](Self::rotate), with no size
+    /// limit, for a caller that clips the turned cells itself.
+    pub(crate) fn turned_cells(
+        &self,
+        quarter_turns: u8,
+        arrows: bool,
+    ) -> impl Iterator<Item = (usize, usize, u8)> + '_ {
+        let turns = usize::from(quarter_turns % 4);
+        let (w, h) = (self.width, self.height);
+        self.cells.iter().enumerate().map(move |(index, &glyph)| {
+            let (x, y) = (index % w, index / w);
+            let (to_x, to_y) = match turns {
+                0 => (x, y),
+                1 => (h - 1 - y, x),
+                2 => (w - 1 - x, h - 1 - y),
+                _ => (y, w - 1 - x),
+            };
+            (to_x, to_y, crate::motion::turned(glyph, 2 * turns, arrows))
+        })
+    }
     pub fn crop(&self, x: usize, y: usize, width: usize, height: usize) -> Result<Self> {
         dimensions(width, height)?;
         if x.checked_add(width).is_none_or(|v| v > self.width)
