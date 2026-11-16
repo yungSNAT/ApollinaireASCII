@@ -87,6 +87,7 @@ fn command(id: &str) -> Result<()> {
                 return app.display(false);
             }
             "key-set" => {
+                app.unlocked()?;
                 let property = property()?;
                 let value = decimal("key-value")?;
                 motion.set_key(
@@ -103,6 +104,7 @@ fn command(id: &str) -> Result<()> {
                 );
             }
             _ => {
+                app.unlocked()?;
                 let property = property()?;
                 if !motion.remove_key(property, frame) {
                     return Err(format!(

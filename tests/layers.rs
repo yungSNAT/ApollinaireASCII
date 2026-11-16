@@ -22,6 +22,7 @@ fn layer(name: &str, visible: bool, texts: &[&str]) -> Layer {
     Layer {
         name: name.into(),
         visible,
+        locked: false,
         art: art(texts, true),
         motion: Motion::default(),
     }
@@ -125,6 +126,7 @@ fn layers_must_share_one_timeline_a_limit_and_valid_names() {
     let big = || Layer {
         name: "Big".into(),
         visible: true,
+        locked: false,
         art: Animation::new(
             vec![
                 TimedFrame {
@@ -165,6 +167,44 @@ fn replacing_a_frame_changes_one_layer_and_keeps_the_timing() {
         );
     }
     assert_eq!(project, before);
+}
+
+#[test]
+fn a_lock_is_saved_only_when_set_and_kept_through_frame_changes() {
+    // Files written before locks existed read and write as they did.
+    let unlocked = scene().to_json();
+    assert!(!unlocked.contains("locked"));
+    assert_eq!(Layered::from_json(&unlocked).unwrap().to_json(), unlocked);
+
+    let mut layers = scene().layers().to_vec();
+    layers[1].locked = true;
+    let mut project = Layered::new(layers).unwrap();
+    let json = project.to_json();
+    assert_eq!(json.matches("\"locked\":true").count(), 1);
+    assert_eq!(Layered::from_json(&json).unwrap(), project);
+    // An explicit false reads as unlocked; anything but a boolean is refused.
+    let explicit = two_layer_json(|v| v["layers"][0]["locked"] = json!(false));
+    assert!(
+        Layered::from_json(&explicit)
+            .unwrap()
+            .layers()
+            .iter()
+            .all(|l| !l.locked)
+    );
+    let wrong = two_layer_json(|v| v["layers"][0]["locked"] = json!("yes"));
+    assert!(Layered::from_json(&wrong).is_err());
+
+    // Frame changes reach every layer and keep the lock; a lone locked layer is not version 1.
+    project.insert_blank_frame(1, 50).unwrap();
+    project.remove_frames(0..1).unwrap();
+    assert!(project.layers()[1].locked);
+    let mut one = Layered::single(art(&["ab"], false)).layers().to_vec();
+    one[0].locked = true;
+    let one = Layered::new(one).unwrap();
+    assert_eq!(one.plain(), None);
+    let value: Value = serde_json::from_str(&one.to_json()).unwrap();
+    assert_eq!(value["version"], 2);
+    assert_eq!(Layered::from_json(&one.to_json()).unwrap(), one);
 }
 
 fn two_layer_json(edit: impl FnOnce(&mut Value)) -> String {
@@ -289,6 +329,7 @@ fn narrow(frames: usize, spaces: usize) -> Result<Layered, String> {
             .map(|i| Layer {
                 name: format!("L{i}"),
                 visible: true,
+                locked: false,
                 art: Animation::new(
                     (0..frames)
                         .map(|f| TimedFrame {

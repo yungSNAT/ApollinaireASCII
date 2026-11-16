@@ -23,7 +23,13 @@ pub(super) fn start() -> std::result::Result<(), wasm_bindgen::JsValue> {
     ] {
         listen(id, "click", move |_| report(command(id)))?;
     }
-    for id in ["layer", "layer-visible", "layer-name"] {
+    for id in [
+        "layer",
+        "layer-visible",
+        "layer-locked",
+        "layer-solo",
+        "layer-name",
+    ] {
         listen(id, "change", move |_| report(command(id)))?;
     }
     listen("layer-name", "focus", |_| {
@@ -59,7 +65,23 @@ fn change(app: &mut App, id: &str) -> Result<()> {
             app.reset_drawing();
             return app.display(true);
         }
+        "layer-solo" => {
+            app.solo = checked("layer-solo")?;
+            if app.solo {
+                status(
+                    "Showing only the chosen layer. Copies, saves and exports still show every visible layer.",
+                    false,
+                );
+            }
+            return app.display(true);
+        }
         "layer-merge" => {
+            if let Some(layer) = app.layers.layers().iter().find(|layer| layer.locked) {
+                return Err(format!(
+                    "{} is locked. Untick Lock this layer to merge.",
+                    layer.name
+                ));
+            }
             app.replace_layers(Layered::single(app.layers.flatten()), 0);
             status("Layers merged into one.", false);
             return app.display(true);
@@ -89,11 +111,13 @@ fn change(app: &mut App, id: &str) -> Result<()> {
                     name: format!("Layer {}", count + 1),
                     visible: true,
                     art: Animation::new(frames, art.looping())?,
+                    locked: false,
                     motion: Default::default(),
                 },
             );
         }
         "layer-delete" => {
+            app.unlocked()?;
             layers.remove(active);
             active = active.min(layers.len() - 1);
         }
@@ -109,7 +133,11 @@ fn change(app: &mut App, id: &str) -> Result<()> {
             layers.swap(active, active + 1);
         }
         "layer-visible" => layers[active].visible = checked("layer-visible")?,
-        _ => layers[active].name = input("layer-name")?.value(),
+        "layer-locked" => layers[active].locked = checked("layer-locked")?,
+        _ => {
+            app.unlocked()?;
+            layers[active].name = input("layer-name")?.value();
+        }
     }
     app.replace_layers(Layered::new(layers)?, active);
     app.display(true)
@@ -148,6 +176,9 @@ pub(super) fn controls(app: &App, busy: bool, editor: bool) -> Result<()> {
         input("layer-name")?.set_value(&layer.name);
     }
     input("layer-visible")?.set_checked(layer.visible);
+    input("layer-locked")?.set_checked(layer.locked);
+    input("layer-solo")?.set_checked(app.solo);
+    let any_locked = layers.iter().any(|layer| layer.locked);
     let single = layers.len() == 1;
     let focused = document()
         .active_element()
@@ -156,14 +187,19 @@ pub(super) fn controls(app: &App, busy: bool, editor: bool) -> Result<()> {
     let mut dropped = false;
     for (id, disabled) in [
         ("layer", busy),
-        ("layer-name", busy),
+        ("layer-name", busy || layer.locked),
         ("layer-visible", busy),
+        ("layer-locked", busy),
+        ("layer-solo", busy),
         ("layer-add", busy || layers.len() == MAX_LAYERS),
-        ("layer-delete", busy || single),
+        ("layer-delete", busy || single || layer.locked),
         ("layer-up", busy || app.active + 1 == layers.len()),
         ("layer-down", busy || app.active == 0),
         // One layer with keys can be merged to draw its motion into its frames.
-        ("layer-merge", busy || single && layers[0].motion.is_empty()),
+        (
+            "layer-merge",
+            busy || any_locked || single && layers[0].motion.is_empty(),
+        ),
     ] {
         set_disabled(id, disabled)?;
         dropped |= disabled && id == focused;
