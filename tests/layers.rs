@@ -342,9 +342,11 @@ fn every_project_that_can_be_built_or_edited_loads_again() {
     assert_eq!(project, before);
 }
 
-/// The fuzz workflow seeds `project_json` with these files, so it starts from projects that load.
+/// The fuzz workflow seeds `project_json` with these files, so it starts from projects that load,
+/// and each survives the round trip the fuzz target checks. `version-3-curve-digits.json` is the
+/// fuzz crash 8f92414f: a curve point whose shortest form serde_json did not read back exactly.
 #[test]
-fn the_project_json_fuzz_seeds_load_with_and_without_layers_and_keys() {
+fn the_project_json_fuzz_seeds_load_and_round_trip_with_and_without_layers_and_keys() {
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/project_json");
     let mut layer_counts: Vec<(String, usize)> = std::fs::read_dir(dir)
         .unwrap()
@@ -352,6 +354,10 @@ fn the_project_json_fuzz_seeds_load_with_and_without_layers_and_keys() {
             let path = entry.unwrap().path();
             let project = Layered::from_json(&std::fs::read_to_string(&path).unwrap())
                 .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+            let reloaded = Layered::from_json(&project.to_json());
+            assert_eq!(reloaded, Ok(project.clone()), "{}", path.display());
+            let flat = project.flatten();
+            assert_eq!(Animation::from_json(&flat.to_json()), Ok(flat));
             let name = path.file_name().unwrap().to_string_lossy().into_owned();
             (name, project.layers().len())
         })
@@ -363,6 +369,7 @@ fn the_project_json_fuzz_seeds_load_with_and_without_layers_and_keys() {
             ("version-1.json".to_owned(), 1),
             ("version-2-hidden-layer.json".to_owned(), 3),
             ("version-2.json".to_owned(), 2),
+            ("version-3-curve-digits.json".to_owned(), 2),
             ("version-3-keyframes.json".to_owned(), 2),
         ]
     );
