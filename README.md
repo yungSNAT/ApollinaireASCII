@@ -41,7 +41,7 @@ Every frame contains bytes 32 through 126. Line feeds separate rows when saved a
 | --- | --- |
 | Static art | 89 original pieces in 7 categories (animals, nature, objects, characters, borders and dividers, emoticons, banners), searchable by name or tag; blank canvases, character editing, borders in 4 styles, crops, flips, clipped composition and speech bubbles above any art (`apollinaire say`) |
 | Tables and trees | `apollinaire table` lays out tab-, comma- or otherwise separated rows with `+-|` rules; `apollinaire tree` draws an indented outline as `tree --charset=ascii` does; the browser editor's Tables and trees panel makes either into an art stamp to place by pointer or keyboard |
-| Lettering | 21 FIGlet and TOIlet fonts plus filled block and outline styles; font-default, full-width, fitted and smushed layout for letters and lines; word wrap; multiline text; alignment; validated ASCII-only `.flf` and `.tlf` import |
+| Lettering | 24 FIGlet and TOIlet fonts, including all 18 from FIGlet 2.2.5, plus filled block and outline styles; font-default, full-width, fitted and smushed layout for letters and lines; word wrap; multiline text; alignment; validated ASCII-only `.flf` and `.tlf` import |
 | Animation | Ghost, rotating donut, wave, starfield, rain, fire, text reveal and scrolling text; deterministic seeds |
 | Text effects | Reveal, typewriter, decrypt, scatter, wipes in 4 directions, rain, wave and burn, applied to any art or lettering, forwards or in reverse; set duration, FPS and seed |
 | Media conversion | PNG, JPEG, GIF, WebP, BMP and PNM input; animated GIF timing; custom character ramps, aspect correction, transparency, inversion, gamma, contrast, dithering and edges, optionally drawn as `|`, `/`, `-` and `\` along their direction; presets in the browser editor; CLI batches and `https://` URLs; ANSI and CP437 art (`.ans`, `.asc`, `.nfo`, `.diz`, and UTF-8 ANSI as `.utf8.ans`) read as ASCII, with box drawing and shading mapped to ASCII characters, colour dropped and the SAUCE width kept |
@@ -112,7 +112,7 @@ apollinaire import release.nfo --output release.txt
 
 The checked toolchain is pinned in `rust-toolchain.toml`. Existing output files are never overwritten. Static artwork defaults to text; animations default to JSON so frames and timings are retained. Use `--format text --frame 0` to deliberately select one animated frame.
 
-The `.cast` export, the `table` and `tree` commands, ANSI art input and projects with layers or keyframes (versions 2 and 3) are newer than v0.4.1: until the next release, install with `--git` as above to use them. v0.4.1 does not know the `.cast` format and writes JSON under a `.cast` name, it reads an `.ans` file as text, refusing CP437 bytes, and it refuses a project the browser editor saved with layers or keyframes.
+The `.cast` export, the `table` and `tree` commands, ANSI art input, the bubble, digital and term fonts and projects with layers or keyframes (versions 2 and 3) are newer than v0.4.1: until the next release, install with `--git` as above to use them. v0.4.1 does not know the `.cast` format and writes JSON under a `.cast` name, it reads an `.ans` file as text, refusing CP437 bytes, and it refuses a project the browser editor saved with layers or keyframes.
 
 ## Use the library
 
