@@ -6,6 +6,7 @@ mod common;
 
 use apollinaire_ascii::{
     Glyphs, RenderOptions, decode_media_as, image_renderer::RAMPS, render_image, render_image_as,
+    video,
 };
 use common::{GifFrame, gif};
 use image::{DynamicImage, GrayImage, Luma};
@@ -61,6 +62,16 @@ fn shapes_draw_a_letter_as_itself_and_dark_and_light_as_space_and_ink() {
         );
     }
     assert_eq!(Glyphs::default(), Glyphs::Ramp);
+}
+
+#[test]
+fn video_frames_take_shapes_from_their_rgba_pixels() {
+    let rgba: Vec<u8> = (0..16)
+        .flat_map(|y| (0..8).map(move |x| letter_a(x, y)))
+        .flat_map(|ink| if ink { [255; 4] } else { [0, 0, 0, 255] })
+        .collect();
+    let frame = video::render_rgba_as(8, 16, rgba, &one(), Glyphs::Shapes).unwrap();
+    assert_eq!(frame.text(), "A");
 }
 
 #[test]
