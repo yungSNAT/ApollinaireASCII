@@ -8,7 +8,7 @@ use super::{
     status,
 };
 use crate::{Animation, Frame, Layer, Layered, Result, TimedFrame, layers::MAX_LAYERS};
-use web_sys::HtmlSelectElement;
+use web_sys::{HtmlSelectElement, HtmlTextAreaElement};
 
 pub(super) const MERGE_FIRST: &str =
     "Every layer shares one size and frame count. Merge layers first to change them.";
@@ -178,6 +178,8 @@ pub(super) fn controls(app: &App, busy: bool, editor: bool) -> Result<()> {
     input("layer-visible")?.set_checked(layer.visible);
     input("layer-locked")?.set_checked(layer.locked);
     input("layer-solo")?.set_checked(app.solo);
+    // A locked layer's frame cannot be typed in; its duration still can.
+    node::<HtmlTextAreaElement>("editor")?.set_read_only(layer.locked);
     let any_locked = layers.iter().any(|layer| layer.locked);
     let single = layers.len() == 1;
     let focused = document()

@@ -2178,9 +2178,12 @@ async fn a_locked_layer_keeps_its_art_and_solo_changes_only_the_stage() {
     check("layer-locked", true);
     assert_eq!(layer_list(), ["Layer 2", "Layer 1"]);
 
-    // The frame editor, drawing, typing and keys are refused, and the art stays.
+    // The frame editor is read-only and refuses edits, drawing, typing and keys are refused,
+    // and the art stays.
+    assert!(element::<HtmlTextAreaElement>("editor").read_only());
     apply_frame(" w   ");
     assert!(status().contains("Layer 2 is locked"), "{}", status());
+    click("discard");
     tool("pencil");
     drag(&[(4, 0)]);
     tool("type");
