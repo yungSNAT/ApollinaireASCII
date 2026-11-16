@@ -175,6 +175,27 @@ fn the_nearest_surface_hides_the_ones_behind_it_and_light_shades_them() {
 }
 
 #[test]
+fn each_light_shades_a_turning_cube_its_own_way() {
+    let cube = read("cube.obj", obj().as_bytes()).unwrap();
+    let lights = [
+        Light::TopLeft,
+        Light::Top,
+        Light::Front,
+        Light::Left,
+        Light::Right,
+    ];
+    let drawn: Vec<_> = lights
+        .iter()
+        .map(|&light| render(&cube, &ModelOptions { light, ..small(8) }).unwrap())
+        .collect();
+    for (a, first) in drawn.iter().enumerate() {
+        for (b, second) in drawn.iter().enumerate().skip(a + 1) {
+            assert_ne!(first, second, "{:?} and {:?}", lights[a], lights[b]);
+        }
+    }
+}
+
+#[test]
 fn a_flat_triangle_turned_edge_on_vanishes_and_comes_back() {
     let triangle = [[[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [0.0, 1.0, 0.0]]];
     let mesh = read("flat.stl", &binary_stl(&triangle)).unwrap();
@@ -263,6 +284,7 @@ fn malformed_models_are_refused_with_the_reason() {
     );
     assert!(refused("x.obj", b"v 0 0 0\nf 1 1 -2\n").contains("\"-2\" that names no corner"));
     assert!(refused("x.obj", b"v 0 0 0\nf 1 0 1\n").contains("\"0\" that names no corner"));
+    assert!(refused("x.obj", b"v 0 0 0\nf 1 x 1\n").contains("\"x\" that names no corner"));
     assert!(refused("x.obj", b"\xff").contains("must be text"));
     assert!(refused("x.obj", b"# nothing\n").contains("no triangles"));
     let mut many = b"solid big".to_vec();

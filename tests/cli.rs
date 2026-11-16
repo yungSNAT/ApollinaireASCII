@@ -1368,6 +1368,65 @@ fn model_draws_an_obj_or_stl_file_turning() {
     let drawn = text(&frame.stdout);
     assert_eq!(drawn.lines().count(), 10, "{}", text(&frame.stderr));
     assert!(drawn.bytes().all(|b| b" .oO#\n".contains(&b)) && drawn.contains('#'));
+    // Every spin and light named on the command line reaches the library's own.
+    use apollinaire_ascii::model::{self, ModelOptions};
+    let mesh = model::read("cube.obj", &std::fs::read(&cube).unwrap()).unwrap();
+    let spins = [
+        ("y", model::Spin::Y),
+        ("x", model::Spin::X),
+        ("xy", model::Spin::XY),
+    ];
+    let lights = [
+        ("top-left", model::Light::TopLeft),
+        ("top", model::Light::Top),
+        ("front", model::Light::Front),
+        ("left", model::Light::Left),
+        ("right", model::Light::Right),
+    ];
+    let choices = spins
+        .map(|(name, spin)| {
+            (
+                ["--spin", name],
+                ModelOptions {
+                    spin,
+                    ..Default::default()
+                },
+            )
+        })
+        .into_iter()
+        .chain(lights.map(|(name, light)| {
+            (
+                ["--light", name],
+                ModelOptions {
+                    light,
+                    ..Default::default()
+                },
+            )
+        }));
+    for (flag, options) in choices {
+        let options = ModelOptions {
+            width: 20,
+            height: 10,
+            frames: 4,
+            ..options
+        };
+        let output = cli(&[
+            &[
+                "model", path, "--width", "20", "--height", "10", "--frames", "4",
+            ][..],
+            &flag[..],
+        ]
+        .concat());
+        assert_eq!(
+            apollinaire_ascii::Animation::from_json(text(&output.stdout)).unwrap(),
+            model::render(&mesh, &options).unwrap(),
+            "{flag:?}"
+        );
+    }
+    refused(
+        &cli(&["model", path, "--frames", "601"]),
+        "Animation exceeds frame or cell limits",
+    );
     let gltf = dir.join("cube.gltf");
     std::fs::write(&gltf, "{}").unwrap();
     refused(&cli(&["model", gltf.to_str().unwrap()]), ".stl or .obj");
