@@ -636,11 +636,17 @@ fn messages_over_32_mib_are_refused_and_the_next_one_is_read() {
 #[cfg(unix)]
 #[test]
 fn a_server_whose_program_is_gone_reports_tool_errors() {
-    let dir = std::env::temp_dir().join(format!("apollinaire-mcp-{}", std::process::id()));
+    // A hard link beside the program, not a copy: a file still open for writing when another
+    // test forks cannot be run (ETXTBSY).
+    let bin = std::path::Path::new(BIN);
+    let dir = bin
+        .parent()
+        .unwrap()
+        .join(format!("mcp-gone-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let copy = dir.join("apollinaire");
-    std::fs::copy(BIN, &copy).unwrap();
+    std::fs::hard_link(bin, &copy).unwrap();
     let mut child = Command::new(&copy)
         .arg("mcp")
         .stdin(Stdio::piped())
