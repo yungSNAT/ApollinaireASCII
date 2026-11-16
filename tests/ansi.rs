@@ -281,10 +281,6 @@ fn utf8_ansi_rows_keep_their_own_width_and_end_at_each_line_feed() {
             .text(),
         "         x"
     );
-    // With a wrap pending, erasing to the end of the row includes the last column.
-    let mut art = "\x1b[0mabcd\x1b[K".as_bytes().to_vec();
-    art.extend(sauce(1, 1, 4, &[]));
-    assert_eq!(read("a.utf8.ans", &art).unwrap().text(), "abc ");
     // Tabs reach the next multiple of 8 when the width is measured.
     assert_eq!(
         read("tab.utf8.ans", "\x1b[0ma\tb\n".as_bytes())
@@ -296,6 +292,22 @@ fn utf8_ansi_rows_keep_their_own_width_and_end_at_each_line_feed() {
         read("wide.utf8.ans", &text0wnz(&["x".repeat(513)])).unwrap_err(),
         "The art is wider than 512 columns"
     );
+}
+
+#[test]
+fn utf8_ansi_cursor_waits_in_the_last_column_until_a_glyph_wraps() {
+    // Each case shows on a 4-column screen as vim's libvterm terminal shows it.
+    let four = |art: &str| {
+        let mut bytes = format!("\x1b[0m{art}").into_bytes();
+        bytes.extend(sauce(1, 1, 4, &[]));
+        read("a.utf8.ans", &bytes).unwrap().text()
+    };
+    // Erasing to the end of a full row includes its last column.
+    assert_eq!(four("abcd\x1b[K"), "abc ");
+    // Colour leaves the wrap pending, so the next glyph starts the next row.
+    assert_eq!(four("abcd\x1b[31me"), "abcd\ne   ");
+    // A cursor move stops at the last column rather than past it.
+    assert_eq!(four("a\x1b[9Cb"), "a  b");
 }
 
 #[test]
