@@ -18,6 +18,7 @@ pub mod diagram;
 pub mod effects;
 pub mod export;
 pub mod frame;
+pub mod generator;
 mod gif;
 pub mod image_renderer;
 pub mod layers;
