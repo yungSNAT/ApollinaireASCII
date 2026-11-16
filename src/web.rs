@@ -20,6 +20,7 @@ mod draw;
 mod keyframe_panel;
 mod layer_panel;
 mod media;
+mod picker;
 mod recovery;
 #[cfg(test)]
 mod tests;
@@ -530,6 +531,7 @@ pub fn start() -> std::result::Result<(), JsValue> {
     }
     media::start()?;
     layer_panel::start()?;
+    picker::start()?;
     keyframe_panel::start()?;
     let fonts = node::<Element>("font").map_err(|e| JsValue::from_str(&e))?;
     let uploaded = node::<Element>("custom-option").map_err(|e| JsValue::from_str(&e))?;

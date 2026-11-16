@@ -2178,6 +2178,118 @@ fn apply_frame(text: &str) {
     input_event("editor", text);
     click("apply");
 }
+#[wasm_bindgen_test]
+fn rotating_an_area_turns_it_in_place_as_one_undo_step() {
+    blank(4, 3);
+    apply_frame("ab  \n-   \nxy  ");
+    let start = rows(&["ab  ", "-   ", "xy  "]);
+    tool("area");
+    drag(&[(0, 0), (1, 1)]);
+    click("area-rotate");
+    let turned = rows(&["|a  ", " b  ", "xy  "]);
+    assert_eq!(art(), turned);
+    assert_eq!(status(), "Area rotated.");
+    // The selection is the turned area, so turning back restores it.
+    click("area-rotate-back");
+    assert_eq!(art(), start);
+    click("undo");
+    assert_eq!(art(), turned);
+    click("undo");
+    assert_eq!(art(), start);
+    // Cells turned past the canvas edge are cut off, and the status says so.
+    drag(&[(0, 2), (1, 2)]);
+    click("area-rotate");
+    assert_eq!(art(), rows(&["ab  ", "-   ", "x   "]));
+    assert!(status().contains("cut off"), "{}", status());
+}
+
+#[wasm_bindgen_test]
+fn an_area_turned_taller_than_the_row_limit_is_clipped_not_refused() {
+    blank(512, 256);
+    let start = art();
+    apply_frame(&format!("{}{}", "x".repeat(300), &start[300..]));
+    let full = art();
+    tool("area");
+    drag(&[(0, 0), (299, 0)]);
+    click("area-rotate");
+    assert!(status().contains("cut off"), "{}", status());
+    let turned = art();
+    let lines: Vec<&str> = turned.lines().collect();
+    assert_eq!(lines.len(), 256);
+    // The first column holds the first 256 cells, turned to stand on end; the rest are cut.
+    assert!(lines.iter().all(|line| line.starts_with('x')));
+    assert_eq!(turned.bytes().filter(|&b| b == b'x').count(), 256);
+    click("undo");
+    assert_eq!(art(), full);
+    blank(4, 1);
+}
+
+/// The character picker's button for `code`.
+fn pick(code: u8) -> HtmlElement {
+    document()
+        .query_selector(&format!("#char-picker [data-code=\"{code}\"]"))
+        .unwrap()
+        .unwrap()
+        .dyn_into()
+        .unwrap()
+}
+/// Press `key` on the focused picker button and return the code of the button focused after.
+fn pick_key(key: &str) -> u8 {
+    let init = KeyboardEventInit::new();
+    init.set_bubbles(true);
+    init.set_cancelable(true);
+    init.set_key(key);
+    let event = KeyboardEvent::new_with_keyboard_event_init_dict("keydown", &init).unwrap();
+    let focused = document().active_element().unwrap();
+    focused.dispatch_event(&event).unwrap();
+    let focused = document().active_element().unwrap();
+    focused.get_attribute("data-code").unwrap().parse().unwrap()
+}
+
+#[wasm_bindgen_test]
+fn the_character_picker_sets_the_brush_and_moves_by_keyboard() {
+    blank(3, 1);
+    assert_eq!(element::<Element>("char-picker").children().length(), 95);
+    assert_eq!(
+        pick(b' ').get_attribute("aria-label").as_deref(),
+        Some("Space")
+    );
+    // The brush's character is pressed and is the one tab stop.
+    input_event("brush", "#");
+    let state = |code: u8| {
+        let button = pick(code);
+        (
+            button.get_attribute("aria-pressed").unwrap(),
+            button.tab_index(),
+        )
+    };
+    assert_eq!(state(b'#'), ("true".into(), 0));
+    assert_eq!(state(b'@'), ("false".into(), -1));
+
+    pick(b'@').click();
+    assert_eq!(element::<HtmlInputElement>("brush").value(), "@");
+    assert_eq!(state(b'@'), ("true".into(), 0));
+    assert_eq!(state(b'#'), ("false".into(), -1));
+    tool("pencil");
+    drag(&[(1, 0)]);
+    assert_eq!(art(), " @ ");
+
+    // Arrows move by one and by a row of 16; Home and End go to the ends; the edges hold.
+    pick(b'@').focus().unwrap();
+    assert_eq!(pick_key("ArrowRight"), b'A');
+    assert_eq!(pick_key("ArrowDown"), b'Q');
+    assert_eq!(pick_key("ArrowUp"), b'A');
+    assert_eq!(pick_key("ArrowLeft"), b'@');
+    assert_eq!(pick_key("End"), b'~');
+    assert_eq!(pick_key("ArrowRight"), b'~');
+    assert_eq!(pick_key("ArrowDown"), b'~');
+    assert_eq!(pick_key("Home"), b' ');
+    assert_eq!(pick_key("ArrowLeft"), b' ');
+    assert_eq!(pick_key("ArrowUp"), b' ');
+    assert_eq!(pick(b' ').tab_index(), 0);
+    input_event("brush", "#");
+}
+
 /// The Layers list as shown, top layer first.
 fn layer_list() -> Vec<String> {
     let list = element::<HtmlSelectElement>("layer");

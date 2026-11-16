@@ -121,6 +121,7 @@
           <summary>Character, label and options</summary>
           <div class="tool-options">
           <div><label for="brush">Character</label><input id="brush" type="text" value="#" maxlength="1" autocomplete="off" spellcheck="false"></div>
+          <div id="char-picker-box"><span id="char-picker-label">Character picker</span><div id="char-picker" role="group" aria-labelledby="char-picker-label"></div></div>
           <div><label for="stamp">Text and box label</label><input id="stamp" type="text" value="" maxlength="128" autocomplete="off" spellcheck="false"></div>
           <button id="stamp-text" type="button" disabled>Stamp text</button>
            <div><label for="art-stamp">Saved art stamp</label><select id="art-stamp" disabled><option>No stamps yet</option></select></div>
@@ -179,7 +180,7 @@
           <p class="hint">Playback, copies, saved text, the player and every export show the motion. While a drawing tool other than Select text is chosen, the layer you draw on is shown where its characters sit, without its motion, so strokes land under the pointer. Merge layers keeps the motion as drawn.</p>
         </details>
         <div class="actions">
-          <button id="area-copy" type="button" disabled>Copy area</button><button id="area-cut" type="button" disabled>Cut area</button><button id="area-paste" type="button" disabled>Paste at cursor</button><button id="area-clear" type="button" disabled>Clear area</button><button id="undo" type="button">Undo</button><button id="redo" type="button">Redo</button>
+          <button id="area-copy" type="button" disabled>Copy area</button><button id="area-cut" type="button" disabled>Cut area</button><button id="area-paste" type="button" disabled>Paste at cursor</button><button id="area-clear" type="button" disabled>Clear area</button><button id="area-rotate" type="button" disabled>Rotate area clockwise</button><button id="area-rotate-back" type="button" disabled>Rotate area anticlockwise</button><button id="undo" type="button">Undo</button><button id="redo" type="button">Redo</button>
         </div>
         <div class="stage"><div class="grid" id="grid"><pre id="onion" aria-hidden="true" hidden></pre><div id="selection" class="selection" aria-hidden="true" hidden></div><pre id="art" tabindex="0" aria-label="Selectable ASCII artwork" aria-describedby="tool-help"></pre><div id="cursor" class="cursor" aria-hidden="true" hidden></div></div></div>
         <div class="transport">
@@ -225,7 +226,7 @@
           <label for="range-duration">Range duration per frame (milliseconds)</label><input id="range-duration" type="number" min="10" max="60000" step="10" value="100">
           <div class="actions"><button id="apply-range-duration" type="button">Apply duration to range</button></div>
           <div class="actions"><button id="flip-horizontal" type="button">Flip columns</button><button id="flip-vertical" type="button">Flip rows</button></div>
-           <label class="check"><input id="mirror-glyphs" type="checkbox"> Mirror directional characters when flipping</label>
+           <label class="check"><input id="mirror-glyphs" type="checkbox"> Mirror directional characters when flipping or rotating</label>
            <p class="hint">Horizontal mirrors swap slash and bracket pairs. Vertical mirrors swap slashes and ^/v arrowheads; leave this off when v is text.</p>
           <p>Undo history is limited to 16 million cells. Save the project to keep all frames and timings.</p>
         </details>
