@@ -13,7 +13,7 @@ editor at https://yungsnat.github.io/ApollinaireASCII/ processes your files in t
 ## Start
 
 - [README](https://github.com/yungSNAT/ApollinaireASCII#readme): features, CLI and library quick start, browser build and checks.
-- [CLI guide](https://github.com/yungSNAT/ApollinaireASCII/blob/master/docs/CLI.md): commands and examples.
+- [CLI guide](https://github.com/yungSNAT/ApollinaireASCII/blob/master/docs/CLI.md): commands and examples, and `apollinaire mcp`, which serves them to agents as Model Context Protocol tools.
 - [Library example](https://github.com/yungSNAT/ApollinaireASCII/blob/master/examples/library.rs): drawing, a generated scene and a JSON round trip.
 - [Browser editor](https://yungsnat.github.io/ApollinaireASCII/): drawing tools, diagram mode, tables and trees, lettering, effects, and image, video and camera conversion.
 
