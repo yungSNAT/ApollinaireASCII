@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: MIT
 
 //! 3D models read from STL and OBJ and drawn turning. The files are built here.
-use apollinaire_ascii::model::{Light, MAX_DRAWS, MAX_TRIANGLES, ModelOptions, Spin, read, render};
+use apollinaire_ascii::model::{
+    DRAW_WORK, Light, MAX_TRIANGLES, MAX_WORK, ModelOptions, Spin, read, render,
+};
 
 /// A cube from -1 to 1, as 6 square faces of corner numbers counted from 1.
 const CORNERS: [[f32; 3]; 8] = [
@@ -96,6 +98,11 @@ fn stl_and_obj_cubes_read_alike_and_draw_alike() {
     let options = small(8);
     let drawn = render(&binary, &options).unwrap();
     assert_eq!(drawn, render(&quads, &options).unwrap());
+    assert_eq!(
+        drawn,
+        render(&binary, &options).unwrap(),
+        "the same input draws the same"
+    );
     assert_eq!(drawn.frames().len(), 8);
     assert!(drawn.looping());
     assert!(drawn.frames().iter().all(|f| f.duration_ms == 1000 / 12));
@@ -237,6 +244,13 @@ fn obj_faces_take_negative_numbers_and_fan_polygons() {
     assert_eq!(mesh.triangles(), 2);
     let pentagon = "v 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\nv -1 0.5 0\nf 1 2 3 4 5\nvt 0 0\ns off\n";
     assert_eq!(read("p.obj", pentagon.as_bytes()).unwrap().triangles(), 3);
+    // A comment may follow anything on a line.
+    let commented = "# a triangle\nv 0 0 0 # first\nv 1 0 0\nv 0 1 0\nf 1 2 3 # front face\n";
+    let plain = "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n";
+    assert_eq!(
+        read("commented.obj", commented.as_bytes()).unwrap(),
+        read("plain.obj", plain.as_bytes()).unwrap()
+    );
     // A face may name a corner listed after it.
     let later = "f 1 2 3\nv 0 0 0\nv 1 0 0\nv 0 1 0\n";
     assert_eq!(read("later.obj", later.as_bytes()).unwrap().triangles(), 1);
@@ -261,6 +275,8 @@ fn malformed_models_are_refused_with_the_reason() {
         refused("x.stl", b"solid\nvertex 0 0 0\n").contains("Line 2 has a vertex outside a facet")
     );
     assert!(refused("x.stl", b"solid\nendfacet\n").contains("did not begin"));
+    let nested = "solid\nfacet\nvertex 0 0 0\nvertex 1 0 0\nfacet\nvertex 0 0 0\nvertex 1 0 0\nvertex 0 1 0\nendfacet\n";
+    assert!(refused("x.stl", nested.as_bytes()).contains("Line 5 begins a facet inside another"));
     assert!(
         refused("x.stl", b"solid\nfacet\nvertex 0 0\n")
             .contains("Line 3 has fewer than 3 coordinates")
@@ -349,7 +365,7 @@ fn render_options_and_work_are_bounded() {
     let point = read("p.obj", b"v 1 1 1\nf 1 1 1\n").unwrap();
     assert!(render(&point, &small(1)).unwrap_err().contains("no size"));
     // Many triangles over many frames pass the draw budget.
-    let triangles = MAX_DRAWS / 600 + 1;
+    let triangles = MAX_WORK / DRAW_WORK / 600 + 1;
     let crowd = "v 0 0 0\nv 1 0 0\nv 0 1 0\n".to_owned() + &"f 1 2 3\n".repeat(triangles);
     let crowd = read("crowd.obj", crowd.as_bytes()).unwrap();
     let message = render(
@@ -361,7 +377,7 @@ fn render_options_and_work_are_bounded() {
         },
     )
     .unwrap_err();
-    assert!(message.contains("triangle draws"), "{message}");
+    assert!(message.contains("units of work"), "{message}");
     // Large triangles covering the frame many times over pass the cell-test budget.
     let cover = "v -1 -1 0\nv 1 -1 0\nv 0 1 0\n".to_owned() + &"f 1 2 3\n".repeat(80_000);
     let cover = read("cover.obj", cover.as_bytes()).unwrap();
@@ -371,5 +387,20 @@ fn render_options_and_work_are_bounded() {
         ..small(60)
     };
     let message = render(&cover, &options).unwrap_err();
-    assert!(message.contains("cell tests"), "{message}");
+    assert!(message.contains("units of work"), "{message}");
+    // Draws and cell tests share the budget: as many triangles as the draws alone allow over
+    // 600 frames pass it once their cells are counted too.
+    let most = MAX_WORK / DRAW_WORK / 600;
+    let at_most = "v -1 -1 0\nv 1 -1 0\nv 0 1 0\n".to_owned() + &"f 1 2 3\n".repeat(most);
+    let at_most = read("at-most.obj", at_most.as_bytes()).unwrap();
+    let message = render(
+        &at_most,
+        &ModelOptions {
+            width: 4,
+            height: 4,
+            ..small(600)
+        },
+    )
+    .unwrap_err();
+    assert!(message.contains("units of work"), "{message}");
 }

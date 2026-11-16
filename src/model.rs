@@ -23,12 +23,13 @@ use crate::{dimensions, printable};
 
 /// The most triangles a model may have.
 pub const MAX_TRIANGLES: usize = 1_000_000;
-/// The most triangles one render draws, counted once for each frame: about 2 seconds of
-/// native work (docs/VALIDATION.md).
-pub const MAX_DRAWS: usize = 20_000_000;
-/// The most cells one render tests against triangles, summed over every triangle's bounding
-/// box in every frame: about 2 seconds of native work (docs/VALIDATION.md).
-pub const MAX_TESTS: usize = 400_000_000;
+/// The most work one render may do: [`DRAW_WORK`] for each triangle in each frame, and 1 for
+/// each cell of a triangle's bounding box tested in each frame. About 2 seconds natively and
+/// as WebAssembly, however the work divides (docs/VALIDATION.md).
+pub const MAX_WORK: usize = 400_000_000;
+/// The work of turning, projecting and setting up one triangle in one frame, in cell tests:
+/// measured, a triangle takes about as long as 20 cell tests (docs/VALIDATION.md).
+pub const DRAW_WORK: usize = 20;
 
 type Point = [f64; 3];
 
@@ -101,7 +102,11 @@ fn stl(bytes: &[u8]) -> Result<Vec<[[f32; 3]; 3]>> {
         let number = index + 1;
         let mut words = line.split_whitespace();
         match words.next() {
-            Some("facet") => facet = Some(Vec::with_capacity(3)),
+            Some("facet") => {
+                if facet.replace(Vec::with_capacity(3)).is_some() {
+                    return Err(format!("Line {number} begins a facet inside another"));
+                }
+            }
             Some("vertex") => facet
                 .as_mut()
                 .ok_or_else(|| format!("Line {number} has a vertex outside a facet"))?
@@ -138,6 +143,8 @@ fn obj(bytes: &[u8]) -> Result<Vec<[[f32; 3]; 3]>> {
     let mut count = 0usize;
     for (index, line) in text.lines().enumerate() {
         let number = index + 1;
+        // A comment runs from # to the end of the line.
+        let line = line.split_once('#').map_or(line, |(before, _)| before);
         let mut words = line.split_whitespace();
         match words.next() {
             Some("v") => corners.push(coordinates(&mut words, number)?),
@@ -281,7 +288,7 @@ impl Default for ModelOptions {
 /// Draw a model turning one full circle over the frames, looping.
 ///
 /// Refuses options outside their ranges, a model with no size, and a render past
-/// [`MAX_DRAWS`] triangles or [`MAX_TESTS`] cell tests, so one render's work is bounded.
+/// [`MAX_WORK`], so one render's work is bounded.
 pub fn render(mesh: &Mesh, options: &ModelOptions) -> Result<Animation> {
     let (width, height) = (options.width, options.height);
     let cells = dimensions(width, height)?;
@@ -300,13 +307,6 @@ pub fn render(mesh: &Mesh, options: &ModelOptions) -> Result<Animation> {
     printable(ramp)?;
     if !(2..=256).contains(&ramp.len()) {
         return Err("Ramp needs 2..=256 printable ASCII characters".into());
-    }
-    if mesh.triangles().saturating_mul(options.frames) > MAX_DRAWS {
-        return Err(format!(
-            "{} triangles over {} frames is more than the {MAX_DRAWS} triangle draws one render allows; use fewer frames or a simpler model",
-            mesh.triangles(),
-            options.frames
-        ));
     }
     let corners = || mesh.triangles.iter().flatten();
     let mut low = [f64::INFINITY; 3];
@@ -346,22 +346,26 @@ pub fn render(mesh: &Mesh, options: &ModelOptions) -> Result<Animation> {
             z,
         ]
     };
-    // Each cell in a triangle's bounding box is tested once. The whole render's tests are
-    // counted before any drawing, so a render that would take too long is refused at once.
-    let mut tests = 0usize;
+    // Each cell in a triangle's bounding box is tested once. The whole render's work is
+    // counted before any drawing, so a render that would take too long is refused at once;
+    // the draws alone may already be too much.
+    let mut work = mesh
+        .triangles()
+        .saturating_mul(options.frames)
+        .saturating_mul(DRAW_WORK);
     for &pose in &turns {
         for triangle in &mesh.triangles {
             let [a, b, c] = triangle
                 .each_ref()
                 .map(|corner| project(turn(corner, pose)));
             let columns = span([a[0], b[0], c[0]], width).len();
-            tests = tests.saturating_add(columns * span([a[1], b[1], c[1]], height).len());
+            work = work.saturating_add(columns * span([a[1], b[1], c[1]], height).len());
+            if work > MAX_WORK {
+                return Err(format!(
+                    "The model needs more than {MAX_WORK} units of work to draw, counting {DRAW_WORK} for each triangle in each frame and 1 for each cell tested against one; use fewer frames, a smaller size or a simpler model"
+                ));
+            }
         }
-    }
-    if tests > MAX_TESTS {
-        return Err(format!(
-            "The model covers too much of the frame to draw within {MAX_TESTS} cell tests; use fewer frames or a smaller size"
-        ));
     }
     let mut frames = Vec::with_capacity(options.frames);
     for &pose in &turns {

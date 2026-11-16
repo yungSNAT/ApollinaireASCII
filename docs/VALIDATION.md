@@ -157,17 +157,18 @@ Both wrapped the sentence into the same 4 lines. The outputs differ where the pr
 
 ## 3D model render budget
 
-On 17 November 2026 a release build (Rust 1.99.1) of `apollinaire model` drew generated OBJ files on a Linux machine with 16 CPUs shared with other jobs (load average 8.5 to 10.4), so the times are indicative. Each time is the slowest of 3 runs and each memory figure the peak resident set size, including process start.
+On 17 November 2026 release builds (Rust 1.99.1) drew generated OBJ files on a Linux machine with 16 CPUs shared with other jobs (load average 3 to 10), so the times are indicative: natively with `apollinaire model`, and as WebAssembly built for `wasm32-unknown-unknown` and run in headless Chromium 157, one render a page load. Each time is the slowest of 3 runs. Native memory is the peak resident set size, including process start; WebAssembly memory is the linear memory after the render, which only grows.
 
-| Model and render | Time | Memory |
+| Model and render | Native | Chromium |
 |---|--:|--:|
-| Sphere of 1,000 triangles, 72 x 24, 36 frames | 20 ms | 12 MiB |
-| Sphere of 99,904 triangles, 72 x 24, 36 frames | 340 ms | 19 MiB |
-| The same sphere, 512 x 256, 30 frames | 490 ms | 25 MiB |
-| The same sphere, 160 x 80, 200 frames (the 20,000,000 draw budget) | 1.78 s | 19 MiB |
-| 150 triangles covering a 512 x 256 frame, 60 frames (near the 400,000,000 cell-test budget) | 1.94 s | 37 MiB |
+| Sphere of 1,000 triangles, 72 x 24, 36 frames | 20 ms, 12 MiB | 19 ms, 1 MiB |
+| Sphere of 99,904 triangles, 72 x 24, 36 frames | 340 ms, 19 MiB | 366 ms, 13 MiB |
+| The same sphere, 512 x 256, 30 frames | 490 ms, 25 MiB | 525 ms, 13 MiB |
+| The same sphere, 160 x 80, 195 frames, near the budget in draws | 1.94 s, 19 MiB | 2.02 s, 13 MiB |
+| 155 triangles covering a 512 x 256 frame, 60 frames, near the budget in cell tests | 2.11 s, 36 MiB | 2.12 s, 10 MiB |
+| 120 covering triangles and 80,000 tiny ones, 512 x 256, 60 frames, near the budget in both | 2.12 s, 36 MiB | 2.00 s, 13 MiB |
 
-The first build allowed 50,000,000 draws and 1,000,000,000 cell tests: at those budgets the sphere over 500 frames took 4.48 s, and 350 triangles covering a 512 x 256 frame over 60 frames 4.91 s, so both were lowered to about 2 seconds of work. A render over either budget is refused before drawing, in 40 ms for the 99,904-triangle sphere over 201 frames and under 10 ms for 160 covering triangles. A 1,000,000-triangle OBJ sphere is 36 MB and stops at the 16 MiB input limit; an OBJ file reaches the triangle limit only with short face lines. The browser editor runs the same Rust as WebAssembly: built for `wasm32-unknown-unknown` and timed in Node 26.13.1, whose V8 engine Chrome also uses, the 5 renders in the table took 13 ms, 300 ms, 487 ms, 1.77 s and 1.73 s (slowest of 3), so converting a model holds the editor for up to about 2 seconds. Fuzzing the reader and a small render (`fuzz/fuzz_targets/model.rs`) for 5 minutes on 4 workers, from one OBJ and one text STL seed, ran 17,433,892 inputs with no crash, timeout or out-of-memory failure.
+The first build allowed 50,000,000 draws and, separately, 1,000,000,000 cell tests: the sphere over 500 frames took 4.48 s and 350 covering triangles 4.91 s. Lowered to 20,000,000 and 400,000,000, each took 1.7 to 1.9 s alone, but a model near both, 140 covering triangles and 330,000 tiny ones, took 3.22 s, as their costs add. One budget now counts both: a triangle in a frame takes about as long as 20 cell tests (about 89 ns against 4.4 ns as WebAssembly at the separate edges), so 400,000,000 units of work hold every mix to about 2 seconds. A render over the budget is refused before drawing: the sphere over 200 frames in under 80 ms in Chromium, and 160 covering triangles in under 10 ms natively. A 1,000,000-triangle OBJ sphere is 36 MB and stops at the 16 MiB input limit; an OBJ file reaches the triangle limit only with short face lines. Fuzzing the reader and a small render (`fuzz/fuzz_targets/model.rs`) for 5 minutes on 4 workers, from one OBJ and one text STL seed, ran 17,433,892 inputs with no crash, timeout or out-of-memory failure.
 
 ## Deliberate limits
 
