@@ -1551,6 +1551,26 @@ async fn presets_fill_the_conversion_settings_and_reach_the_output() {
     assert_eq!(settings(), edited);
     preset("standard");
     assert_eq!(settings(), standard);
+
+    // Shape matching chooses from every character, so a black cell is a space and a white one
+    // is inked; it refuses dithering, and a preset turns it off.
+    check("shapes", true);
+    assert_eq!(chosen(), "custom");
+    convert(STEP).await;
+    let shaped = art();
+    assert!(
+        shaped.starts_with("   ") && !shaped.ends_with(' '),
+        "{shaped:?}"
+    );
+    check("dither", true);
+    choose("media-file", "step.pgm", STEP.as_bytes());
+    click("convert");
+    wait_for(|| !status().starts_with("Reading")).await;
+    assert!(status().contains("Shape matching"), "{}", status());
+    assert_eq!(art(), shaped);
+    preset("standard");
+    assert!(!element::<HtmlInputElement>("shapes").checked());
+    assert_eq!(settings(), standard);
 }
 
 #[wasm_bindgen_test]
