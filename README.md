@@ -65,6 +65,8 @@ gh attestation verify apollinaire-v0.4.1-x86_64-unknown-linux-musl.tar.gz \
   --source-ref refs/tags/v0.4.1
 ```
 
+Releases after v0.4.1 also attach the attestation itself as `apollinaire-<tag>.sigstore.json`. Add `--bundle apollinaire-<tag>.sigstore.json` to the command above to check an archive against that file instead of fetching the attestation from GitHub.
+
 v0.3.0 was built before the account was renamed, so its attestation names EquityBot, a name this repository no longer holds. The `--source-digest` line pins the commit the v0.3.0 tag points to, so only an archive built from that commit passes:
 
 ```sh
