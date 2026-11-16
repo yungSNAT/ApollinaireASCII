@@ -4,7 +4,7 @@
 use crate::{
     Animation, BorderStyle, Canvas, EffectOptions, Frame, Glyphs, Layer, Layered, MAX_INPUT_BYTES,
     RenderOptions, Result, SceneOptions, TimedFrame, animation, ansi, art, decode_media_as,
-    effects, export, generator, image_renderer::RAMPS, lettering,
+    effects, export, generator, image_renderer::RAMPS, lettering, model,
 };
 use js_sys::{Array, Uint8Array};
 use std::cell::RefCell;
@@ -1166,9 +1166,32 @@ fn begin_file(id: &'static str) {
                 status("Font loaded. Generate lettering to use it.", false);
             } else {
                 if let Some(options) = options {
+                    let name = file.name();
+                    let lower = name.to_ascii_lowercase();
+                    let art = if lower.ends_with(".stl") || lower.ends_with(".obj") {
+                        if options.glyphs == Glyphs::Shapes {
+                            return Err("Shape matching applies to pictures; a 3D model is \
+                                        shaded with a ramp"
+                                .into());
+                        }
+                        // A model turns once over 36 frames at 12 per second; without a
+                        // fixed height, the rows follow the cell aspect, as a round shape's do.
+                        let render = &options.render;
+                        let height = render.height.unwrap_or_else(|| {
+                            ((render.width as f64 * render.cell_aspect).ceil() as usize).max(1)
+                        });
+                        let settings = model::ModelOptions {
+                            width: render.width,
+                            height,
+                            ramp: render.ramp.clone(),
+                            ..Default::default()
+                        };
+                        model::render(&model::read(&name, &bytes)?, &settings)?
+                    } else {
+                        decode_media_as(&bytes, &options.render, options.glyphs)?
+                    };
                     // Opening a file or picture replaces every layer.
-                    let project = decode_media_as(&bytes, &options.render, options.glyphs)?;
-                    app.replace_layers(Layered::single(project), 0);
+                    app.replace_layers(Layered::single(art), 0);
                 } else {
                     let name = file.name();
                     let project = if ansi::is_ansi_name(&name) {

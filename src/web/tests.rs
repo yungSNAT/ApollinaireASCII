@@ -1027,6 +1027,33 @@ async fn convert(contents: &str) {
     wait_for(|| !status().starts_with("Reading")).await;
     assert!(status().contains("File opened"), "{}", status());
 }
+#[wasm_bindgen_test]
+async fn the_converter_turns_a_3d_model_into_a_looping_animation() {
+    blank(4, 1);
+    preset("standard");
+    set_value("width", "20");
+    check("auto-height", true);
+    let triangle = "v -1 -1 0\nv 1 -1 0\nv 0 1 0\nf 1 2 3\n";
+    choose("media-file", "triangle.obj", triangle.as_bytes());
+    click("convert");
+    wait_for(|| !status().starts_with("Reading")).await;
+    assert!(status().contains("File opened"), "{}", status());
+    assert_eq!(grid_size(), (20, 10));
+    assert!(frame_count().ends_with("/ 36"), "{}", frame_count());
+    assert!(art().bytes().any(|b| b != b' ' && b != b'\n'));
+    choose("media-file", "broken.stl", b"solid\nfacet\n");
+    click("convert");
+    wait_for(|| !status().starts_with("Reading")).await;
+    assert!(status().contains("ends inside a facet"), "{}", status());
+    // Shape matching is for pictures; a model asks for a ramp instead of being drawn without.
+    check("shapes", true);
+    choose("media-file", "triangle.obj", triangle.as_bytes());
+    click("convert");
+    wait_for(|| !status().starts_with("Reading")).await;
+    assert!(status().contains("shaded with a ramp"), "{}", status());
+    // The page is shared by the tests, so the standard preset turns shape matching off again.
+    preset("standard");
+}
 fn preset(name: &str) {
     let picker = element::<HtmlSelectElement>("preset");
     picker.set_value(name);
