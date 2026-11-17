@@ -6,8 +6,9 @@
 //! a time. Both start without a shell, with the path as one `file:` argument, local files as
 //! their only protocol, the demuxers of the video extensions as their only formats and
 //! QuickTime references to other files turned off. Either is killed after [`STALL_LIMIT`]
-//! without progress: ffprobe from its start, ffmpeg between frames. Should the kill fail, the
-//! command waits on: an accepted risk, as each is a child started a moment before.
+//! without progress: ffprobe from its start, ffmpeg between frames. Should the program outlive
+//! the kill, as one the system cannot end or one a wrapper started does, the command waits on
+//! until it ends: an accepted risk.
 //!
 //! The editor seeks to each sample time; ffmpeg's `fps` filter picks the frame showing at each
 //! time instead, so a variable frame rate video can give a neighbouring frame at a few samples.
