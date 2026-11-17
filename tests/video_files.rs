@@ -312,11 +312,11 @@ mod with_ffmpeg {
         [&size.to_be_bytes()[..], kind, body].concat()
     }
 
-    /// Point a QuickTime file's pictures at `white.mov` beside it. The data reference becomes
-    /// an alias record (150 bytes of fixed fields, with one level up from the movie and one
-    /// down to the target, then a path record and the end mark), and the boxes holding it grow
-    /// to match. The movie box ends the file, so no sample offset moves.
-    fn refer_to_sibling(bytes: &mut Vec<u8>) {
+    /// Point a QuickTime file's pictures at another file. The data reference becomes an alias
+    /// record: 150 bytes of fixed fields, holding `levels` up from the movie and down to the
+    /// target (0 for an absolute path), then a path record and the end mark. The boxes holding
+    /// it grow to match; the movie box ends the file, so no sample offset moves.
+    fn refer_to(bytes: &mut Vec<u8>, levels: u8, path: &[u8]) {
         let mut chain = Vec::new();
         let (mut start, mut end) = (0, bytes.len());
         for kind in [b"moov", b"trak", b"mdia", b"minf", b"dinf", b"dref"] {
@@ -335,9 +335,18 @@ mod with_ffmpeg {
             "the movie box ends the file"
         );
         let mut alias = vec![0; 150];
-        alias[130..134].copy_from_slice(&[0, 1, 0, 1]);
-        let path = b"/white.mov";
-        let records = [&[0, 2, 0, 10][..], path, &[0xff, 0xff, 0, 0]].concat();
+        alias[130..134].copy_from_slice(&[0, levels, 0, levels]);
+        // A path of odd length is read with one byte more.
+        let length = u16::try_from(path.len()).unwrap();
+        let padding: &[u8] = if path.len() % 2 == 1 { &[0] } else { &[] };
+        let records = [
+            &[0, 2][..],
+            &length.to_be_bytes(),
+            path,
+            padding,
+            &[0xff, 0xff, 0, 0],
+        ]
+        .concat();
         let entry = boxed(b"alis", &[&[0; 4][..], &alias, &records].concat());
         let dref = boxed(b"dref", &[&[0, 0, 0, 0, 0, 0, 0, 1][..], &entry].concat());
         let (at, size) = chain.pop().unwrap();
@@ -371,48 +380,100 @@ mod with_ffmpeg {
                 ],
             );
         }
-        let mut bytes = std::fs::read(dir.join("black.mov")).unwrap();
-        refer_to_sibling(&mut bytes);
-        let refers = dir.join("refers.mov");
-        std::fs::write(&refers, bytes).unwrap();
-
-        // With references turned on, ffmpeg draws white.mov's pictures through the file
-        // protocol alone.
-        let mut input = std::ffi::OsString::from("file:");
-        input.push(&refers);
-        let followed = Command::new("ffmpeg")
-            .args(["-v", "error", "-protocol_whitelist", "file"])
-            .args(["-enable_drefs", "1", "-i"])
-            .arg(&input)
-            .args([
-                "-frames:v",
-                "1",
-                "-f",
-                "rawvideo",
-                "-pix_fmt",
-                "gray",
-                "pipe:1",
-            ])
-            .output()
-            .unwrap();
-        assert_eq!(followed.stdout, [255; 256], "{}", stderr(&followed));
+        let white = dir.join("white.mov");
+        let absolute = white.to_str().unwrap().as_bytes();
+        // One movie names white.mov beside it, the other its absolute path.
+        let movies = [
+            ("sibling.mov", 1, &b"/white.mov"[..], "0"),
+            ("absolute.mov", 0, absolute, "1"),
+        ];
+        for (name, levels, path, absolute_paths) in movies {
+            let mut bytes = std::fs::read(dir.join("black.mov")).unwrap();
+            refer_to(&mut bytes, levels, path);
+            let movie = dir.join(name);
+            std::fs::write(&movie, bytes).unwrap();
+            // With references turned on, ffmpeg draws white.mov's pictures through the file
+            // protocol alone.
+            let mut input = std::ffi::OsString::from("file:");
+            input.push(&movie);
+            let followed = Command::new("ffmpeg")
+                .args([
+                    "-v",
+                    "error",
+                    "-protocol_whitelist",
+                    "file",
+                    "-enable_drefs",
+                    "1",
+                ])
+                .args(["-use_absolute_path", absolute_paths, "-i"])
+                .arg(&input)
+                .args([
+                    "-frames:v",
+                    "1",
+                    "-f",
+                    "rawvideo",
+                    "-pix_fmt",
+                    "gray",
+                    "pipe:1",
+                ])
+                .output()
+                .unwrap();
+            assert_eq!(followed.stdout, [255; 256], "{name}: {}", stderr(&followed));
+        }
 
         // A named pipe in its place would hold ffprobe or ffmpeg at once if either opened it,
         // until the stall limit stopped it.
-        std::fs::remove_file(dir.join("white.mov")).unwrap();
-        let piped = Command::new("mkfifo")
-            .arg(dir.join("white.mov"))
-            .status()
-            .unwrap();
+        std::fs::remove_file(&white).unwrap();
+        let piped = Command::new("mkfifo").arg(&white).status().unwrap();
         assert!(piped.success());
-        let output = cli(&["image", refers.to_str().unwrap()]);
-        assert_eq!(
-            stderr(&output),
-            format!(
-                "apollinaire: ffmpeg decoded no frames from {}\n",
-                refers.display()
-            )
+        for (name, ..) in movies {
+            let movie = dir.join(name);
+            let output = cli(&["image", movie.to_str().unwrap()]);
+            assert_eq!(
+                stderr(&output),
+                format!(
+                    "apollinaire: ffmpeg decoded no frames from {}\n",
+                    movie.display()
+                )
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_first_video_track_is_the_one_drawn() {
+        if !ffmpeg_present() {
+            return;
+        }
+        let dir = scratch("video-tracks");
+        // A small black track first and a larger white one second, both marked default:
+        // ffmpeg on its own would pick the larger.
+        let black = ["-f", "lavfi", "-i", "color=c=black:s=32x24:r=5:d=1"];
+        let tracks = dir.join("tracks.mp4");
+        make(
+            &tracks,
+            &[
+                &black[..],
+                &["-f", "lavfi", "-i", "color=c=white:s=64x48:r=5:d=1"],
+                &["-map", "0", "-map", "1", "-c:v", "mpeg4", "-q:v", "2"],
+                &["-disposition:v:0", "default", "-disposition:v:1", "default"],
+            ]
+            .concat(),
         );
+        let alone = dir.join("black.mp4");
+        make(
+            &alone,
+            &[&black[..], &["-c:v", "mpeg4", "-q:v", "2"]].concat(),
+        );
+        let drawn = |path: &std::path::Path| {
+            let project = project(&cli(&["image", path.to_str().unwrap(), "--fps", "2"]));
+            project
+                .frames()
+                .iter()
+                .map(|f| f.frame.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(drawn(&tracks), drawn(&alone));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
