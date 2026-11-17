@@ -334,18 +334,18 @@ fn plain(entries: &str) -> boxes::Design {
 fn indent_modes_place_indented_art_as_the_boxes_documentation_describes() {
     let art = "  Hi\n   !";
     // box, the default: the box moves in by the art's indentation, which the art loses.
-    let moved = "  +---+\n  |Hi |\n  | ! |\n  +---+";
+    let moved = "  +--+\n  |Hi|\n  | !|\n  +--+";
     assert_eq!(draw(&plain(""), art), moved);
     assert_eq!(draw(&plain("INDENT \"Box\""), art), moved);
     // text: the box stays at the left edge and the art keeps its indentation.
     assert_eq!(
         draw(&plain("indent \"text\""), art),
-        "+-----+\n|  Hi |\n|   ! |\n+-----+"
+        "+----+\n|  Hi|\n|   !|\n+----+"
     );
     // none: the indentation goes.
     assert_eq!(
         draw(&plain("indent \"none\""), art),
-        "+---+\n|Hi |\n| ! |\n+---+"
+        "+--+\n|Hi|\n| !|\n+--+"
     );
     // Blank rows do not count towards the indentation.
     assert_eq!(draw(&plain(""), "   \n  a"), "  +-+\n  | |\n  |a|\n  +-+");
