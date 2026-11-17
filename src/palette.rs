@@ -58,8 +58,10 @@ impl Palette {
     pub fn characters(&self) -> &[u8] {
         &self.characters
     }
-    /// Read a palette file. Its `category` and any other fields are ignored.
-    pub fn from_json(text: &str) -> Result<Self> {
+    /// Read a palette file, with the number of repeated characters dropped. Ascii-Motion's
+    /// editor lets a character be added twice and its import keeps the first; so does this.
+    /// The `category` and any other fields are ignored.
+    pub fn from_json(text: &str) -> Result<(Self, usize)> {
         let value: Value =
             serde_json::from_str(text).map_err(|error| format!("Invalid palette: {error}"))?;
         let name = value
@@ -70,7 +72,7 @@ impl Palette {
             .get("characters")
             .and_then(Value::as_array)
             .ok_or("A palette file needs a \"characters\" list")?;
-        let characters = list
+        let mut characters = list
             .iter()
             .enumerate()
             .map(|(index, item)| match item.as_str().map(str::as_bytes) {
@@ -81,7 +83,10 @@ impl Palette {
                 )),
             })
             .collect::<Result<Vec<u8>>>()?;
-        Self::new(name, &characters)
+        let listed = characters.len();
+        let mut seen = [false; 256];
+        characters.retain(|&code| !std::mem::replace(&mut seen[usize::from(code)], true));
+        Ok((Self::new(name, &characters)?, listed - characters.len()))
     }
     /// The palette file, with the category `ascii`.
     pub fn to_json(&self) -> String {

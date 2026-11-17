@@ -210,8 +210,14 @@ fn open() -> Result<()> {
             let contents = contents
                 .as_string()
                 .ok_or("The palette file could not be read")?;
-            add(Palette::from_json(&contents)?)?;
-            status("Palette opened for this session.", false);
+            let (palette, dropped) = Palette::from_json(&contents)?;
+            add(palette)?;
+            let note = match dropped {
+                0 => String::new(),
+                1 => " 1 repeated character was left out.".into(),
+                n => format!(" {n} repeated characters were left out."),
+            };
+            status(&format!("Palette opened for this session.{note}"), false);
             Ok::<(), String>(())
         };
         report(result.await);
