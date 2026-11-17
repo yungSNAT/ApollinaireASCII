@@ -2,12 +2,13 @@ mod check;
 mod edit;
 mod fetch;
 mod ffmpeg;
+mod mcp;
 
 use apollinaire_ascii::{
     Animation, BorderStyle, Canvas, EffectOptions, Frame, Glyphs, Layered, MAX_INPUT_BYTES,
     MAX_MEDIA_BYTES, RenderOptions, Result, SceneOptions, TimedFrame, animation, ansi, art, bubble,
     diagram::{self, TableRules},
-    effects, export, generator, lettering, model,
+    effects, export, generator, lettering, model, rexpaint,
 };
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use std::{
@@ -342,7 +343,8 @@ enum Command {
         #[arg(long, conflicts_with = "art_file")]
         art: Option<String>,
         /// Static .txt or .json frame to draw below the bubble, or `-` for stdin when the
-        /// message is an argument. Ragged text rows are padded.
+        /// message is an argument. Ragged text rows are padded. A cowsay .cow file gives its
+        /// art only, never run as Perl, whose own lines lead from the bubble.
         #[arg(long)]
         art_file: Option<PathBuf>,
     },
@@ -506,10 +508,12 @@ enum Command {
         #[arg(long, default_value_t = 0)]
         source_frame: usize,
     },
-    /// Load .txt, an ApollinaireASCII .json project or ANSI art. Text CRLF is normalised to LF.
+    /// Load .txt, an ApollinaireASCII .json project, ANSI art or a REXPaint image. Text CRLF is
+    /// normalised to LF.
     Import {
-        /// A .txt or .json file, ANSI or CP437 art (.ans, .asc, .nfo or .diz) or XBIN, Artworx,
-        /// iCE Draw or TundraDraw art (.xb, .adf, .idf or .tnd), colour dropped, or `-` for stdin.
+        /// A .txt or .json file, ANSI or CP437 art (.ans, .asc, .nfo or .diz), XBIN, Artworx,
+        /// iCE Draw or TundraDraw art (.xb, .adf, .idf or .tnd) or a REXPaint image (.xp, layers
+        /// flattened), colour dropped, or `-` for stdin.
         input: PathBuf,
         /// Pad ragged text rows with spaces instead of refusing them.
         #[arg(long, conflicts_with = "bin")]
@@ -588,6 +592,8 @@ enum Command {
         /// A .txt or .json project, or `-` for stdin.
         input: PathBuf,
     },
+    /// Serve the artwork commands to AI agents as Model Context Protocol tools over stdio.
+    Mcp,
     /// Print a shell completion script, such as `apollinaire completions bash > apollinaire.bash`.
     Completions {
         /// Shell to complete for.
@@ -694,7 +700,13 @@ fn run(args: Args) -> Result<()> {
             art,
             art_file,
         } => {
+            let cow = art_file
+                .as_ref()
+                .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("cow")))
+                .map(|p| read_text(p))
+                .transpose()?;
             let speaker = match (art, art_file) {
+                _ if cow.is_some() => None,
                 (Some(name), _) => Some(art::template(&name)?),
                 (None, Some(path)) => {
                     if message.is_none() && path == Path::new("-") {
@@ -712,12 +724,10 @@ fn run(args: Args) -> Result<()> {
                 Some(message) => message,
                 None => read_text(Path::new("-"))?,
             };
-            Animation::still(bubble::say(
-                &message,
-                width,
-                style.into(),
-                speaker.as_ref(),
-            )?)
+            Animation::still(match cow {
+                Some(cow) => bubble::cowsay(&message, width, style.into(), &cow)?,
+                None => bubble::say(&message, width, style.into(), speaker.as_ref())?,
+            })
         }
         Command::Table {
             input,
@@ -1013,6 +1023,10 @@ fn run(args: Args) -> Result<()> {
             };
             return edit::run(file, project);
         }
+        Command::Mcp => {
+            no_export(&args.export, "MCP")?;
+            return mcp::serve();
+        }
         Command::Completions { shell } => {
             no_export(&args.export, "Completions")?;
             let mut script = Vec::new();
@@ -1030,7 +1044,7 @@ fn run(args: Args) -> Result<()> {
         Command::Check { input } => {
             no_export(&args.export, "Check")?;
             let bytes = read_bounded(&input, MAX_INPUT_BYTES)?;
-            if ansi_name(&input).is_none() && !is_json(&input, &bytes) {
+            if ansi_name(&input).is_none() && !is_rexpaint(&input) && !is_json(&input, &bytes) {
                 problems(&input, &bytes)?;
             }
             let project = parse(&input, bytes, false)?;
@@ -1250,6 +1264,11 @@ fn ansi_name(path: &Path) -> Option<&str> {
         .and_then(|n| n.to_str())
         .filter(|n| ansi::is_ansi_name(n))
 }
+/// Whether the input is named as a REXPaint image.
+fn is_rexpaint(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("xp"))
+}
 /// Whether input is a JSON project: a .json file, or any but a .txt file that is JSON with an
 /// object first.
 fn is_json(path: &Path, bytes: &[u8]) -> bool {
@@ -1261,6 +1280,9 @@ fn is_json(path: &Path, bytes: &[u8]) -> bool {
             }))
 }
 fn parse(path: &Path, bytes: Vec<u8>, pad: bool) -> Result<Animation> {
+    if is_rexpaint(path) {
+        return Ok(rexpaint::read(&bytes)?.flatten());
+    }
     if let Some(name) = ansi_name(path) {
         return Ok(Animation::still(ansi::read(name, &bytes)?));
     }
