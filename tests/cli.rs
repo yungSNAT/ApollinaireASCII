@@ -1515,6 +1515,27 @@ fn tree_draws_an_indented_outline_from_a_file_or_stdin() {
 }
 
 #[test]
+fn diagram_lays_out_a_mermaid_flowchart_from_a_file_or_stdin() {
+    let dir = scratch("diagram");
+    let source = dir.join("flow.md");
+    std::fs::write(&source, "```mermaid\ngraph LR\n  Ask -->|yes| Go\n```\n").unwrap();
+    let expected = "+-----+     +----+\n| Ask +-yes>| Go |\n+-----+     +----+\n";
+    let from_file = cli(&["diagram", source.to_str().unwrap()]);
+    assert_eq!(
+        text(&from_file.stdout),
+        expected,
+        "{}",
+        text(&from_file.stderr)
+    );
+    let from_stdin = cli_stdin(&["diagram", "-"], &std::fs::read(&source).unwrap());
+    assert_eq!(text(&from_stdin.stdout), expected);
+    refused(
+        &cli_stdin(&["diagram", "-"], b"graph TD\nsubgraph one\n"),
+        "Line 2: subgraph is not supported",
+    );
+}
+
+#[test]
 fn ansi_and_cp437_art_files_load_as_ascii_by_their_extension() {
     let dir = scratch("ansi");
     // A red CP437 box with a SAUCE record giving 6 columns, as an ANSI editor saves it.

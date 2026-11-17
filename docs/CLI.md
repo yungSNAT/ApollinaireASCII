@@ -21,6 +21,7 @@ apollinaire say "Moo" --art-file default.cow
 apollinaire table prices.tsv
 apollinaire table drops.csv --separator , --rules every --output drops.txt
 printf 'src\n  lib.rs\n  main.rs\n' | apollinaire tree -
+apollinaire diagram flow.mmd --output flow.txt
 apollinaire animate donut --width 72 --height 24 --frames 120 --fps 30 --output donut.json
 apollinaire animate scroll --text "HELLO, FRIEND" --seed 42 --output scroll.html
 apollinaire image photo.jpg --width 100 --ramp fine --gamma 1.2 --contrast 1.3 --dither
@@ -116,7 +117,26 @@ src
 `-- main.rs
 ```
 
-Both refuse text with no rows and a result over 512 columns or 256 rows; a tree also stops at 256 lines. The browser editor's Tables and trees panel draws the same output from typed or pasted text and keeps it as an art stamp to place.
+Both refuse text with no rows and a result over 512 columns or 256 rows; a tree also stops at 256 lines.
+
+`diagram FILE` lays out a subset of Mermaid's flowchart syntax as boxes and arrows. The text starts with `flowchart` or `graph` and an optional direction, `TD` (or `TB`, the default), `BT`, `LR` or `RL`, and may sit inside one Markdown code block. It reads nodes with their text in the shapes `[..]`, `(..)`, `{..}`, `((..))`, `(((..)))`, `([..])`, `[[..]]`, `[(..)]`, `{{..}}`, `>..]`, `[/../]`, `[\..\]`, `[/..\]` and `[\../]`, each drawn as the same box; links `-->`, `---`, `<-->`, dotted `-.->` and thick `==>`, drawn alike, with an extra `-` asking for a longer link; link text written `-->|text|` or `-- text -->`; chains such as `A --> B --> C`; and groups such as `A & B --> C`. Style statements are skipped, since the output has no colour. Subgraphs, `click`, `direction`, shapes written `A@{ shape: .. }`, a link with an arrowhead at its start only (`A <-- B`), circle and cross link ends, a link from a node to itself and any other syntax are refused with the line number, as is a byte outside printable ASCII.
+
+Nodes sit in ranks along the direction, and links run between ranks; a link back up the chart keeps its arrowhead where it points. Where 2 links cross, the vertical line is drawn through, so `+` marks only a bend or the edge of a box. A chart is refused over 1,024 nodes, 4,096 links, or 512 columns by 256 rows.
+
+```text
+$ printf 'graph TD\n  A[Start] -->|yes| B[Done]\n' | apollinaire diagram -
++-------+
+| Start |
++---+---+
+    |
+   yes
+    v
+ +------+
+ | Done |
+ +------+
+```
+
+The browser editor's Tables, trees and flowcharts panel draws the same output from typed or pasted text and keeps it as an art stamp to place.
 
 `play` requires a terminal and refuses redirected stdout. It uses ANSI clear/cursor commands solely to update terminal text. It does not put those codes in the project or any text export. It plays the requested number of cycles; the project's loop setting controls the browser and standalone player. Unsupported media and malformed input fail visibly.
 
@@ -124,4 +144,4 @@ Both refuse text with no rows and a result over 512 columns or 256 rows; a tree 
 
 `completions SHELL` prints a completion script for `bash`, `zsh`, `fish`, `powershell` or `elvish` on stdout, and `man` prints this command's manual page as roff. Install them where your shell and `man` look, or use the copies in each release archive's `completions/` and `man/` folders. Like `play`, `edit`, `list`, `check` and `mcp`, both refuse the export options, which only apply to commands that export artwork.
 
-`mcp` serves the artwork commands to AI agents as Model Context Protocol tools over stdio: the agent's client starts `apollinaire mcp` and sends JSON-RPC requests, one per line. A client configured in JSON adds it as `{"mcpServers": {"apollinaire": {"command": "apollinaire", "args": ["mcp"]}}}`. The tools are `list`, `art`, `text`, `say`, `table`, `tree`, `image`, `effect`, `animate`, `generate_maze`, `generate_sky`, `generate_pattern`, `transform` and `check`. Each takes its command's options, named with underscores (`edge_glyphs`), and the export options `format` and `frame` where the command exports artwork; `tools/list` gives each schema with the descriptions, choices and defaults of this help. Text input is sent as `text` and an image as base64 `data`; `image` reads no video, so it takes no `--fps`, `--start` or `--end`. No tool takes a file name, URL or output path, so the server reads and writes no files; `import` and `model`, whose file names pick the format, `compose`, which takes 2 files, and `play` and `edit`, which need a terminal, are not tools. Each call runs `apollinaire` again with the tool's options and returns what it prints: still art as text, an animation as a JSON project, or the format asked for. A command's error returns as a tool error the agent can read, and options outside a tool's schema are refused. The server speaks protocol version 2026-07-28, and 2025-11-25, 2025-06-18, 2025-03-26 and 2024-11-05 after `initialize`. A request can be at most 32 MiB, enough for about 24 MiB of base64 image data.
+`mcp` serves the artwork commands to AI agents as Model Context Protocol tools over stdio: the agent's client starts `apollinaire mcp` and sends JSON-RPC requests, one per line. A client configured in JSON adds it as `{"mcpServers": {"apollinaire": {"command": "apollinaire", "args": ["mcp"]}}}`. The tools are `list`, `art`, `text`, `say`, `table`, `tree`, `diagram`, `image`, `effect`, `animate`, `generate_maze`, `generate_sky`, `generate_pattern`, `transform` and `check`. Each takes its command's options, named with underscores (`edge_glyphs`), and the export options `format` and `frame` where the command exports artwork; `tools/list` gives each schema with the descriptions, choices and defaults of this help. Text input is sent as `text` and an image as base64 `data`; `image` reads no video, so it takes no `--fps`, `--start` or `--end`. No tool takes a file name, URL or output path, so the server reads and writes no files; `import` and `model`, whose file names pick the format, `compose`, which takes 2 files, and `play` and `edit`, which need a terminal, are not tools. Each call runs `apollinaire` again with the tool's options and returns what it prints: still art as text, an animation as a JSON project, or the format asked for. A command's error returns as a tool error the agent can read, and options outside a tool's schema are refused. The server speaks protocol version 2026-07-28, and 2025-11-25, 2025-06-18, 2025-03-26 and 2024-11-05 after `initialize`. A request can be at most 32 MiB, enough for about 24 MiB of base64 image data.

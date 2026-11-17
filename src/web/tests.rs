@@ -378,6 +378,26 @@ fn tables_and_trees_become_stamps_placed_by_keyboard() {
         element::<HtmlSelectElement>("art-stamp").child_element_count(),
         saved
     );
+    blank(18, 7);
+    make(
+        "flowchart",
+        "|",
+        "graph LR
+  A --> B",
+    );
+    assert!(
+        status().starts_with("Flowchart saved as a stamp"),
+        "{}",
+        status()
+    );
+    cursor_to((0, 0));
+    keys(&[" ", "Enter"]);
+    let chart = [
+        "+---+ +---+       ",
+        "| A +>| B |       ",
+        "+---+ +---+       ",
+    ];
+    assert_eq!(art(), rows(&[&chart[..], &[blank_row; 4]].concat()));
     while !element::<Element>("delete-stamp").has_attribute("disabled") {
         click("delete-stamp");
     }

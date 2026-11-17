@@ -154,6 +154,7 @@ fn legacy_clients_initialize_then_list_and_call_tools() {
             "say",
             "table",
             "tree",
+            "diagram",
             "image",
             "effect",
             "animate",
@@ -204,7 +205,7 @@ fn stateless_clients_discover_and_send_their_version_each_time() {
         );
     }
     let listed = &replies[2]["result"];
-    assert_eq!(listed["tools"].as_array().unwrap().len(), 14);
+    assert_eq!(listed["tools"].as_array().unwrap().len(), 15);
     assert_eq!(listed["resultType"], "complete");
     assert_eq!(listed["cacheScope"], "public");
     assert_eq!(
@@ -497,6 +498,10 @@ fn tools_return_what_their_commands_print() {
                 json!({"text": "ab/\ncd-", "operation": "rotate", "turns": 3}),
             ),
             printed(&["transform", "-", "rotate", "--turns", "3"], b"ab/\ncd-"),
+        ),
+        (
+            call(20, "diagram", json!({"text": "graph LR\nA --> B"})),
+            printed(&["diagram", "-"], b"graph LR\nA --> B"),
         ),
         (
             call(
