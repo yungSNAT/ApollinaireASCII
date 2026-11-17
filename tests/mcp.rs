@@ -154,6 +154,7 @@ fn legacy_clients_initialize_then_list_and_call_tools() {
             "say",
             "table",
             "tree",
+            "diagram",
             "image",
             "effect",
             "animate",
@@ -497,6 +498,10 @@ fn tools_return_what_their_commands_print() {
                 json!({"text": "ab/\ncd-", "operation": "rotate", "turns": 3}),
             ),
             printed(&["transform", "-", "rotate", "--turns", "3"], b"ab/\ncd-"),
+        ),
+        (
+            call(19, "diagram", json!({"text": "graph LR\nA --> B"})),
+            printed(&["diagram", "-"], b"graph LR\nA --> B"),
         ),
     ];
     let messages: Vec<_> = calls.iter().map(|(message, _)| message.clone()).collect();

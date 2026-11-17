@@ -156,6 +156,21 @@ const TOOLS: &[Tool] = &[
         export: true,
     },
     Tool {
+        name: "diagram",
+        command: &["diagram"],
+        description: None,
+        args: &[],
+        require: &[],
+        content: Some(Content {
+            name: "text",
+            description: "A Mermaid flowchart or graph, optionally in one Markdown code block.",
+            base64: false,
+            required: true,
+            replaces: "input",
+        }),
+        export: true,
+    },
+    Tool {
         name: "image",
         command: &["image"],
         description: Some("Convert an image or animated GIF to text."),
