@@ -68,10 +68,12 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 name = "apollinaire-ascii"
 version = "0.4.1"
 dependencies = [
+ "base64",
  "clap",
  "clap_complete",
  "clap_mangen",
  "crossterm",
+ "flate2",
  "image",
  "js-sys",
  "portable-pty",

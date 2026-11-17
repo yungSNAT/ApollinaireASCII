@@ -96,7 +96,8 @@
         </details>
         <details>
           <summary>Open existing text or animation</summary>
-          <label for="open-file">ASCII .txt, ApollinaireASCII .json or ANSI art (.ans, .asc, .nfo, .diz; colour dropped)</label><input id="open-file" type="file" accept=".txt,.json,.ans,.asc,.nfo,.diz">
+          <label for="open-file">ASCII .txt, ApollinaireASCII .json, ANSI art (.ans, .asc, .nfo, .diz), XBIN, Artworx, iCE Draw, TundraDraw or BIN art (.xb, .adf, .idf, .tnd, .bin) or a REXPaint image (.xp, one layer for each of its layers); colour dropped</label><input id="open-file" type="file" accept=".txt,.json,.ans,.asc,.nfo,.diz,.xb,.adf,.idf,.tnd,.bin,.xp">
+          <label class="check"><input id="open-bin" type="checkbox"> Read the file as BIN art (BIN files carry no signature, so the name alone is not enough)</label>
           <p>Short text rows are padded with spaces. Unicode and terminal control codes are refused.</p>
         </details>
       </aside>

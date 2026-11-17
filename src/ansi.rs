@@ -1,10 +1,11 @@
 // Copyright 2026 Ryan Duguid
 // SPDX-License-Identifier: MIT
 
-//! ANSI and CP437 art (`.ans`, `.asc`, `.nfo`, `.diz`, and UTF-8 ANSI as `.utf8.ans`) as an
-//! input. Art with escape sequences plays on a virtual screen as libansilove draws it, and plain
-//! CP437 text is read line by line; colour and attributes are dropped, and each CP437 glyph
-//! becomes its nearest printable ASCII character.
+//! ANSI and CP437 art (`.ans`, `.asc`, `.nfo`, `.diz`, and UTF-8 ANSI as `.utf8.ans`) and the
+//! binary text-mode formats (`.bin`, `.xb`, `.adf`, `.idf`, `.tnd`) as an input. Art with escape
+//! sequences plays on a virtual screen as libansilove draws it, plain CP437 text is read line by
+//! line, and the binary formats fill their screens cell by cell; colour, attributes, palettes and
+//! fonts are dropped, and each CP437 glyph becomes its nearest printable ASCII character.
 //!
 //! ```
 //! use apollinaire_ascii::ansi;
@@ -15,21 +16,30 @@
 //! ```
 use crate::{Frame, MAX_HEIGHT, MAX_WIDTH, Result};
 
+mod binary;
+
 /// Width of a screen when no SAUCE record gives one.
 pub const DEFAULT_WIDTH: usize = 80;
 
-/// Whether a file name ends in .ans, .asc, .nfo or .diz, in any case: the names ANSI and CP437
-/// art goes by, which the CLI and the browser editor read with [`read`].
+/// The extensions [`read`] knows, in lower case.
+/// `.bin` is left out: BIN art has no signature, so any file could pass for it; read it with
+/// [`read_bin`] when the user says it is BIN art.
+const EXTENSIONS: &[&str] = &["ans", "asc", "nfo", "diz", "xb", "adf", "idf", "tnd"];
+
+/// Whether a file name ends in .ans, .asc, .nfo, .diz, .xb, .adf, .idf or .tnd, in any case: the
+/// names ANSI, CP437 and binary text-mode art go by, which the CLI and the browser editor read
+/// with [`read`].
 pub fn is_ansi_name(name: &str) -> bool {
-    name.rsplit_once('.').is_some_and(|(_, extension)| {
-        ["ans", "asc", "nfo", "diz"]
-            .iter()
-            .any(|known| extension.eq_ignore_ascii_case(known))
-    })
+    extension(name).is_some_and(|extension| EXTENSIONS.contains(&extension.as_str()))
+}
+
+fn extension(name: &str) -> Option<String> {
+    name.rsplit_once('.')
+        .map(|(_, extension)| extension.to_ascii_lowercase())
 }
 
 /// The printable ASCII character drawn for each CP437 byte.
-const GLYPHS: &[u8; 256] = b" oo****.#oo*****\
+pub(crate) const GLYPHS: &[u8; 256] = b" oo****.#oo*****\
 ><|!PS_|^v><L-^v\
 \x20!\"#$%&'()*+,-./0123456789:;<=>?\
 @ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_\
@@ -49,8 +59,14 @@ const HIGH: &str = "ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥
 /// The pictures CP437 draws for bytes 0x01 to 0x1F, then 0x7F.
 const PICTURES: &str = "☺☻♥♦♣♠•◘○◙♂♀♪♫☼►◄↕‼¶§▬↨↑↓→←∟↔▲▼⌂";
 
-/// Decode art by its file name: a `.utf8.ans` name, in any case, holds UTF-8 ANSI art as text0wnz
-/// saves it, and the other names [`is_ansi_name`] accepts hold CP437, read with [`decode`].
+/// Decode art by its file name, in any case: a `.utf8.ans` name holds UTF-8 ANSI art as text0wnz
+/// saves it; `.xb`, `.adf`, `.idf` and `.tnd` hold XBIN, Artworx, iCE Draw and TundraDraw art;
+/// and the other names [`is_ansi_name`] accepts hold CP437, read with [`decode`].
+///
+/// The binary formats keep only each cell's character code. XBIN is as wide as its header says;
+/// ADF and TND 80 columns (TND, or its SAUCE width); IDF as its header's last column says. A
+/// font stored in XBIN, ADF or IDF art can draw other shapes for a code, but each code is drawn
+/// as CP437 draws it.
 ///
 /// In UTF-8 art each character becomes the CP437 byte that draws it, and a picture CP437 draws
 /// for a control byte becomes that picture's ASCII character, so it is drawn rather than acted
@@ -64,9 +80,13 @@ const PICTURES: &str = "☺☻♥♦♣♠•◘○◙♂♀♪♫☼►◄↕�
 /// writes after each full row ends that row and an erase escape before it reaches the last
 /// column. CR returns to the start of the row.
 pub fn read(name: &str, bytes: &[u8]) -> Result<Frame> {
-    let lower = name.to_ascii_lowercase();
-    if !lower.ends_with(".utf8.ans") {
-        return decode(bytes);
+    match extension(name).as_deref() {
+        Some("xb") => return binary::xbin(bytes),
+        Some("adf") => return binary::adf(bytes),
+        Some("idf") => return binary::idf(bytes),
+        Some("tnd") => return binary::tnd(bytes),
+        _ if !name.to_ascii_lowercase().ends_with(".utf8.ans") => return decode(bytes),
+        _ => {}
     }
     let (art, sauce_width) = sauce(bytes);
     let art = &art[..art.iter().position(|b| *b == 0x1a).unwrap_or(art.len())];
@@ -91,6 +111,14 @@ pub fn read(name: &str, bytes: &[u8]) -> Result<Frame> {
     render(&cp437, sauce_width, Wrap::NextGlyph)
 }
 
+/// Decode BIN art: character and attribute byte pairs filling rows as wide as the SAUCE record
+/// says (a BinaryText record stores half the width), or 160 columns. Only the character codes
+/// are kept. BIN has no signature, so [`is_ansi_name`] leaves `.bin` out and this is called only
+/// for a file the user says is BIN art.
+pub fn read_bin(bytes: &[u8]) -> Result<Frame> {
+    binary::bin(bytes)
+}
+
 /// When a screen wraps after a glyph is drawn in its last column.
 #[derive(Clone, Copy, PartialEq)]
 enum Wrap {
@@ -100,25 +128,51 @@ enum Wrap {
     NextGlyph,
 }
 
+/// The fields of a SAUCE record that shape the art.
+#[derive(Clone, Copy)]
+struct Sauce {
+    data_type: u8,
+    file_type: u8,
+    /// TInfo1, the width in columns for character art.
+    width: usize,
+}
+
+impl Sauce {
+    /// Split off a SAUCE record and its comment block, returning the art and the record. The
+    /// end-of-file byte that precedes a record stays with the art.
+    fn split(bytes: &[u8]) -> (&[u8], Option<Self>) {
+        let Some(start) = bytes.len().checked_sub(128) else {
+            return (bytes, None);
+        };
+        let record = &bytes[start..];
+        if !record.starts_with(b"SAUCE00") {
+            return (bytes, None);
+        }
+        let comment = 5 + 64 * usize::from(record[104]);
+        let end = match start.checked_sub(comment) {
+            Some(at) if record[104] > 0 && bytes[at..].starts_with(b"COMNT") => at,
+            _ => start,
+        };
+        let art = &bytes[..end];
+        let sauce = Self {
+            data_type: record[94],
+            file_type: record[95],
+            width: usize::from(u16::from_le_bytes([record[96], record[97]])),
+        };
+        // A binary format's data ends at the end-of-file byte before the record.
+        (art.strip_suffix(b"\x1a").unwrap_or(art), Some(sauce))
+    }
+}
+
 /// Split off a SAUCE record and its comment block, returning the art and the record's width
 /// for character art.
 fn sauce(bytes: &[u8]) -> (&[u8], Option<usize>) {
-    let Some(start) = bytes.len().checked_sub(128) else {
-        return (bytes, None);
-    };
-    let record = &bytes[start..];
-    if !record.starts_with(b"SAUCE00") {
-        return (bytes, None);
-    }
-    let comment = 5 + 64 * usize::from(record[104]);
-    let end = match start.checked_sub(comment) {
-        Some(at) if record[104] > 0 && bytes[at..].starts_with(b"COMNT") => at,
-        _ => start,
-    };
-    let width = usize::from(u16::from_le_bytes([record[96], record[97]]));
+    let (art, record) = Sauce::split(bytes);
     // DataType 1 is character art; FileTypes 0 to 2 are ASCII, ANSi and ANSiMation.
-    let character = record[94] == 1 && record[95] <= 2 && width > 0;
-    (&bytes[..end], character.then_some(width))
+    let width = record
+        .filter(|r| r.data_type == 1 && r.file_type <= 2 && r.width > 0)
+        .map(|r| r.width);
+    (art, width)
 }
 
 /// Decode ANSI or plain CP437 art, dropping colour and mapping each glyph to printable ASCII.

@@ -1123,6 +1123,31 @@ fn say_reads_the_message_or_the_art_from_stdin() {
 }
 
 #[test]
+fn say_draws_the_art_of_a_cow_file_without_running_it() {
+    let dir = scratch("say-cow");
+    let cow = dir.join("owl.COW");
+    std::fs::write(
+        &cow,
+        "$the_cow = <<\"EOC\";\n  $thoughts\n   $thoughts ($eyes)\nEOC\n",
+    )
+    .unwrap();
+    let said = cli_stdin(&["say", "--art-file", cow.to_str().unwrap()], b"Hoo");
+    assert_eq!(
+        text(&said.stdout),
+        "+-----+  \n| Hoo |  \n+-----+  \n  \\      \n   \\ (oo)\n",
+        "{}",
+        text(&said.stderr)
+    );
+    // A line of Perl outside the art is refused.
+    std::fs::write(&cow, "$eyes = '..';\n$the_cow = <<EOC;\nx\nEOC\n").unwrap();
+    refused(
+        &cli(&["say", "Hoo", "--art-file", cow.to_str().unwrap()]),
+        "Line 1: only the art is read",
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn say_refuses_missing_animated_or_conflicting_art() {
     let dir = scratch("say-art");
     let missing = dir.join("missing.txt");
@@ -1725,4 +1750,78 @@ fn generate_builds_mazes_skies_and_patterns_from_the_library() {
         &cli(&["generate", "sky", "--moons", "21"]),
         "at most 20 moons",
     );
+}
+
+#[test]
+fn binary_text_art_loads_by_name_and_bin_only_with_its_flag() {
+    let dir = scratch("binary-art");
+    // A 2 by 1 XBIN screen: a full block and a heart.
+    let xbin = dir.join("heart.xb");
+    std::fs::write(&xbin, b"XBIN\x1a\x02\x00\x01\x00\x10\x00\xdb\x1f\x03\x4f").unwrap();
+    let imported = cli(&["import", xbin.to_str().unwrap()]);
+    assert_eq!(text(&imported.stdout), "#*\n", "{}", text(&imported.stderr));
+    // BIN: 2 cells and a BinaryText SAUCE record of 2 columns (FileType holds half the width).
+    let mut bin = b"\xc4\x07\xb3\x07\x1aSAUCE00".to_vec();
+    bin.resize(5 + 94, b' ');
+    bin.extend([5, 1]);
+    bin.resize(5 + 128, 0);
+    let path = dir.join("line.bin");
+    std::fs::write(&path, &bin).unwrap();
+    let imported = cli(&["import", "--bin", path.to_str().unwrap()]);
+    assert_eq!(text(&imported.stdout), "-|\n", "{}", text(&imported.stderr));
+    let piped = cli_stdin(&["import", "--bin", "-"], &bin);
+    assert_eq!(text(&piped.stdout), "-|\n");
+    // Without --bin the name alone does not make it art, and --bin cannot pad text.
+    refused(&cli(&["import", path.to_str().unwrap()]), "UTF-8");
+    refused(
+        &cli(&["import", "--bin", "--pad", path.to_str().unwrap()]),
+        "cannot be used with",
+    );
+}
+
+#[test]
+fn rexpaint_images_load_flattened_by_their_extension() {
+    let dir = scratch("rexpaint");
+    let fixture = include_bytes!("fixtures/rexpaint/mltest.xp");
+    for name in ["mltest.xp", "MLTEST.XP"] {
+        let path = dir.join(name);
+        std::fs::write(&path, fixture).unwrap();
+        let imported = cli(&["import", path.to_str().unwrap()]);
+        assert_eq!(
+            text(&imported.stdout),
+            "AAAAAAAA\nAABBBBAA\nAABBBBAA\nAAAAAAAA\n",
+            "{}",
+            text(&imported.stderr)
+        );
+        let check = cli(&["check", path.to_str().unwrap()]);
+        assert!(
+            text(&check.stdout).starts_with("Valid ASCII: 8 x 4, 1 frame(s)"),
+            "{}",
+            text(&check.stderr)
+        );
+    }
+    // Other commands that take art read it the same way.
+    let effect = cli(&[
+        "effect",
+        "scatter",
+        dir.join("mltest.xp").to_str().unwrap(),
+        "--duration",
+        "500",
+        "--fps",
+        "10",
+    ]);
+    assert!(effect.status.success(), "{}", text(&effect.stderr));
+    let effect = apollinaire_ascii::Animation::from_json(text(&effect.stdout)).unwrap();
+    assert_eq!(
+        effect.frames()[4].frame.text(),
+        "AAAAAAAA\nAABBBBAA\nAABBBBAA\nAAAAAAAA"
+    );
+    let broken = dir.join("broken.xp");
+    std::fs::write(&broken, b"not gzip").unwrap();
+    for command in ["import", "check"] {
+        refused(
+            &cli(&[command, broken.to_str().unwrap()]),
+            "Not a REXPaint .xp file",
+        );
+    }
 }
