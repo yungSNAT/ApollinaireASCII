@@ -155,7 +155,7 @@ fn design_files_refuse_what_they_cannot_draw_with_its_line() {
         ),
         (
             "BOX a\nshapes { n (\"-\") }",
-            "Box design a has no END line",
+            "Line 1: Box design a has no END line",
         ),
         (
             &format!("BOX a\n{VALID}\nEND b"),
@@ -239,50 +239,153 @@ fn design_files_refuse_what_they_cannot_draw_with_its_line() {
         ),
         (
             &file("shapes { n (\"-\") }\nelastic (n)"),
-            "Box design a has no SAMPLE entry",
+            "Line 1: Box design a has no SAMPLE entry",
         ),
         (
             &file("shapes { n (\"-\") }\nsample\n-\nends"),
-            "Box design a has no ELASTIC entry",
+            "Line 1: Box design a has no ELASTIC entry",
         ),
         (
             &file("elastic (n)\nsample\n-\nends"),
-            "Box design a has no SHAPES entry",
+            "Line 1: Box design a has no SHAPES entry",
         ),
         (
             &file("shapes { }\nelastic (n)\nsample\nends"),
-            "Box design a gives no shapes",
+            "Line 1: Box design a gives no shapes",
         ),
         (
             &file("shapes { n (\"-\") }\nelastic (n, s)\nsample\nends"),
-            "Box design a: the elastic shape s is not given",
+            "Line 1: Box design a: the elastic shape s is not given",
         ),
         (
             &file("shapes { nw (\"+\") n (\"-\") }\nelastic (nw, n)\nsample\nends"),
-            "Box design a: the corner nw cannot be elastic",
+            "Line 1: Box design a: the corner nw cannot be elastic",
         ),
         (
             &file("shapes { nw (\"+\", \"+\") n (\"-\") }\nelastic (n)\nsample\nends"),
-            "Box design a: the shapes nw, n must all have the same height",
+            "Line 1: Box design a: the shapes nw, n must all have the same height",
         ),
         (
             &file("shapes { nw (\"++\") n (\"-\") w (\"|\") }\nelastic (n, w)\nsample\nends"),
-            "Box design a: the shapes nw, w must all have the same width",
+            "Line 1: Box design a: the shapes nw, w must all have the same width",
         ),
         (
             &file("shapes { nnw (\"-\") n (\"=\") }\nelastic (nnw, n)\nsample\nends"),
-            "Box design a: nnw and n are neighbours, so only one may be elastic",
+            "Line 1: Box design a: nnw and n are neighbours, so only one may be elastic",
         ),
         (
             &file("shapes { n (\"-\") w (\"|\") }\nelastic (w)\nsample\nends"),
-            "Box design a: one of nnw, n, nne must be elastic",
+            "Line 1: Box design a: one of nnw, n, nne must be elastic",
         ),
         (
             &format!("BOX a\n{VALID}\nEND a\nBOX b, A\n{VALID}\nEND b"),
-            "Box design A is defined twice",
+            "Line 8: Box design A is defined twice",
+        ),
+        (
+            &file("reverse \"x\" with \"y\""),
+            "Line 2: REVERSE takes once or global, if either, then \"pattern\" TO \"text\"",
+        ),
+        (
+            &file("reverse always \"x\" to \"y\""),
+            "Line 2: REVERSE takes once or global, if either, then \"pattern\" TO \"text\"",
+        ),
+        (
+            &file("indent \"left\""),
+            "Line 2: INDENT takes \"box\", \"text\" or \"none\", not \"left\"",
         ),
     ] {
         assert_eq!(error(text), expected, "{text}");
     }
     assert!(boxes::parse(&file(VALID)).is_ok());
+    // Names ignore letter case at END too.
+    assert!(boxes::parse(&format!("BOX a\n{VALID}\nEND A")).is_ok());
+    assert!(
+        boxes::parse(&file("REVERSE GLOBAL \"x\" TO \"y\"")).is_err_and(|e| e.contains("SHAPES"))
+    );
+}
+
+#[test]
+fn design_files_past_the_input_limit_are_refused_before_reading() {
+    assert_eq!(
+        error(&" ".repeat(apollinaire_ascii::MAX_INPUT_BYTES + 1)),
+        "The design file exceeds the 16 MiB input limit"
+    );
+    // A long sample is read in one pass.
+    let long = file(&format!(
+        "shapes {{ n (\"-\") }}\nelastic (n)\nsample\n{}ends",
+        "\n".repeat(1 << 20)
+    ));
+    assert_eq!(
+        boxes::parse(&long).unwrap()[0].sample(),
+        "\n".repeat((1 << 20) - 1)
+    );
+}
+
+/// A plain box of `+-|` around the frame, with `entries` added.
+fn plain(entries: &str) -> boxes::Design {
+    let body = format!(
+        "shapes {{ nw (\"+\") n (\"-\") ne (\"+\") e (\"|\") se (\"+\") s (\"-\") sw (\"+\") \
+         w (\"|\") }}\nelastic (n, e, s, w)\n{entries}\nsample\nx\nends"
+    );
+    boxes::parse(&file(&body)).unwrap().remove(0)
+}
+
+#[test]
+fn indent_modes_place_indented_art_as_the_boxes_documentation_describes() {
+    let art = "  Hi\n   !";
+    // box, the default: the box moves in by the art's indentation, which the art loses.
+    let moved = "  +---+\n  |Hi |\n  | ! |\n  +---+";
+    assert_eq!(draw(&plain(""), art), moved);
+    assert_eq!(draw(&plain("INDENT \"Box\""), art), moved);
+    // text: the box stays at the left edge and the art keeps its indentation.
+    assert_eq!(
+        draw(&plain("indent \"text\""), art),
+        "+-----+\n|  Hi |\n|   ! |\n+-----+"
+    );
+    // none: the indentation goes.
+    assert_eq!(
+        draw(&plain("indent \"none\""), art),
+        "+---+\n|Hi |\n| ! |\n+---+"
+    );
+    // Blank rows do not count towards the indentation.
+    assert_eq!(draw(&plain(""), "   \n  a"), "  +-+\n  | |\n  |a|\n  +-+");
+    // The indentation counts towards the canvas's 512 columns.
+    let fits = Frame::from_text(&format!("  {}", "x".repeat(508))).unwrap();
+    assert_eq!(plain("").draw(&fits).unwrap().width(), 512);
+    let wide = Frame::from_text(&format!("  {}", "x".repeat(509))).unwrap();
+    assert_eq!(
+        plain("").draw(&wide).unwrap_err(),
+        "Box design a would need more than 512 columns"
+    );
+}
+
+#[test]
+fn a_side_of_spaces_alone_is_left_out() {
+    let open_left = boxes::parse(&file(
+        "shapes { nw (\" \") w (\" \") sw (\" \") n (\"-\") ne (\"+\") e (\"|\") se (\"+\") \
+         s (\"-\") }\nelastic (n, e, s, w)\nsample\nx\nends",
+    ))
+    .unwrap()
+    .remove(0);
+    assert_eq!(draw(&open_left, "Hi"), "--+\nHi|\n--+");
+    let open_top = boxes::parse(&file(
+        "shapes { nw (\" \") n (\"  \") ne (\" \") w (\"|\") e (\"|\") sw (\"+\") s (\"-\") \
+         se (\"+\") }\nelastic (n, e, s, w)\nsample\nx\nends",
+    ))
+    .unwrap()
+    .remove(0);
+    assert_eq!(draw(&open_top, "Hi"), "|Hi|\n+--+");
+}
+
+#[test]
+fn elastic_shapes_of_different_widths_balance_their_repeat_counts() {
+    // 5 spare columns: 1 of the 1-wide shape and 2 of the 2-wide one are closer in count than
+    // 3 and 1.
+    let design = boxes::parse(&file(
+        "shapes { nw (\"+\") nnw (\"-\") n (\"o\") nne (\"==\") ne (\"+\") e (\"|\") se (\"+\") \
+         s (\"-\") sw (\"+\") w (\"|\") }\nelastic (nnw, nne, e, s, w)\nsample\nx\nends",
+    ))
+    .unwrap()
+    .remove(0);
+    assert_eq!(draw(&design, "abcdef"), "+-o====+\n|abcdef|\n+------+");
 }
