@@ -214,6 +214,8 @@ fn generate_draws_the_chosen_border_style() {
         ("rounded", [".--.", "|  |", "'--'"]),
         ("dotted", ["....", ":  :", ":..:"]),
         ("heavy", ["#==#", "#  #", "#==#"]),
+        ("curly", [".~~~~.", "{    }", "'~~~~'"]),
+        ("zigzag", ["+/\\/\\+", "<    >", "+\\/\\/+"]),
     ] {
         element::<HtmlSelectElement>("border-style").set_value(style);
         click("generate");

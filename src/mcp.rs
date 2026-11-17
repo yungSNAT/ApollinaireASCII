@@ -283,6 +283,7 @@ const TOOLS: &[Tool] = &[
             ("width", Integer),
             ("height", Integer),
             ("style", Text),
+            ("design", Text),
             ("turns", Integer),
         ],
         require: &[],
@@ -793,7 +794,13 @@ mod tests {
         "mcp",
     ];
     /// Arguments no tool takes: files and directories, which the server never names.
-    const NOT_TAKEN: &[&str] = &["output", "output_dir", "font_file", "art_file"];
+    const NOT_TAKEN: &[&str] = &[
+        "output",
+        "output_dir",
+        "font_file",
+        "art_file",
+        "design_file",
+    ];
 
     #[test]
     fn every_command_and_argument_is_a_tool_or_left_out_on_purpose() {
