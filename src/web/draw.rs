@@ -513,12 +513,14 @@ impl App {
             && self.drawing.tool == Tool::Curve
             && stroke.end.is_none()
         {
-            stroke.end = Some(stroke.last);
+            let last = stroke.last;
+            stroke.end = Some(last);
             status(
                 "End set. Move to bend the curve, then click or press Space to finish; Escape cancels.",
                 false,
             );
-            return Ok(());
+            // Show the curve itself, so finishing without a bend commits what is shown.
+            return self.extend(last);
         }
         let Some(stroke) = self.drawing.stroke.take() else {
             return Ok(());
@@ -714,10 +716,13 @@ fn pointer(event: Event) -> Result<()> {
         let (ours, busy) = app.drawing.stroke.as_ref().map_or((false, false), |s| {
             (s.pointer == Some(event.pointer_id()), s.pointer.is_some())
         });
-        // A curve waiting to be bent has no button down, so it has lost its pointer capture.
+        // A curve waiting to be bent has no button down, so it has lost its pointer capture,
+        // and any primary press finishes it: a touch screen gives the next tap a new id.
         let bending = app.drawing.stroke.as_ref().is_some_and(|s| s.end.is_some());
         match event.type_().as_str() {
-            "pointerdown" if event.button() == 0 && event.is_primary() && (ours || !busy) => {
+            "pointerdown"
+                if event.button() == 0 && event.is_primary() && (ours || !busy || bending) =>
+            {
                 event.prevent_default();
                 let point = cell(app, &event)?;
                 let _ = node::<Element>("grid")?.set_pointer_capture(event.pointer_id());
@@ -727,7 +732,7 @@ fn pointer(event: Event) -> Result<()> {
                 node::<HtmlElement>("art")?
                     .focus_with_options(&options)
                     .map_err(|_| "Cannot focus the artwork")?;
-                if ours && bending {
+                if bending {
                     app.extend(point)?;
                     app.finish()?;
                 } else {
@@ -982,7 +987,7 @@ pub(super) fn listen_all() -> std::result::Result<(), wasm_bindgen::JsValue> {
                 .drawing
                 .stroke
                 .as_ref()
-                .is_some_and(|s| s.pointer.is_none())
+                .is_some_and(|s| s.pointer.is_none() || s.end.is_some())
             {
                 app.cancel();
             }
