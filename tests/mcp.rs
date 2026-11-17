@@ -205,7 +205,7 @@ fn stateless_clients_discover_and_send_their_version_each_time() {
         );
     }
     let listed = &replies[2]["result"];
-    assert_eq!(listed["tools"].as_array().unwrap().len(), 14);
+    assert_eq!(listed["tools"].as_array().unwrap().len(), 15);
     assert_eq!(listed["resultType"], "complete");
     assert_eq!(listed["cacheScope"], "public");
     assert_eq!(
