@@ -367,6 +367,82 @@ fn compose_clips_a_transparent_stamp_and_rejects_animations() {
 }
 
 #[test]
+fn transform_border_draws_bundled_box_designs_or_those_in_a_design_file() {
+    let dir = scratch("box-designs");
+    let input = dir.join("drawing.txt");
+    std::fs::write(&input, "ab\ncd\n").unwrap();
+    let path = input.to_str().unwrap();
+    let designs = dir.join("mine.cfg");
+    std::fs::write(
+        &designs,
+        "BOX stars\nshapes { n (\"*\") s (\"*\") w (\"*\") e (\"*\") }\nelastic (n, e, s, w)\n\
+         sample\nx\nends\nEND stars\n\
+         BOX bars, pipes\nshapes { w (\"|\") e (\"|\") }\nelastic (e, w)\nsample\nx\nends\nEND bars\n",
+    )
+    .unwrap();
+    let file = designs.to_str().unwrap();
+    for (args, expected) in [
+        (
+            &["--design", "curly"][..],
+            ".~~~~.\n{ ab }\n{ cd }\n'~~~~'\n",
+        ),
+        (&["--design-file", file], " ** \n*ab*\n*cd*\n ** \n"),
+        (
+            &["--design-file", file, "--design", "PIPES"],
+            "|ab|\n|cd|\n",
+        ),
+    ] {
+        let result = cli(&[&["transform", path, "border"][..], args].concat());
+        assert!(result.status.success(), "{}", text(&result.stderr));
+        assert_eq!(text(&result.stdout), expected, "{args:?}");
+    }
+    for (args, error) in [
+        (
+            &["border", "--design", "nope"][..],
+            "Unknown box design nope; run `apollinaire list` for the designs",
+        ),
+        (
+            &["border", "--design-file", file, "--design", "curly"],
+            "The design file has no design curly",
+        ),
+        (
+            &["horizontal", "--design", "curly"],
+            "Only the border operation takes --design and --design-file",
+        ),
+        (
+            &["border", "--design-file", path],
+            "Line 1: expected BOX, found ab",
+        ),
+    ] {
+        let result = cli(&[&["transform", path][..], args].concat());
+        assert!(!result.status.success());
+        assert_eq!(
+            text(&result.stderr),
+            format!("apollinaire: {error}\n"),
+            "{args:?}"
+        );
+    }
+    assert!(
+        !cli(&[
+            "transform",
+            path,
+            "border",
+            "--style",
+            "plain",
+            "--design",
+            "curly"
+        ])
+        .status
+        .success()
+    );
+    assert!(
+        text(&cli(&["list"]).stdout)
+            .contains("Box designs: curly, zigzag, rail, film, ticket, shadow, bracket, crest\n")
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn transform_crops_every_frame_and_preserves_timing_and_looping() {
     use apollinaire_ascii::{Animation, Frame, TimedFrame};
 

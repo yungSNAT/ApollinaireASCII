@@ -1,11 +1,13 @@
 mod check;
 mod edit;
 mod fetch;
+mod ffmpeg;
 mod mcp;
 
 use apollinaire_ascii::{
     Animation, BorderStyle, Canvas, EffectOptions, Frame, Glyphs, Layered, MAX_INPUT_BYTES,
-    MAX_MEDIA_BYTES, RenderOptions, Result, SceneOptions, TimedFrame, animation, ansi, art, bubble,
+    MAX_MEDIA_BYTES, RenderOptions, Result, SceneOptions, TimedFrame, animation, ansi, art, boxes,
+    bubble,
     diagram::{self, TableRules},
     effects, export, generator, lettering, model, rexpaint,
 };
@@ -368,10 +370,11 @@ enum Command {
         /// A Mermaid `flowchart` or `graph`, or `-` for stdin; one Markdown code block is read.
         input: PathBuf,
     },
-    /// Convert images or animated GIFs to text, from files or https:// URLs.
+    /// Convert images, animated GIFs or video files to text, from files or https:// URLs.
     Image {
         /// Image files or `-` for stdin, up to 128 MiB each, or https:// URLs, up to 16 MiB.
-        /// Several inputs need --output-dir.
+        /// Video files (.mp4, .m4v, .mov, .webm, .mkv, .avi, .ogv, .mpg, .mpeg) are decoded by
+        /// an installed ffmpeg. Several inputs need --output-dir.
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
         /// Create one new file per input in this directory, named after the input.
@@ -418,6 +421,15 @@ enum Command {
         /// Greyscale value from 0 to 255 that transparent pixels are composited onto.
         #[arg(long, default_value_t = 0)]
         background: u8,
+        /// Video: frames sampled per second, 1 to 60; 10 by default.
+        #[arg(long, value_parser = clap::value_parser!(u32).range(1..=60))]
+        fps: Option<u32>,
+        /// Video: seconds from the start of the video to the first frame; 0 by default.
+        #[arg(long)]
+        start: Option<f64>,
+        /// Video: seconds from the start of the video to stop at; the video's end by default.
+        #[arg(long)]
+        end: Option<f64>,
     },
     /// Deterministic procedural ASCII scenes, exported as timed JSON.
     Animate {
@@ -556,6 +568,13 @@ enum Command {
         /// Border style for the `border` operation; plain `+-|` by default.
         #[arg(long, value_enum)]
         style: Option<Border>,
+        /// Border: draw a box design instead of a style, by name; `apollinaire list` names them.
+        #[arg(long, conflicts_with = "style")]
+        design: Option<String>,
+        /// Border: a design file in the format of the `boxes` program; `--design` picks one of
+        /// its designs, the first by default.
+        #[arg(long, conflicts_with = "style")]
+        design_file: Option<PathBuf>,
         /// Rotate: quarter turns clockwise, 1 (the default) to 3. Line characters turn too.
         #[arg(long, value_parser = clap::value_parser!(u8).range(1..=3))]
         turns: Option<u8>,
@@ -632,7 +651,7 @@ fn run(args: Args) -> Result<()> {
                 list += &format!("  {category}: {}\n", names.join(", "));
             }
             list += &format!(
-                "Fonts: {}\nScenes: {}\nPatterns: {}\nEffects: {}\nRamps: {}\n",
+                "Fonts: {}\nScenes: {}\nPatterns: {}\nEffects: {}\nRamps: {}\nBox designs: {}\n",
                 lettering::FONTS.join(", "),
                 animation::SCENES.join(", "),
                 generator::PATTERNS.join(", "),
@@ -640,6 +659,11 @@ fn run(args: Args) -> Result<()> {
                 apollinaire_ascii::image_renderer::RAMPS
                     .iter()
                     .map(|(n, _)| *n)
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                boxes::bundled()
+                    .iter()
+                    .map(boxes::Design::name)
                     .collect::<Vec<_>>()
                     .join(", ")
             );
@@ -749,7 +773,23 @@ fn run(args: Args) -> Result<()> {
             contrast,
             cell_aspect,
             background,
+            fps,
+            start,
+            end,
         } => {
+            let video = |input: &Path| {
+                ffmpeg::is_video(input) && !input.to_str().is_some_and(fetch::is_url)
+            };
+            if (fps.is_some() || start.is_some() || end.is_some())
+                && !inputs.iter().any(|input| video(input))
+            {
+                return Err("--fps, --start and --end need a video input".into());
+            }
+            let sampling = ffmpeg::Sampling {
+                fps: fps.unwrap_or(10),
+                start_ms: start.unwrap_or(0.0) * 1000.0,
+                end_ms: end.map(|seconds| seconds * 1000.0),
+            };
             let glyphs = if shapes { Glyphs::Shapes } else { Glyphs::Ramp };
             let ramp = apollinaire_ascii::image_renderer::RAMPS
                 .iter()
@@ -770,6 +810,9 @@ fn run(args: Args) -> Result<()> {
             };
             options.validate()?;
             let convert = |input: &Path| {
+                if video(input) {
+                    return ffmpeg::convert(input, &sampling, &options, glyphs);
+                }
                 let bytes = match input.to_str().filter(|s| fetch::is_url(s)) {
                     Some(url) => fetch::image(url)?,
                     None => read_bounded(input, MAX_MEDIA_BYTES)?,
@@ -933,11 +976,31 @@ fn run(args: Args) -> Result<()> {
             width,
             height,
             style,
+            design,
+            design_file,
             turns,
         } => {
             if style.is_some() && !matches!(operation, Transform::Border) {
                 return Err("Only the border operation takes --style".into());
             }
+            if (design.is_some() || design_file.is_some())
+                && !matches!(operation, Transform::Border)
+            {
+                return Err("Only the border operation takes --design and --design-file".into());
+            }
+            let design = match (design_file, design) {
+                (Some(file), name) => {
+                    let designs = boxes::parse(&read_text(&file)?)?;
+                    Some(match name {
+                        Some(name) => boxes::find(&designs, &name)
+                            .ok_or_else(|| format!("The design file has no design {name}"))?
+                            .clone(),
+                        None => designs[0].clone(),
+                    })
+                }
+                (None, Some(name)) => Some(boxes::design(&name)?),
+                (None, None) => None,
+            };
             if turns.is_some() && !matches!(operation, Transform::Rotate) {
                 return Err("Only the rotate operation takes --turns".into());
             }
@@ -947,9 +1010,12 @@ fn run(args: Args) -> Result<()> {
                 let frame = match operation {
                     Transform::Horizontal => entry.frame.flip_horizontal(),
                     Transform::Vertical => entry.frame.flip_vertical(),
-                    Transform::Border => entry
-                        .frame
-                        .border_with(style.unwrap_or(Border::Plain).into())?,
+                    Transform::Border => match &design {
+                        Some(design) => design.draw(&entry.frame)?,
+                        None => entry
+                            .frame
+                            .border_with(style.unwrap_or(Border::Plain).into())?,
+                    },
                     Transform::Crop => entry.frame.crop(
                         x,
                         y,

@@ -3,7 +3,7 @@
 
 use crate::{
     Animation, BorderStyle, Canvas, EffectOptions, Frame, Glyphs, Layer, Layered, MAX_INPUT_BYTES,
-    RenderOptions, Result, SceneOptions, TimedFrame, animation, ansi, art, decode_media_as,
+    RenderOptions, Result, SceneOptions, TimedFrame, animation, ansi, art, boxes, decode_media_as,
     effects, export, generator, image_renderer::RAMPS, lettering, model, rexpaint,
 };
 use js_sys::{Array, Uint8Array};
@@ -766,11 +766,18 @@ fn generate(app: &mut App) -> Result<()> {
         _ => return Err("Choose a valid artwork source".into()),
     };
     if checked("border")? {
-        let style = match select("border-style")?.as_str() {
-            "rounded" => BorderStyle::Rounded,
-            "dotted" => BorderStyle::Dotted,
-            "heavy" => BorderStyle::Heavy,
-            _ => BorderStyle::Plain,
+        // The 4 styles, then the box designs.
+        let chosen = select("border-style")?;
+        let style = match chosen.as_str() {
+            "plain" => Some(BorderStyle::Plain),
+            "rounded" => Some(BorderStyle::Rounded),
+            "dotted" => Some(BorderStyle::Dotted),
+            "heavy" => Some(BorderStyle::Heavy),
+            _ => None,
+        };
+        let design = match style {
+            Some(_) => None,
+            None => Some(boxes::design(&chosen)?),
         };
         project = Animation::new(
             project
@@ -778,7 +785,10 @@ fn generate(app: &mut App) -> Result<()> {
                 .iter()
                 .map(|f| {
                     Ok(TimedFrame {
-                        frame: f.frame.border_with(style)?,
+                        frame: match &design {
+                            Some(design) => design.draw(&f.frame)?,
+                            None => f.frame.border_with(style.unwrap_or(BorderStyle::Plain))?,
+                        },
                         duration_ms: f.duration_ms,
                     })
                 })

@@ -500,8 +500,16 @@ fn tools_return_what_their_commands_print() {
             printed(&["transform", "-", "rotate", "--turns", "3"], b"ab/\ncd-"),
         ),
         (
-            call(19, "diagram", json!({"text": "graph LR\nA --> B"})),
+            call(20, "diagram", json!({"text": "graph LR\nA --> B"})),
             printed(&["diagram", "-"], b"graph LR\nA --> B"),
+        ),
+        (
+            call(
+                19,
+                "transform",
+                json!({"text": "Hi", "operation": "border", "design": "curly"}),
+            ),
+            printed(&["transform", "-", "border", "--design", "curly"], b"Hi"),
         ),
     ];
     let messages: Vec<_> = calls.iter().map(|(message, _)| message.clone()).collect();
