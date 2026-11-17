@@ -16,7 +16,7 @@
 //! # Ok::<(), String>(())
 //! ```
 
-use crate::{Frame, MAX_HEIGHT, MAX_WIDTH, Result};
+use crate::{Frame, MAX_HEIGHT, MAX_INPUT_BYTES, MAX_WIDTH, Result};
 
 /// Shape names in compass order, clockwise from the top-left corner.
 const SHAPES: [&str; 16] = [
@@ -39,7 +39,20 @@ pub struct Design {
     elastic: [bool; 16],
     /// Blank lines and columns between the frame and the box: top, right, bottom, left.
     padding: [usize; 4],
+    indent: Indent,
     sample: String,
+}
+
+/// What a design does with the frame's indentation: the blank columns left of every row that
+/// holds more than spaces.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Indent {
+    /// `INDENT "box"`, the default: the box moves in by the indentation, which the frame loses.
+    Box,
+    /// `INDENT "text"`: the box stays at the left edge and the frame keeps its indentation.
+    Text,
+    /// `INDENT "none"`: the indentation goes.
+    Remove,
 }
 
 /// The designs bundled with ApollinaireASCII, in the order [`design`] finds them.
@@ -65,12 +78,17 @@ pub fn find<'a>(designs: &'a [Design], name: &str) -> Option<&'a Design> {
 ///
 /// Each design runs from `BOX name` (with any aliases after commas) to `END name` and needs a
 /// `SHAPES` block, an `ELASTIC` list and a `SAMPLE` block ending at a line `ENDS`. `PADDING`
-/// sets the space around the frame, `DELIM` changes the string quote and escape characters,
-/// and `REVERSE`, `INDENT`, `TAGS` and other `keyword "value"` entries are read and not used.
-/// Keywords ignore letter case, and `#` starts a comment outside strings. `REPLACE`, which
-/// rewrites the text inside the box, and `PARENT`, which reads another file, are refused, as
-/// is a shape holding a byte outside printable ASCII, such as a colour code.
+/// sets the space around the frame, `INDENT` what happens to the frame's indentation and
+/// `DELIM` the string quote and escape characters; `REVERSE`, `TAGS` and other
+/// `keyword "value"` entries are read and not used. Keywords and names ignore letter case, and
+/// `#` starts a comment outside strings. `REPLACE`, which rewrites the text inside the box, and
+/// `PARENT`, which reads another file, are refused, as is a shape holding a byte outside
+/// printable ASCII, such as a colour code. Each error names its line; an error in a whole
+/// design, such as shapes that do not fit together, names the line of its `BOX`.
 pub fn parse(text: &str) -> Result<Vec<Design>> {
+    if text.len() > MAX_INPUT_BYTES {
+        return Err("The design file exceeds the 16 MiB input limit".into());
+    }
     let mut lexer = Lexer {
         text,
         at: 0,
@@ -87,13 +105,14 @@ pub fn parse(text: &str) -> Result<Vec<Design>> {
         if !word.eq_ignore_ascii_case("box") {
             return Err(lexer.error(&format!("expected BOX, found {word}")));
         }
+        let line = lexer.line;
         let design = lexer.design()?;
         if let Some(name) = design
             .names
             .iter()
             .find(|n| !names.insert(n.to_ascii_lowercase()))
         {
-            return Err(format!("Box design {name} is defined twice"));
+            return Err(format!("Line {line}: Box design {name} is defined twice"));
         }
         designs.push(design);
     }
@@ -200,6 +219,7 @@ impl<'a> Lexer<'a> {
     fn design(&mut self) -> Result<Design> {
         // A design's DELIM applies to that design only.
         (self.escape, self.quote) = (b'\\', b'"');
+        let opened = self.line;
         let mut names = vec![self.name()?];
         while self.eat(b',') {
             names.push(self.name()?);
@@ -210,20 +230,21 @@ impl<'a> Lexer<'a> {
             shapes: Default::default(),
             elastic: [false; 16],
             padding: [0; 4],
+            indent: Indent::Box,
             sample: String::new(),
         };
         let (mut shaped, mut stretched, mut sampled) = (false, false, false);
         loop {
             let Some(word) = self.word() else {
                 return Err(match self.byte() {
-                    None => format!("Box design {name} has no END line"),
+                    None => format!("Line {opened}: Box design {name} has no END line"),
                     Some(_) => self.error("expected an entry such as SHAPES, or END"),
                 });
             };
             match word.to_ascii_lowercase().as_str() {
                 "end" => {
                     let closing = self.name()?;
-                    if closing != name {
+                    if !closing.eq_ignore_ascii_case(&name) {
                         return Err(self.error(&format!("END {closing} does not close BOX {name}")));
                     }
                     break;
@@ -259,10 +280,32 @@ impl<'a> Lexer<'a> {
                 // `REVERSE [once|global] "pattern" to "text"` applies only when boxes removes a
                 // box, which this never does.
                 "reverse" => {
-                    self.word();
+                    let syntax =
+                        "REVERSE takes once or global, if either, then \"pattern\" TO \"text\"";
+                    let mode = self.word();
+                    if mode.is_some_and(|m| {
+                        !m.eq_ignore_ascii_case("once") && !m.eq_ignore_ascii_case("global")
+                    }) {
+                        return Err(self.error(syntax));
+                    }
                     self.string()?;
-                    self.word();
+                    if !self.word().is_some_and(|w| w.eq_ignore_ascii_case("to")) {
+                        return Err(self.error(syntax));
+                    }
                     self.string()?;
+                }
+                "indent" => {
+                    let mode = self.string()?;
+                    design.indent = match mode.to_ascii_lowercase().as_str() {
+                        "box" => Indent::Box,
+                        "text" => Indent::Text,
+                        "none" => Indent::Remove,
+                        _ => {
+                            return Err(self.error(&format!(
+                                "INDENT takes \"box\", \"text\" or \"none\", not {mode:?}"
+                            )));
+                        }
+                    };
                 }
                 "delim" | "delimiter" => self.delimiter()?,
                 "tags" if self.eat(b'(') => {
@@ -272,7 +315,7 @@ impl<'a> Lexer<'a> {
                     }
                     self.expect(b')')?;
                 }
-                // INDENT, TAGS, AUTHOR, DESIGNER and any other keyword take a string.
+                // TAGS, AUTHOR, DESIGNER and any other keyword take a string.
                 _ => {
                     self.string()?;
                 }
@@ -284,10 +327,12 @@ impl<'a> Lexer<'a> {
             (sampled, "SAMPLE"),
         ] {
             if !given {
-                return Err(format!("Box design {name} has no {entry} entry"));
+                return Err(format!(
+                    "Line {opened}: Box design {name} has no {entry} entry"
+                ));
             }
         }
-        design.check()?;
+        design.check().map_err(|e| format!("Line {opened}: {e}"))?;
         Ok(design)
     }
     fn shape(&mut self) -> Result<usize> {
@@ -365,15 +410,17 @@ impl<'a> Lexer<'a> {
         let mut lines = self.text[self.at..].split_inclusive('\n');
         self.at += lines.next().map_or(0, str::len);
         self.line += 1;
-        let mut sample = Vec::new();
+        let mut sample = String::new();
         for line in lines {
             self.at += line.len();
             self.line += 1;
             let line = line.trim_end_matches(['\r', '\n']);
             if line.trim().eq_ignore_ascii_case("ends") {
-                return Ok(sample.join("\n"));
+                sample.pop();
+                return Ok(sample);
             }
-            sample.push(line);
+            sample.push_str(line);
+            sample.push('\n');
         }
         Err(format!("Line {opened}: SAMPLE has no ENDS line"))
     }
@@ -458,19 +505,23 @@ impl Design {
             .filter(|s| !self.shapes[**s].is_empty())
             .map(|&s| (Some(s), along(self, s), self.elastic[s]))
             .collect();
-        if parts.is_empty() {
-            return Ok(Side {
-                thickness,
-                parts: vec![(None, 1, true)],
-            });
-        }
-        if !parts.iter().any(|p| p.2) {
+        if !parts.is_empty() && !parts.iter().any(|p| p.2) {
             let named: Vec<_> = middle.iter().map(|s| SHAPES[*s]).collect();
             return Err(format!(
                 "Box design {}: one of {} must be elastic",
                 self.name(),
                 named.join(", ")
             ));
+        }
+        // A side of spaces alone is open, and left out as boxes leaves it out.
+        let open = given
+            .iter()
+            .all(|s| self.shapes[*s].iter().all(|l| l.bytes().all(|b| b == b' ')));
+        if parts.is_empty() || open {
+            return Ok(Side {
+                thickness: if open { 0 } else { thickness },
+                parts: vec![(None, 1, true)],
+            });
         }
         Ok(Side { thickness, parts })
     }
@@ -498,8 +549,9 @@ impl Design {
         }
         Ok(())
     }
-    /// Draw the box around `frame`, with the design's padding. Where the elastic shapes cannot
-    /// fit the frame exactly, the box grows and the frame sits in its middle.
+    /// Draw the box around `frame`, with the design's padding and indent mode. Where the
+    /// elastic shapes cannot fit the frame exactly, the box grows and the frame sits in its
+    /// middle.
     pub fn draw(&self, frame: &Frame) -> Result<Frame> {
         let [top, right, bottom, left] = [
             self.side(TOP, true)?,
@@ -507,13 +559,27 @@ impl Design {
             self.side(BOTTOM, true)?,
             self.side(LEFT, false)?,
         ];
+        let text = frame.text();
+        let rows: Vec<&str> = text.split('\n').collect();
+        let indent = rows
+            .iter()
+            .filter_map(|r| r.find(|c| c != ' '))
+            .min()
+            .unwrap_or(0);
+        // The columns cut from the frame, and the margin left of the box.
+        let (cut, margin) = match self.indent {
+            Indent::Box => (indent, indent),
+            Indent::Text => (0, 0),
+            Indent::Remove => (indent, 0),
+        };
+        let lines: Vec<&str> = rows.iter().map(|r| &r[cut..]).collect();
         let [pad_top, pad_right, pad_bottom, pad_left] = self.padding;
-        let width = frame.width() + pad_left + pad_right;
+        let width = frame.width() - cut + pad_left + pad_right;
         let height = frame.height() + pad_top + pad_bottom;
         let (columns, across) = self.fit(
             [&top, &bottom],
             width,
-            [left.thickness + right.thickness, MAX_WIDTH],
+            [left.thickness + right.thickness + margin, MAX_WIDTH],
             "columns",
         )?;
         let (rows, down) = self.fit(
@@ -522,8 +588,6 @@ impl Design {
             [top.thickness + bottom.thickness, MAX_HEIGHT],
             "rows",
         )?;
-        let text = frame.text();
-        let lines: Vec<&str> = text.split('\n').collect();
         let (x, y) = (
             pad_left + (columns - width) / 2,
             pad_top + (rows - height) / 2,
@@ -557,7 +621,8 @@ impl Design {
                 [left.thickness, right.thickness],
             ));
         }
-        Frame::from_text(&out.join("\n"))
+        let margin = " ".repeat(margin);
+        Frame::from_text(&format!("{margin}{}", out.join(&format!("\n{margin}"))))
     }
     /// The shortest length along 2 opposite sides that holds `need` and both reach exactly,
     /// with each side's elastic repeats. `[ends, max]`: the box, `ends` longer, holds `max`.
@@ -599,9 +664,10 @@ impl Design {
         repeats: &[usize],
         widths: [usize; 2],
     ) -> String {
+        // A corner on an open side is left out with it.
         let corner = |shape: usize, width: usize| match self.shapes[shape].get(row) {
-            Some(line) => line.clone(),
-            None => " ".repeat(width),
+            Some(line) if width > 0 => line.clone(),
+            _ => " ".repeat(width),
         };
         let mut line = corner(corners[0], widths[0]);
         for (part, &count) in side.parts.iter().zip(repeats) {
