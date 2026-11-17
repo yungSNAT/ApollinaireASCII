@@ -112,6 +112,7 @@
           <label class="check"><input type="radio" name="tool" value="rectangle"> Rectangle</label>
           <label class="check"><input type="radio" name="tool" value="ellipse"> Ellipse</label>
           <label class="check"><input type="radio" name="tool" value="fill"> Fill</label>
+          <label class="check"><input type="radio" name="tool" value="gradient"> Gradient</label>
           <label class="check"><input type="radio" name="tool" value="type"> Type</label>
           <label class="check"><input type="radio" name="tool" value="area"> Select area</label>
           <label class="check"><input type="radio" name="tool" value="stamp-art"> Stamp art</label>
@@ -129,6 +130,9 @@
            <button id="save-stamp" type="button" disabled>Save area as stamp</button>
            <button id="delete-stamp" type="button" disabled>Remove saved stamp</button>
            <label class="check"><input id="stamp-transparent" type="checkbox" checked> Skip spaces when stamping art</label>
+          <div><label for="gradient-ramp">Gradient characters, from start to end</label><input id="gradient-ramp" type="text" value=" .:-=+*#%@" maxlength="256" autocomplete="off" spellcheck="false"></div>
+          <label class="check"><input id="gradient-radial" type="checkbox"> Radial gradient: rings around the start</label>
+          <label class="check"><input id="gradient-dither" type="checkbox"> Dither the gradient: mix neighbouring characters in a 4 x 4 pattern</label>
           <label class="check"><input id="constrain" type="checkbox"> Keep rectangles square and ellipses round</label>
           <label class="check"><input id="diagram" type="checkbox"> Diagram mode: boxes and connectors</label>
           <label class="check"><input id="arrow" type="checkbox" checked> Arrowheads on connectors</label>

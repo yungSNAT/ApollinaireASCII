@@ -13,6 +13,15 @@ pub fn bounds(a: (i32, i32), b: (i32, i32)) -> (i32, i32, usize, usize) {
     )
 }
 
+/// How [`Canvas::gradient_fill`] spreads its characters.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct GradientStyle {
+    /// Rings around the start instead of bands across the line from start to end.
+    pub radial: bool,
+    /// Mix neighbouring characters in an ordered pattern instead of taking the nearest.
+    pub dither: bool,
+}
+
 /// Mutable ASCII drawing surface. Drawing outside the grid is clipped.
 #[derive(Clone, Debug)]
 pub struct Canvas {
@@ -202,15 +211,72 @@ impl Canvas {
     /// Replace the 4-connected run of identical characters containing a cell.
     pub fn flood_fill(&mut self, x: i32, y: i32, value: u8) -> Result<()> {
         printable(&[value])?;
-        let Some(target) = self.get(x, y).filter(|target| *target != value) else {
-            return Ok(());
+        for index in self.connected(x, y) {
+            self.cells[index] = value;
+        }
+        Ok(())
+    }
+    /// Fill the 4-connected run of identical characters containing `start` with `ramp`: its
+    /// first character at `start`, its last at `end` and beyond, and between them by the
+    /// distance along the line from `start` to `end`, or, when radial, from `start` alone.
+    /// Rows count double, as a cell is about twice as tall as it is wide. Without dithering each
+    /// cell takes the nearest character; with it, a 4 x 4 ordered (Bayer) pattern mixes the 2
+    /// nearest, so a 4 x 4 block at one place between them takes the further one in proportion.
+    pub fn gradient_fill(
+        &mut self,
+        start: (i32, i32),
+        end: (i32, i32),
+        ramp: &[u8],
+        style: GradientStyle,
+    ) -> Result<()> {
+        const BAYER: [[u8; 4]; 4] = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]];
+        printable(ramp)?;
+        let last = ramp
+            .len()
+            .checked_sub(1)
+            .ok_or("A gradient needs at least one character")?;
+        let offset = |x: i32, y: i32| {
+            (
+                f64::from(x) - f64::from(start.0),
+                2.0 * (f64::from(y) - f64::from(start.1)),
+            )
         };
+        let (dx, dy) = offset(end.0, end.1);
+        let reach = dx * dx + dy * dy;
+        for index in self.connected(start.0, start.1) {
+            let (column, row) = (index % self.width, index / self.width);
+            let (x, y) = offset(column as i32, row as i32);
+            let share = match (reach == 0.0, style.radial) {
+                (true, _) => 0.0,
+                (false, true) => ((x * x + y * y) / reach).sqrt(),
+                (false, false) => (x * dx + y * dy) / reach,
+            };
+            let position = share.clamp(0.0, 1.0) * last as f64;
+            let step = if style.dither {
+                let threshold = (f64::from(BAYER[row % 4][column % 4]) + 0.5) / 16.0;
+                position.floor() + f64::from(u8::from(position.fract() > threshold))
+            } else {
+                position.round()
+            };
+            self.cells[index] = ramp[step as usize];
+        }
+        Ok(())
+    }
+    /// The indices of the 4-connected run of identical characters containing a cell; empty
+    /// outside the grid.
+    fn connected(&self, x: i32, y: i32) -> Vec<usize> {
+        let Some(target) = self.get(x, y) else {
+            return Vec::new();
+        };
+        let mut seen = vec![false; self.cells.len()];
+        let mut run = Vec::new();
         let mut pending = vec![y as usize * self.width + x as usize];
         while let Some(index) = pending.pop() {
-            if self.cells[index] != target {
+            if seen[index] || self.cells[index] != target {
                 continue;
             }
-            self.cells[index] = value;
+            seen[index] = true;
+            run.push(index);
             let (column, row) = (index % self.width, index / self.width);
             if column > 0 {
                 pending.push(index - 1);
@@ -225,7 +291,7 @@ impl Canvas {
                 pending.push(index + self.width);
             }
         }
-        Ok(())
+        run
     }
     pub fn finish(self) -> Frame {
         Frame::new(self.width, self.height, self.cells).expect("Canvas preserves ASCII invariant")
