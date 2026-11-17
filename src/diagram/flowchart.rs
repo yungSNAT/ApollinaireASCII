@@ -671,6 +671,8 @@ fn layout(chart: &Chart) -> Result<Frame> {
         downs[upper].push(index);
         waiting[lower] += 1;
     }
+    // Links arriving at each node, for the ports its box must hold.
+    let arriving = waiting.clone();
     let sources: Vec<bool> = waiting.iter().map(|w| *w == 0).collect();
     let mut rank = vec![0usize; nodes];
     let mut ready: std::collections::VecDeque<usize> =
@@ -705,7 +707,9 @@ fn layout(chart: &Chart) -> Result<Frame> {
     let mut line = vec![0i32; ranks];
     let mut count = vec![0i32; ranks];
     for (node, label) in chart.labels.iter().enumerate() {
-        let (size, along) = box_size(label);
+        let (least, along) = box_size(label);
+        // A box widens to hold its links' ends, as it will when placed.
+        let size = side(least, arriving[node].max(downs[node].len()));
         depth[rank[node]] = depth[rank[node]].max(along);
         line[rank[node]] += size;
         count[rank[node]] += 1;
