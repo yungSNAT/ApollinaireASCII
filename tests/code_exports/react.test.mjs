@@ -15,9 +15,11 @@ const { createRoot } = await import('react-dom/client');
 const once = (await import('./out/once-react.js')).default;
 const looping = (await import('./out/loop-react.js')).default;
 
-// Render `component` with fake timers; `wait` advances them.
-async function mount(t, component, props = {}) {
+// Render `component` with fake timers; `wait` advances them. `before` runs once the fake timers
+// are in place and before the first render.
+async function mount(t, component, props = {}, before = () => {}) {
   t.mock.timers.enable({ apis: ['setTimeout'] });
+  before();
   const container = document.createElement('div');
   const root = createRoot(container);
   await act(async () => root.render(createElement(component, props)));
@@ -56,26 +58,33 @@ test('loops back to the first frame', async (t) => {
 });
 
 test('leaves no timer behind when paused, resumed and unmounted mid-frame', async (t) => {
-  const { root, shown, wait } = await mount(t, looping);
-  // Count the timers set and not yet cleared, from here on.
+  // Count the timers set and not yet cleared, from before the first render, so the timer that
+  // pausing must clear is counted too.
   const live = new Set();
-  const [set, clear] = [globalThis.setTimeout, globalThis.clearTimeout];
-  globalThis.setTimeout = (...args) => {
-    const id = set(...args);
-    live.add(id);
-    return id;
+  const count = () => {
+    const [set, clear] = [globalThis.setTimeout, globalThis.clearTimeout];
+    globalThis.setTimeout = (...args) => {
+      const id = set(...args);
+      live.add(id);
+      return id;
+    };
+    globalThis.clearTimeout = (id) => {
+      live.delete(id);
+      clear(id);
+    };
+    t.after(() => Object.assign(globalThis, { setTimeout: set, clearTimeout: clear }));
   };
-  globalThis.clearTimeout = (id) => {
-    live.delete(id);
-    clear(id);
-  };
-  t.after(() => Object.assign(globalThis, { setTimeout: set, clearTimeout: clear }));
+  const { root, shown, wait } = await mount(t, looping, { paused: true }, count);
+  assert.equal(live.size, 0, 'no timer while paused');
+  await act(async () => root.render(createElement(looping, { paused: false })));
+  assert.equal(live.size, 1, 'one timer while playing');
   await wait(100);
   await act(async () => root.render(createElement(looping, { paused: true })));
+  assert.equal(live.size, 0, 'no timer once paused mid-frame');
   await wait(1000);
   assert.equal(shown(), 0);
   await act(async () => root.render(createElement(looping, { paused: false })));
-  assert.equal(live.size, 1, 'one timer while playing');
+  assert.equal(live.size, 1, 'one timer once resumed');
   await wait(50);
   await act(async () => root.unmount());
   assert.equal(live.size, 0, 'no timer after unmounting');
