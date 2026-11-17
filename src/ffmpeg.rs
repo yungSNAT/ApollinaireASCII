@@ -5,8 +5,9 @@
 //! duration; one ffmpeg process then decodes the sampled frames as raw RGBA, read one frame at
 //! a time. Both start without a shell, with the path as one `file:` argument, local files as
 //! their only protocol, the demuxers of the video extensions as their only formats and
-//! QuickTime references to other files turned off. Either is stopped after [`STALL_LIMIT`]
-//! without progress: ffprobe from its start, ffmpeg between frames.
+//! QuickTime references to other files turned off. Either is killed after [`STALL_LIMIT`]
+//! without progress: ffprobe from its start, ffmpeg between frames. Should the kill fail, the
+//! command waits on: an accepted risk, as each is a child started a moment before.
 //!
 //! The editor seeks to each sample time; ffmpeg's `fps` filter picks the frame showing at each
 //! time instead, so a variable frame rate video can give a neighbouring frame at a few samples.
@@ -180,7 +181,7 @@ fn read_frames(
     Ok(frames)
 }
 
-/// A running ffprobe or ffmpeg, stopped once it goes its limit without progress.
+/// A running ffprobe or ffmpeg, killed once it goes its limit without progress.
 struct Run {
     stdout: ChildStdout,
     /// Counted up by the reader at each step forward, such as a frame.
