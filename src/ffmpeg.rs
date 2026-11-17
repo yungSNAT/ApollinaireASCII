@@ -118,7 +118,15 @@ pub fn convert(
     decode
         .args(["-ss", &seconds(sampling.start_ms), "-i"])
         .arg(&input)
-        .args(["-t", &seconds(end_ms - sampling.start_ms), "-an", "-vf"])
+        // The first video track, the one ffprobe measured, not the one ffmpeg would pick.
+        .args([
+            "-map",
+            "0:v:0",
+            "-t",
+            &seconds(end_ms - sampling.start_ms),
+            "-an",
+            "-vf",
+        ])
         .arg(format!(
             "fps={},scale={pixels_wide}:{pixels_high}",
             sampling.fps
