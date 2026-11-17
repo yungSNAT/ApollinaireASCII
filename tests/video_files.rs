@@ -329,7 +329,11 @@ mod with_ffmpeg {
             chain.push((at, size));
             (start, end) = (at + 8, at + size);
         }
-        assert_eq!(chain[0].0 + chain[0].1, bytes.len(), "the movie box ends the file");
+        assert_eq!(
+            chain[0].0 + chain[0].1,
+            bytes.len(),
+            "the movie box ends the file"
+        );
         let mut alias = vec![0; 150];
         alias[130..134].copy_from_slice(&[0, 1, 0, 1]);
         let path = b"/white.mov";
@@ -380,7 +384,15 @@ mod with_ffmpeg {
             .args(["-v", "error", "-protocol_whitelist", "file"])
             .args(["-enable_drefs", "1", "-i"])
             .arg(&input)
-            .args(["-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"])
+            .args([
+                "-frames:v",
+                "1",
+                "-f",
+                "rawvideo",
+                "-pix_fmt",
+                "gray",
+                "pipe:1",
+            ])
             .output()
             .unwrap();
         assert_eq!(followed.stdout, [255; 256], "{}", stderr(&followed));

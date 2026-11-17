@@ -4,7 +4,9 @@
 //! Video files for the CLI binary, decoded by an installed ffmpeg. ffprobe reads the size and
 //! duration; one ffmpeg process then decodes the sampled frames as raw RGBA, read one frame at
 //! a time. Both start without a shell, with the path as one `file:` argument, local files as
-//! their only protocol and the demuxers of the video extensions as their only formats.
+//! their only protocol, the demuxers of the video extensions as their only formats and
+//! QuickTime references to other files turned off. Either is stopped after [`STALL_LIMIT`]
+//! without progress: ffprobe from its start, ffmpeg between frames.
 //!
 //! The editor seeks to each sample time; ffmpeg's `fps` filter picks the frame showing at each
 //! time instead, so a variable frame rate video can give a neighbouring frame at a few samples.
@@ -15,9 +17,16 @@ use apollinaire_ascii::{
 };
 use std::{
     ffi::OsString,
-    io::Read,
+    fmt::Display,
+    io::{self, Read},
     path::Path,
-    process::{Child, Command, Stdio},
+    process::{ChildStdout, Command, ExitStatus, Stdio},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    thread::{self, JoinHandle},
+    time::{Duration, Instant},
 };
 
 /// Extensions read as video, in any letter case.
@@ -29,6 +38,10 @@ const EXTENSIONS: [&str; 9] = [
 const DEMUXERS: &str = "mov,mp4,m4a,3gp,3g2,mj2,matroska,webm,avi,mpeg,mpegts,ogg";
 /// The most of ffmpeg's error output kept for a message.
 const MAX_ERROR_BYTES: u64 = 64 * 1024;
+/// How long ffprobe, or ffmpeg between one frame and the next, may go without progress.
+const STALL_LIMIT: Duration = Duration::from_secs(60);
+/// QuickTime options that keep a file from naming other files to read.
+const NO_REFERENCES: [&str; 4] = ["-enable_drefs", "0", "-use_absolute_path", "0"];
 
 /// The editor's video options.
 pub struct Sampling {
@@ -65,18 +78,22 @@ pub fn convert(
             "-format_whitelist",
             DEMUXERS,
         ])
+        .args(NO_REFERENCES)
         .args(["-select_streams", "v:0", "-of", "json", "-show_entries"])
         .arg("stream=width,height:stream_side_data=rotation:format=duration,format_name")
         .arg("-i")
-        .arg(&input)
-        .stdin(Stdio::null());
-    let probe = probe.output().map_err(missing)?;
-    if !probe.status.success() {
-        return Err(failed("ffprobe", &shown, &probe.stderr));
+        .arg(&input);
+    let mut run = Run::start(&mut probe, STALL_LIMIT)?;
+    let mut json = Vec::new();
+    let _ = run.stdout.read_to_end(&mut json);
+    let (status, errors) = run.finish("ffprobe", &shown)?;
+    if !status.success() {
+        return Err(failed("ffprobe", &shown, &errors));
     }
-    let (width, height, duration_ms, demuxer) = probed(&probe.stdout).ok_or_else(|| {
+    let (width, height, duration_ms, demuxer) = probed(&json).ok_or_else(|| {
         format!("ffprobe found no video stream with a size and duration in {shown}")
     })?;
+    let demuxer = allowed(&demuxer)?;
     let end_ms = sampling.end_ms.unwrap_or(duration_ms);
     let times = sample_times(duration_ms, sampling.start_ms, end_ms, sampling.fps)?;
     let (pixels_wide, pixels_high) = sample_size(width, height, options.width)?;
@@ -94,10 +111,9 @@ pub fn convert(
             "-protocol_whitelist",
             "file",
         ])
-        .args(["-format_whitelist", DEMUXERS, "-f", &demuxer]);
+        .args(["-format_whitelist", DEMUXERS, "-f", demuxer]);
     if demuxer == "mov" {
-        // Never follow a QuickTime file's references to other files.
-        decode.args(["-enable_drefs", "0", "-use_absolute_path", "0"]);
+        decode.args(NO_REFERENCES);
     }
     decode
         .args(["-ss", &seconds(sampling.start_ms), "-i"])
@@ -108,34 +124,16 @@ pub fn convert(
             sampling.fps
         ))
         .args(["-frames:v", &times.len().to_string()])
-        .args(["-f", "rawvideo", "-pix_fmt", "rgba", "pipe:1"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let mut child = decode.spawn().map_err(missing)?;
-    // Errors are read alongside the frames, so a full error pipe cannot stall ffmpeg.
-    let errors = child.stderr.take().map(|stderr| {
-        std::thread::spawn(move || {
-            let mut kept = Vec::new();
-            let mut stderr = stderr;
-            let _ = stderr.by_ref().take(MAX_ERROR_BYTES).read_to_end(&mut kept);
-            let _ = std::io::copy(&mut stderr, &mut std::io::sink());
-            kept
-        })
-    });
+        .args(["-f", "rawvideo", "-pix_fmt", "rgba", "pipe:1"]);
+    let mut run = Run::start(&mut decode, STALL_LIMIT)?;
     let frames = read_frames(
-        &mut child,
+        &mut run,
         (pixels_wide, pixels_high),
         &times,
         options,
         glyphs,
     );
-    // Closing the pipe stops ffmpeg should any frames be left unread.
-    drop(child.stdout.take());
-    let status = child
-        .wait()
-        .map_err(|e| format!("ffmpeg did not finish: {e}"))?;
-    let errors = errors.and_then(|e| e.join().ok()).unwrap_or_default();
+    let (status, errors) = run.finish("ffmpeg", &shown)?;
     let frames = frames?;
     if !status.success() {
         return Err(failed("ffmpeg", &shown, &errors));
@@ -158,20 +156,98 @@ pub fn convert(
 
 /// Each whole frame ffmpeg writes, rendered as it arrives, up to one per sample time.
 fn read_frames(
-    child: &mut Child,
+    run: &mut Run,
     (width, height): (u32, u32),
     times: &[f64],
     options: &RenderOptions,
     glyphs: Glyphs,
 ) -> Result<Vec<apollinaire_ascii::Frame>> {
-    let stdout = child.stdout.as_mut().ok_or("ffmpeg gave no output")?;
     let mut frames = Vec::with_capacity(times.len());
     let mut pixels = vec![0; width as usize * height as usize * 4];
-    while frames.len() < times.len() && stdout.read_exact(&mut pixels).is_ok() {
+    while frames.len() < times.len() && run.stdout.read_exact(&mut pixels).is_ok() {
+        run.progress.fetch_add(1, Ordering::Relaxed);
         let frame = render_rgba_as(width, height, pixels.clone(), options, glyphs)?;
         frames.push(frame);
     }
     Ok(frames)
+}
+
+/// A running ffprobe or ffmpeg, stopped once it goes its limit without progress.
+struct Run {
+    stdout: ChildStdout,
+    /// Counted up by the reader at each step forward, such as a frame.
+    progress: Arc<AtomicU64>,
+    errors: JoinHandle<Vec<u8>>,
+    /// The exit status, or none when the program was stopped.
+    watch: JoinHandle<Option<ExitStatus>>,
+    limit: Duration,
+}
+
+impl Run {
+    fn start(command: &mut Command, limit: Duration) -> Result<Run> {
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut child = command.spawn().map_err(missing)?;
+        let stdout = child.stdout.take().ok_or("no output pipe")?;
+        let mut stderr = child.stderr.take().ok_or("no error pipe")?;
+        // Errors are read alongside the output, so a full error pipe cannot stall the program.
+        let errors = thread::spawn(move || {
+            let mut kept = Vec::new();
+            let _ = stderr.by_ref().take(MAX_ERROR_BYTES).read_to_end(&mut kept);
+            let _ = io::copy(&mut stderr, &mut io::sink());
+            kept
+        });
+        let progress = Arc::new(AtomicU64::new(0));
+        let seen = Arc::clone(&progress);
+        let watch = thread::spawn(move || {
+            let (mut last, mut since) = (0, Instant::now());
+            loop {
+                if let Ok(Some(status)) = child.try_wait() {
+                    return Some(status);
+                }
+                let now = seen.load(Ordering::Relaxed);
+                if now != last {
+                    (last, since) = (now, Instant::now());
+                } else if since.elapsed() >= limit {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+        });
+        Ok(Run {
+            stdout,
+            progress,
+            errors,
+            watch,
+            limit,
+        })
+    }
+
+    /// Close the output, which stops ffmpeg should any frames be left unread, then wait for the
+    /// program: its exit status and the start of its error output.
+    fn finish(self, program: &str, shown: &dyn Display) -> Result<(ExitStatus, Vec<u8>)> {
+        drop(self.stdout);
+        let status = self.watch.join().unwrap_or(None);
+        let errors = self.errors.join().unwrap_or_default();
+        let seconds = self.limit.as_secs_f64();
+        let status = status.ok_or_else(|| {
+            format!(
+                "{program} made no progress on {shown} for {seconds} seconds, so it was stopped"
+            )
+        })?;
+        Ok((status, errors))
+    }
+}
+
+/// The demuxer ffprobe chose, as [`DEMUXERS`] names it, or an error for any other.
+fn allowed(demuxer: &str) -> Result<&'static str> {
+    DEMUXERS.split(',').find(|d| *d == demuxer).ok_or_else(|| {
+        format!("ffprobe chose the {demuxer} format, which video input does not read")
+    })
 }
 
 /// Width, height (turned with the video's rotation, as ffmpeg turns its frames), duration in
