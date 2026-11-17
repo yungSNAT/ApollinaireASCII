@@ -26,6 +26,7 @@ pub mod layers;
 pub mod lettering;
 pub mod model;
 pub mod motion;
+pub mod palette;
 mod project_json;
 pub mod rexpaint;
 pub mod video;
