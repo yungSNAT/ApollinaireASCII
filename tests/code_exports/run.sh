@@ -21,7 +21,7 @@ bun test --timeout 60000 ./opentui.test.js
 cd go
 for project in once loop; do
   cp "../out/$project.go" main.go
-  if [ -n "$(gofmt -l .)" ]; then
+  if [[ -n "$(gofmt -l .)" ]]; then
     gofmt -d .
     exit 1
   fi
