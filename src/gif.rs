@@ -14,11 +14,13 @@ use image::{Rgba, RgbaImage};
 use weezl::{BitOrder, LzwStatus, decode::Decoder};
 
 /// Decode every frame in order, passing the composited logical screen and its delay in
-/// centiseconds to `each`, so the caller can convert and drop each frame. The canvas is
-/// allocated from the header, so callers check the screen size first, as `decode_media` does.
+/// centiseconds to `each`, so the caller can convert each frame. `each` hands the screen back
+/// unchanged: a frame that keeps its pixels for the next is drawn on the canvas itself, not on
+/// a copy, so only one screen-sized image is held. The canvas is allocated from the header, so
+/// callers check the screen size first, as `decode_media` does.
 pub(crate) fn for_each_frame(
     bytes: &[u8],
-    mut each: impl FnMut(RgbaImage, u16) -> Result<()>,
+    mut each: impl FnMut(RgbaImage, u16) -> Result<RgbaImage>,
 ) -> Result<()> {
     let mut input = Input { bytes, cursor: 0 };
     let header = input.take(13).ok_or("Invalid GIF header")?;
@@ -68,7 +70,9 @@ pub(crate) fn for_each_frame(
                 let local = colour_table(&mut input, d[8])?;
                 let palette = local.or(global).ok_or("GIF frame has no colour table")?;
                 let indices = image_data(&mut input, w as usize * h as usize)?;
-                let mut screen = canvas.clone();
+                // 2 restores the background, which `image` treated as transparent; 3 restores
+                // the previous canvas; 0, 1 and undefined values keep. Only 2 and 3 need a copy.
+                let mut screen = matches!(control.disposal, 2 | 3).then(|| canvas.clone());
                 for (row, y) in rows(h, d[8] & 0x40 != 0).enumerate() {
                     for x in 0..w {
                         let index = indices[row * w as usize + x as usize];
@@ -80,17 +84,21 @@ pub(crate) fn for_each_frame(
                             }
                             _ => *canvas.get_pixel(sx, sy),
                         };
-                        screen.put_pixel(sx, sy, pixel);
-                        // 2 restores the background, which `image` treated as transparent;
-                        // 3 restores the previous canvas; 0, 1 and undefined values keep.
-                        match control.disposal {
-                            2 => canvas.put_pixel(sx, sy, Rgba([0, 0, 0, 0])),
-                            3 => {}
-                            _ => canvas.put_pixel(sx, sy, pixel),
+                        match screen.as_mut() {
+                            None => canvas.put_pixel(sx, sy, pixel),
+                            Some(screen) => {
+                                screen.put_pixel(sx, sy, pixel);
+                                if control.disposal == 2 {
+                                    canvas.put_pixel(sx, sy, Rgba([0, 0, 0, 0]));
+                                }
+                            }
                         }
                     }
                 }
-                each(screen, control.delay_cs)?;
+                match screen {
+                    None => canvas = each(canvas, control.delay_cs)?,
+                    Some(screen) => drop(each(screen, control.delay_cs)?),
+                }
                 control = Control::default();
             }
             _ => return Err("Invalid GIF block marker".into()),
@@ -211,7 +219,7 @@ mod tests {
         let mut out = Vec::new();
         for_each_frame(bytes, |screen, delay| {
             out.push((screen.pixels().copied().collect(), delay));
-            Ok(())
+            Ok(screen)
         })
         .unwrap();
         out
@@ -303,7 +311,7 @@ mod tests {
             Some(&[RED, GREEN]),
             &[GifFrame::full(2, 2, vec![0, 1, 1, 0], 3)],
         );
-        let refused = |bytes: &[u8]| for_each_frame(bytes, |_, _| Ok(())).is_err();
+        let refused = |bytes: &[u8]| for_each_frame(bytes, |screen, _| Ok(screen)).is_err();
         assert!(!refused(&valid));
         // No colour table anywhere.
         assert!(refused(&gif(
@@ -355,7 +363,7 @@ mod tests {
     fn an_invalid_code_after_the_last_pixel_is_refused() {
         // 3-bit codes 0, 0, clear, then 6, which needs a predecessor. weezl reads it with
         // the pixels but reports it on the next call.
-        assert!(for_each_frame(&raw(2, [0x00, 0x0d]), |_, _| Ok(())).is_err());
+        assert!(for_each_frame(&raw(2, [0x00, 0x0d]), |screen, _| Ok(screen)).is_err());
     }
 
     #[test]
@@ -373,7 +381,7 @@ mod tests {
             for value in [0, 1, 2, 0x7f, 0x80, 0xfe, 0xff] {
                 let mut bytes = valid.clone();
                 bytes[offset] = value;
-                let _ = for_each_frame(&bytes, |_, _| Ok(()));
+                let _ = for_each_frame(&bytes, |screen, _| Ok(screen));
             }
         }
     }
