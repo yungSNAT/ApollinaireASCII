@@ -2609,7 +2609,11 @@ async fn palettes_fill_the_picker_feed_gradients_and_conversion_and_round_trip()
     );
     change_event("palette-file");
     wait_for(|| status().starts_with("Palette opened")).await;
-    assert!(status().ends_with(" 1 repeated character was left out."), "{}", status());
+    assert!(
+        status().ends_with(" 1 repeated character was left out."),
+        "{}",
+        status()
+    );
     assert_eq!(palette_names().len(), 6);
     assert_eq!(picker_text(), "+=");
     choose(
