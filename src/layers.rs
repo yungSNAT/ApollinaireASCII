@@ -169,7 +169,8 @@ impl Layered {
     pub fn layers(&self) -> &[Layer] {
         &self.layers
     }
-    /// The layers that move together with layer `index`: its group, or the layer alone.
+    /// The layers that move together with layer `index`: its group, or the layer alone. Panics
+    /// when `index` is not a layer of the project.
     pub fn block(&self, index: usize) -> Range<usize> {
         let Some(group) = &self.layers[index].group else {
             return index..index + 1;

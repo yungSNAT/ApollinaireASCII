@@ -1292,6 +1292,10 @@ fn edit_checks_its_file_and_options_before_needing_a_terminal() {
     let keyed = dir.join("keyed.json");
     let three = r#"{"format":"asciiforge","version":3,"width":1,"height":1,"loop":false,"layers":[{"name":"Layer 1","visible":true,"motion":{"x":[{"frame":0,"value":0.5,"easing":"hold"}]}}],"frames":[{"duration_ms":10,"layers":["x"]}]}"#;
     std::fs::write(&keyed, three).unwrap();
+    // One visible layer named Layer 1, but in a group, which a plain animation cannot hold.
+    let grouped = dir.join("grouped.json");
+    let one = r#"{"format":"asciiforge","version":2,"width":1,"height":1,"loop":false,"layers":[{"name":"Layer 1","visible":true,"group":"G"}],"frames":[{"duration_ms":10,"layers":["x"]}]}"#;
+    std::fs::write(&grouped, one).unwrap();
     let path = |p: &std::path::Path| p.to_str().unwrap().to_string();
     for (args, error) in [
         (
@@ -1304,11 +1308,15 @@ fn edit_checks_its_file_and_options_before_needing_a_terminal() {
         ),
         (
             vec![path(&layered)],
-            "This project uses layers or keyframes; merge its layers in the browser editor first",
+            "This project uses layers, groups or keyframes; merge its layers in the browser editor first",
         ),
         (
             vec![path(&keyed)],
-            "This project uses layers or keyframes; merge its layers in the browser editor first",
+            "This project uses layers, groups or keyframes; merge its layers in the browser editor first",
+        ),
+        (
+            vec![path(&grouped)],
+            "This project uses layers, groups or keyframes; merge its layers in the browser editor first",
         ),
         (vec!["-".into()], "Edit needs a .txt or .json file"),
         (
