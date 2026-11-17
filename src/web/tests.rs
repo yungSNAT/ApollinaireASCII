@@ -130,14 +130,18 @@ fn blank(width: usize, height: usize) {
     assert_eq!(art(), rows(&vec![" ".repeat(width).as_str(); height]));
 }
 
-fn pointer(kind: &str, (x, y): (usize, usize)) {
+fn pointer(kind: &str, cell: (usize, usize)) {
+    pointer_as(kind, cell, 1, "mouse");
+}
+/// A pointer event from pointer `id` of `kind` (mouse, pen or touch) at the centre of a cell.
+fn pointer_as(kind: &str, (x, y): (usize, usize), id: i32, device: &str) {
     let (columns, lines) = grid_size();
     let rect = element::<Element>("art").get_bounding_client_rect();
     let init = PointerEventInit::new();
     init.set_bubbles(true);
     init.set_cancelable(true);
-    init.set_pointer_id(1);
-    init.set_pointer_type("mouse");
+    init.set_pointer_id(id);
+    init.set_pointer_type(device);
     init.set_is_primary(true);
     init.set_button(if kind == "pointermove" { -1 } else { 0 });
     // Aim at the centre of the cell.
@@ -613,6 +617,45 @@ fn curve_bends_by_pointer_and_keyboard() {
     repeat("ArrowLeft", 8);
     keys(&[" ", "ArrowUp", "ArrowUp", " "]);
     assert_eq!(art(), rows(&["         ", "######   ", "#     ###"]));
+}
+
+#[wasm_bindgen_test]
+fn a_waiting_curve_takes_a_new_contact_draws_its_own_cells_and_ends_on_blur() {
+    blank(9, 3);
+    tool("curve");
+    drag(&[(0, 2), (8, 2)]);
+    // The capture the first release gives up does not cancel the curve.
+    pointer("lostpointercapture", (8, 2));
+    assert!(status().starts_with("End set."), "{}", status());
+    // A touch screen has no hover: a new contact, with its own id, bends and finishes it.
+    pointer_as("pointerdown", (2, 0), 2, "touch");
+    pointer_as("pointerup", (2, 0), 2, "touch");
+    assert_eq!(art(), rows(&["         ", " #####   ", "##    ###"]));
+    assert!(key_with("z", true, false));
+    // A curve started by keyboard finishes with a click, not a new stroke.
+    cursor_to((0, 2));
+    keys(&[" "]);
+    repeat("ArrowRight", 8);
+    keys(&[" "]);
+    pointer("pointerdown", (4, 0));
+    pointer("pointerup", (4, 0));
+    assert_eq!(art(), rows(&["         ", "  #####  ", "##     ##"]));
+    // Finishing without bending draws the curve's own cells, not the straight line shown
+    // before the end was set.
+    blank(4, 2);
+    tool("curve");
+    cursor_to((0, 0));
+    keys(&[" "]);
+    repeat("ArrowRight", 3);
+    keys(&["ArrowDown", " ", " "]);
+    assert_eq!(art(), rows(&["#   ", " ###"]));
+    // Leaving the artwork drops a curve waiting to be bent.
+    drag(&[(0, 1), (3, 1)]);
+    element::<Element>("art")
+        .dispatch_event(&web_sys::Event::new("blur").unwrap())
+        .unwrap();
+    assert_eq!(status(), "Cancelled.");
+    assert_eq!(art(), rows(&["#   ", " ###"]));
 }
 
 #[wasm_bindgen_test]
