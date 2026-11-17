@@ -83,8 +83,9 @@ pub fn find<'a>(designs: &'a [Design], name: &str) -> Option<&'a Design> {
 /// `keyword "value"` entries are read and not used. Keywords and names ignore letter case, and
 /// `#` starts a comment outside strings. `REPLACE`, which rewrites the text inside the box, and
 /// `PARENT`, which reads another file, are refused, as is a shape holding a byte outside
-/// printable ASCII, such as a colour code. Each error names its line; an error in a whole
-/// design, such as shapes that do not fit together, names the line of its `BOX`.
+/// printable ASCII, such as a colour code. Each error names its line, apart from a file over
+/// 16 MiB or holding no design; an error in a whole design, such as shapes that do not fit
+/// together, names the line of its `BOX`.
 pub fn parse(text: &str) -> Result<Vec<Design>> {
     if text.len() > MAX_INPUT_BYTES {
         return Err("The design file exceeds the 16 MiB input limit".into());
