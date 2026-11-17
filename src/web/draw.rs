@@ -9,7 +9,7 @@ use super::{
 };
 use crate::{
     Canvas, Frame, Result,
-    canvas::bounds,
+    canvas::{GradientStyle, bounds},
     diagram::{self, TableRules},
 };
 use wasm_bindgen::JsCast;
@@ -462,7 +462,10 @@ impl App {
                 start,
                 point,
                 input("gradient-ramp")?.value().as_bytes(),
-                checked("gradient-radial")?,
+                GradientStyle {
+                    radial: checked("gradient-radial")?,
+                    dither: checked("gradient-dither")?,
+                },
             )?,
             Tool::Area => match &stroke.lifted {
                 Some((contents, (x, y, width, height))) => {

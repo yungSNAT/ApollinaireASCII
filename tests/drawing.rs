@@ -1,8 +1,9 @@
 // Copyright 2026 Ryan Duguid
 // SPDX-License-Identifier: MIT
 
+use apollinaire_ascii::canvas::{GradientStyle, bounds};
 use apollinaire_ascii::diagram::{TableRules, flowchart, table, tree};
-use apollinaire_ascii::{Canvas, Frame, canvas::bounds};
+use apollinaire_ascii::{Canvas, Frame};
 
 fn canvas(text: &str) -> Canvas {
     Canvas::from_frame(&Frame::from_text(text).unwrap())
@@ -132,47 +133,78 @@ fn flood_fill_replaces_only_the_four_connected_run() {
     assert!(blank(1, 1).flood_fill(0, 0, 0x7f).is_err());
 }
 
+const LINEAR: GradientStyle = GradientStyle {
+    radial: false,
+    dither: false,
+};
+const RADIAL: GradientStyle = GradientStyle {
+    radial: true,
+    dither: false,
+};
+
 #[test]
 fn gradient_fill_spreads_the_ramp_along_the_drag_within_the_run() {
     let mut grid = blank(5, 1);
-    grid.gradient_fill((0, 0), (4, 0), b"abcde", false).unwrap();
+    grid.gradient_fill((0, 0), (4, 0), b"abcde", LINEAR)
+        .unwrap();
     assert_eq!(text(grid), "abcde");
     // Before the start and past the end, the first and last characters hold.
     let mut grid = blank(7, 1);
-    grid.gradient_fill((1, 0), (3, 0), b"abc", false).unwrap();
+    grid.gradient_fill((1, 0), (3, 0), b"abc", LINEAR).unwrap();
     assert_eq!(text(grid), "aabcccc");
     // Only the run of the start cell's character changes.
     let mut grid = canvas("#####\n#   #\n#####");
-    grid.gradient_fill((1, 1), (3, 1), b"123", false).unwrap();
+    grid.gradient_fill((1, 1), (3, 1), b"123", LINEAR).unwrap();
     assert_eq!(text(grid), "#####\n#123#\n#####");
     // The ramp may hold the character it replaces.
     let mut grid = blank(3, 1);
-    grid.gradient_fill((0, 0), (2, 0), b" x", false).unwrap();
+    grid.gradient_fill((0, 0), (2, 0), b" x", LINEAR).unwrap();
     assert_eq!(text(grid), " xx");
 }
 
 #[test]
 fn radial_gradient_counts_rows_double() {
     let mut grid = blank(5, 3);
-    grid.gradient_fill((2, 1), (4, 1), b"abc", true).unwrap();
+    grid.gradient_fill((2, 1), (4, 1), b"abc", RADIAL).unwrap();
     // One row up is as far as 2 columns across.
     assert_eq!(text(grid), "ccccc\ncbabc\nccccc");
 }
 
 #[test]
+fn dithered_gradient_mixes_the_2_nearest_characters_in_a_4_by_4_pattern() {
+    let dither = GradientStyle {
+        radial: false,
+        dither: true,
+    };
+    // Columns 0 to 8 run from a to c: column 1 is a quarter of the way to b, column 2 half and
+    // column 3 three quarters, so the 4 x 4 block of columns 0 to 3 holds 0 + 0 + 2 + 4 b.
+    let mut grid = blank(9, 4);
+    grid.gradient_fill((0, 0), (8, 0), b"abc", dither).unwrap();
+    assert_eq!(text(grid), "aabbbbccc\naaabbbbcc\naabbbbccc\naaabbbbcc");
+    // At a character exactly, every cell takes it.
+    let mut grid = blank(4, 4);
+    grid.gradient_fill((0, 0), (0, 0), b"ab", dither).unwrap();
+    assert_eq!(text(grid), "aaaa\naaaa\naaaa\naaaa");
+}
+
+#[test]
 fn gradient_fill_without_length_or_start_uses_the_first_character_or_nothing() {
-    for radial in [false, true] {
+    for style in [LINEAR, RADIAL] {
         let mut grid = blank(2, 1);
-        grid.gradient_fill((0, 0), (0, 0), b"ab", radial).unwrap();
+        grid.gradient_fill((0, 0), (0, 0), b"ab", style).unwrap();
         assert_eq!(text(grid), "aa");
         let mut grid = blank(2, 1);
-        grid.gradient_fill((5, 0), (0, 0), b"ab", radial).unwrap();
+        grid.gradient_fill((5, 0), (0, 0), b"ab", style).unwrap();
         assert_eq!(text(grid), "  ");
     }
-    assert!(blank(1, 1).gradient_fill((0, 0), (0, 0), b"", false).is_err());
     assert!(
         blank(1, 1)
-            .gradient_fill((0, 0), (0, 0), b"a\n", false)
+            .gradient_fill((0, 0), (0, 0), b"", LINEAR)
+            .is_err()
+    );
+    assert!(
+        blank(1, 1)
+            .gradient_fill((0, 0), (0, 0), b"a\n", LINEAR)
             .is_err()
     );
 }
