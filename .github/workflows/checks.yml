@@ -89,6 +89,12 @@ jobs:
           cargo fmt --check --manifest-path xtask/Cargo.toml
           cargo clippy --locked --manifest-path xtask/Cargo.toml --all-targets -- -D warnings
           cargo test --locked --manifest-path xtask/Cargo.toml
+      # The ratatui widget, a separate crate with its own lockfile.
+      - name: apollinaire-ratatui
+        run: |
+          cargo fmt --check --manifest-path apollinaire-ratatui/Cargo.toml
+          cargo clippy --locked --manifest-path apollinaire-ratatui/Cargo.toml --all-targets -- -D warnings
+          cargo test --locked --manifest-path apollinaire-ratatui/Cargo.toml
       - run: cargo run --locked --example library
 
   # The upload runs apart from the tests so the OIDC token is never available

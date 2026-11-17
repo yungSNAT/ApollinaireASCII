@@ -28605,8 +28605,9 @@ Licence: BSD-3-Clause
 src/lettering.rs ports figlet's horizontal layout, smushing and word wrap to Rust.
 Bundled fonts from fonts/, each trimmed to its header, comments and 102 required
 FIGcharacters with a comment line recording the trim: banner, big, block (named
-figlet-block), ivrit, lean, mini, mnemonic, script, shadow, slant, small, smscript,
-smshadow, smslant and standard.
+figlet-block), bubble, digital, ivrit, lean, mini, mnemonic, script, shadow, slant,
+small, smscript, smshadow, smslant, standard and term. Bubble, digital and term keep
+their hardblank, byte 0x7F, and their German FIGcharacters are left empty.
 
 --- LICENSE ---
 Copyright (C) 1991, 1993, 1994 Glenn Chappell and Ian Chai
@@ -28683,6 +28684,36 @@ supported by FIGlet and FIGWin.  May also be slightly modified for better use
 of new full-width/kern/smush alternatives, but default output is NOT changed.
 
 Trimmed to the 102 required FIGcharacters by ApollinaireASCII contributors, 2026.
+
+--- bubble.flf header ---
+flf2a 4 3 8 15 12 0 10127 0
+Bubble by Glenn Chappell 4/93
+Includes characters 128-255
+Enhanced for Latin-2,3,4 by John Cowan <cowan@ccil.org>
+Latin character sets supported only if your screen font does
+figlet release 2.2 -- November 1996
+Permission is hereby given to modify this font, as long as the
+modifier's name is placed on a comment line.
+
+Modified by Paul Burton <solution@earthlink.net> 12/96 to include new parameter
+supported by FIGlet and FIGWin.  May also be slightly modified for better use
+of new full-width/kern/smush alternatives, but default output is NOT changed.
+Trimmed to the 102 required FIGcharacters, with the German ones left empty, by ApollinaireASCII contributors, 2026.
+
+--- digital.flf header ---
+flf2a 3 2 6 1 12 0 16513 0
+Digital by Glenn Chappell 1/94 -- based on Bubble
+Includes characters 128-255
+Enhanced for Latin-2,3,4 by John Cowan <cowan@ccil.org>
+Latin character sets supported only if your screen font does
+figlet release 2.2 -- November 1996
+Permission is hereby given to modify this font, as long as the
+modifier's name is placed on a comment line.
+
+Modified by Paul Burton <solution@earthlink.net> 12/96 to include new parameter
+supported by FIGlet and FIGWin.  May also be slightly modified for better use
+of new full-width/kern/smush alternatives, but default output is NOT changed.
+Trimmed to the 102 required FIGcharacters, with the German ones left empty, by ApollinaireASCII contributors, 2026.
 
 --- ivrit.flf header ---
 flf2a$ 6 5 76 15 15 1 16271 0
@@ -28855,6 +28886,23 @@ of new full-width/kern/smush alternatives, but default output is NOT changed.
 
 Modified 2012-05 by Patrick Gillespie (patorjk@gmail.com) to add the 0xCA0 character.
 Trimmed to the 102 required FIGcharacters by ApollinaireASCII contributors, 2026.
+
+--- term.flf header ---
+flf2a 1 1 2 -1 14 0 0 0
+Terminal by Glenn Chappell 4/93
+Includes characters 128-255
+Enhanced for Latin-2,3,4 by John Cowan <cowan@ccil.org>
+Latin character sets supported only if your screen font does
+figlet release 2.2 -- November 1996
+Permission is hereby given to modify this font, as long as the
+modifier's name is placed on a comment line.
+
+Double-checked by Paul Burton <solution@earthlink.net> 12/96.  Added the new
+parameter supported by FIGlet and FIGWin.  Unlike all other FIGfonts, this one
+is intended to produce output exactly the same as the input unless a control
+file is used.  Therefore it produces the SAME output for smush, kern or fit.
+  
+Trimmed to the 102 required FIGcharacters, with the German ones left empty, by ApollinaireASCII contributors, 2026.
 
 
 ============================================================

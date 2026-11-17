@@ -1199,6 +1199,31 @@ fn say_reads_the_message_or_the_art_from_stdin() {
 }
 
 #[test]
+fn say_draws_the_art_of_a_cow_file_without_running_it() {
+    let dir = scratch("say-cow");
+    let cow = dir.join("owl.COW");
+    std::fs::write(
+        &cow,
+        "$the_cow = <<\"EOC\";\n  $thoughts\n   $thoughts ($eyes)\nEOC\n",
+    )
+    .unwrap();
+    let said = cli_stdin(&["say", "--art-file", cow.to_str().unwrap()], b"Hoo");
+    assert_eq!(
+        text(&said.stdout),
+        "+-----+  \n| Hoo |  \n+-----+  \n  \\      \n   \\ (oo)\n",
+        "{}",
+        text(&said.stderr)
+    );
+    // A line of Perl outside the art is refused.
+    std::fs::write(&cow, "$eyes = '..';\n$the_cow = <<EOC;\nx\nEOC\n").unwrap();
+    refused(
+        &cli(&["say", "Hoo", "--art-file", cow.to_str().unwrap()]),
+        "Line 1: only the art is read",
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn say_refuses_missing_animated_or_conflicting_art() {
     let dir = scratch("say-art");
     let missing = dir.join("missing.txt");
@@ -1807,4 +1832,51 @@ fn binary_text_art_loads_by_name_and_bin_only_with_its_flag() {
         &cli(&["import", "--bin", "--pad", path.to_str().unwrap()]),
         "cannot be used with",
     );
+}
+
+#[test]
+fn rexpaint_images_load_flattened_by_their_extension() {
+    let dir = scratch("rexpaint");
+    let fixture = include_bytes!("fixtures/rexpaint/mltest.xp");
+    for name in ["mltest.xp", "MLTEST.XP"] {
+        let path = dir.join(name);
+        std::fs::write(&path, fixture).unwrap();
+        let imported = cli(&["import", path.to_str().unwrap()]);
+        assert_eq!(
+            text(&imported.stdout),
+            "AAAAAAAA\nAABBBBAA\nAABBBBAA\nAAAAAAAA\n",
+            "{}",
+            text(&imported.stderr)
+        );
+        let check = cli(&["check", path.to_str().unwrap()]);
+        assert!(
+            text(&check.stdout).starts_with("Valid ASCII: 8 x 4, 1 frame(s)"),
+            "{}",
+            text(&check.stderr)
+        );
+    }
+    // Other commands that take art read it the same way.
+    let effect = cli(&[
+        "effect",
+        "scatter",
+        dir.join("mltest.xp").to_str().unwrap(),
+        "--duration",
+        "500",
+        "--fps",
+        "10",
+    ]);
+    assert!(effect.status.success(), "{}", text(&effect.stderr));
+    let effect = apollinaire_ascii::Animation::from_json(text(&effect.stdout)).unwrap();
+    assert_eq!(
+        effect.frames()[4].frame.text(),
+        "AAAAAAAA\nAABBBBAA\nAABBBBAA\nAAAAAAAA"
+    );
+    let broken = dir.join("broken.xp");
+    std::fs::write(&broken, b"not gzip").unwrap();
+    for command in ["import", "check"] {
+        refused(
+            &cli(&[command, broken.to_str().unwrap()]),
+            "Not a REXPaint .xp file",
+        );
+    }
 }
