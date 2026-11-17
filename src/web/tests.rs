@@ -110,6 +110,9 @@ fn blank(width: usize, height: usize) {
         click("layer-merge");
     }
     tool("select-text");
+    if element::<HtmlSelectElement>("palette").value() != "0" {
+        choose_palette(0);
+    }
     check("diagram", false);
     check("arrow", true);
     check("onion-skin", false);
@@ -2525,6 +2528,141 @@ fn the_character_picker_sets_the_brush_and_moves_by_keyboard() {
     assert_eq!(pick_key("ArrowLeft"), b' ');
     assert_eq!(pick_key("ArrowUp"), b' ');
     assert_eq!(pick(b' ').tab_index(), 0);
+    input_event("brush", "#");
+}
+
+fn choose_palette(index: usize) {
+    element::<HtmlSelectElement>("palette").set_value(&index.to_string());
+    change_event("palette");
+}
+/// The picker's characters, in order.
+fn picker_text() -> String {
+    element::<Element>("char-picker")
+        .text_content()
+        .unwrap_or_default()
+}
+fn palette_names() -> Vec<String> {
+    let options = element::<HtmlSelectElement>("palette").children();
+    (0..options.length())
+        .map(|i| options.item(i).unwrap().text_content().unwrap())
+        .collect()
+}
+
+/// Up and Down move 16 buttons, so every button must sit straight above the one 16 after it,
+/// whatever the palette and wherever its space is.
+#[wasm_bindgen_test]
+fn picker_columns_line_up_on_every_palette() {
+    blank(3, 1);
+    set_value("palette-name", "Eighteen");
+    set_value("palette-characters", "a bcdefghijklmnopq");
+    click("palette-add");
+    let added = palette_names().len() - 1;
+    for index in [0, 2, added] {
+        choose_palette(index);
+        let buttons = element::<Element>("char-picker").children();
+        let left: Vec<f64> = (0..buttons.length())
+            .map(|i| buttons.item(i).unwrap().get_bounding_client_rect().left())
+            .collect();
+        assert!(left.len() > 16, "palette {index}");
+        assert!(left[1] > left[0], "palette {index} is not laid out");
+        for i in 0..left.len() - 16 {
+            assert_eq!(left[i], left[i + 16], "palette {index}, button {i}");
+        }
+    }
+    click("palette-remove");
+}
+
+#[wasm_bindgen_test]
+async fn palettes_fill_the_picker_feed_gradients_and_conversion_and_round_trip() {
+    blank(3, 1);
+    assert_eq!(
+        palette_names(),
+        [
+            "All 95 printable characters",
+            "Ramp: standard",
+            "Ramp: fine",
+            "Ramp: simple",
+            "Ramp: binary"
+        ]
+    );
+    choose_palette(3);
+    assert_eq!(picker_text(), " .oO#");
+    assert!(
+        !enabled("palette-remove"),
+        "a built-in palette was removable"
+    );
+    pick(b'O').click();
+    assert_eq!(element::<HtmlInputElement>("brush").value(), "O");
+    assert_eq!(pick(b'O').tab_index(), 0);
+    pick(b'O').focus().unwrap();
+    assert_eq!(pick_key("ArrowRight"), b'#');
+    assert_eq!(pick_key("ArrowRight"), b'#');
+    assert_eq!(pick_key("ArrowDown"), b'#');
+    assert_eq!(pick_key("Home"), b' ');
+
+    set_value("palette-name", " Lines ");
+    set_value("palette-characters", "-|/\\");
+    click("palette-add");
+    assert_eq!(palette_names().len(), 6);
+    assert_eq!(element::<HtmlSelectElement>("palette").value(), "5");
+    assert_eq!(picker_text(), "-|/\\");
+    // The brush, O, is not in the palette, so the first button is the tab stop.
+    assert_eq!(pick(b'-').tab_index(), 0);
+    assert!(enabled("palette-remove"));
+    click("palette-gradient");
+    assert_eq!(
+        element::<HtmlInputElement>("gradient-ramp").value(),
+        "-|/\\"
+    );
+    click("palette-convert");
+    assert_eq!(element::<HtmlInputElement>("ramp").value(), "-|/\\");
+    assert_eq!(element::<HtmlSelectElement>("preset").value(), "custom");
+    let (name, file) = save("palette-save").await;
+    assert_eq!(name, "Lines.json");
+    let saved: serde_json::Value = serde_json::from_str(&file).unwrap();
+    assert_eq!(saved["name"], "Lines");
+    assert_eq!(
+        saved["characters"],
+        serde_json::json!(["-", "|", "/", "\\"])
+    );
+
+    set_value("palette-characters", "abca");
+    click("palette-add");
+    assert!(status().contains("repeated"), "{}", status());
+    assert_eq!(picker_text(), "-|/\\");
+
+    // An Ascii-Motion file of the same name replaces the added palette; a repeated character
+    // keeps its first place and is reported.
+    choose(
+        "palette-file",
+        "lines.json",
+        br#"{"name": "Lines", "characters": ["+", "=", "+"], "category": "custom"}"#,
+    );
+    change_event("palette-file");
+    wait_for(|| status().starts_with("Palette opened")).await;
+    assert!(
+        status().ends_with(" 1 repeated character was left out."),
+        "{}",
+        status()
+    );
+    assert_eq!(palette_names().len(), 6);
+    assert_eq!(picker_text(), "+=");
+    choose(
+        "palette-file",
+        "blocks.json",
+        "{\"name\": \"Blocks\", \"characters\": [\" \", \"\u{2588}\"], \"category\": \"blocks\"}"
+            .as_bytes(),
+    );
+    change_event("palette-file");
+    wait_for(|| status().contains("not one ASCII character")).await;
+    assert_eq!(palette_names().len(), 6);
+
+    click("palette-remove");
+    assert_eq!(palette_names().len(), 5);
+    assert_eq!(element::<HtmlSelectElement>("palette").value(), "0");
+    assert_eq!(element::<Element>("char-picker").children().length(), 95);
+    assert!(!enabled("palette-remove"));
+    preset("standard");
     input_event("brush", "#");
 }
 
