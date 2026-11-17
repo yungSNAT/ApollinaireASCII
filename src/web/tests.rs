@@ -2541,6 +2541,30 @@ fn palette_names() -> Vec<String> {
         .collect()
 }
 
+/// Up and Down move 16 buttons, so every button must sit straight above the one 16 after it,
+/// whatever the palette and wherever its space is.
+#[wasm_bindgen_test]
+fn picker_columns_line_up_on_every_palette() {
+    blank(3, 1);
+    set_value("palette-name", "Eighteen");
+    set_value("palette-characters", "a bcdefghijklmnopq");
+    click("palette-add");
+    let added = palette_names().len() - 1;
+    for index in [0, 2, added] {
+        choose_palette(index);
+        let buttons = element::<Element>("char-picker").children();
+        let left: Vec<f64> = (0..buttons.length())
+            .map(|i| buttons.item(i).unwrap().get_bounding_client_rect().left())
+            .collect();
+        assert!(left.len() > 16, "palette {index}");
+        assert!(left[1] > left[0], "palette {index} is not laid out");
+        for i in 0..left.len() - 16 {
+            assert_eq!(left[i], left[i + 16], "palette {index}, button {i}");
+        }
+    }
+    click("palette-remove");
+}
+
 #[wasm_bindgen_test]
 async fn palettes_fill_the_picker_feed_gradients_and_conversion_and_round_trip() {
     blank(3, 1);
