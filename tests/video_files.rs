@@ -1,0 +1,479 @@
+// Copyright 2026 Ryan Duguid
+// SPDX-License-Identifier: MIT
+
+//! Video files in `apollinaire image`, decoded by ffmpeg. The tests that run ffmpeg need it on
+//! PATH: CI installs it on Linux and fails without it; elsewhere they are skipped.
+
+#![cfg(feature = "cli")]
+use std::process::{Command, Output};
+
+fn cli(args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_apollinaire"))
+        .args(args)
+        .output()
+        .unwrap()
+}
+
+fn stderr(output: &Output) -> String {
+    String::from_utf8_lossy(&output.stderr).into_owned()
+}
+
+#[test]
+fn video_options_need_a_video_and_video_needs_ffmpeg() {
+    for args in [
+        &["image", "picture.png", "--fps", "5"][..],
+        &["image", "picture.png", "--start", "1"],
+        &["image", "picture.png", "--end", "1"],
+        // A URL is fetched as an image, whatever its name.
+        &["image", "https://example.com/clip.mp4", "--fps", "5"],
+    ] {
+        let output = cli(args);
+        assert!(!output.status.success());
+        assert_eq!(
+            stderr(&output),
+            "apollinaire: --fps, --start and --end need a video input\n",
+            "{args:?}"
+        );
+    }
+    assert!(!cli(&["image", "clip.mp4", "--fps", "61"]).status.success());
+    let output = Command::new(env!("CARGO_BIN_EXE_apollinaire"))
+        .args(["image", "clip.MP4"])
+        .env("PATH", "")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("Video input needs ffmpeg and ffprobe on PATH (",)
+            && stderr(&output)
+                .ends_with("); install ffmpeg, or convert the video in the browser editor\n"),
+        "{}",
+        stderr(&output)
+    );
+}
+
+#[cfg(target_os = "linux")]
+mod with_ffmpeg {
+    use super::{Output, cli, stderr};
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("apollinaire-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// Whether ffmpeg can run here; CI must have it.
+    fn ffmpeg_present() -> bool {
+        let found = Command::new("ffmpeg")
+            .arg("-version")
+            .output()
+            .is_ok_and(|o| o.status.success());
+        assert!(
+            found || std::env::var_os("CI").is_none(),
+            "ffmpeg is required on CI"
+        );
+        if !found {
+            eprintln!("skipped: ffmpeg is not on PATH");
+        }
+        found
+    }
+
+    /// Make a test file with ffmpeg's own sources.
+    fn make(output: &Path, args: &[&str]) {
+        let made = Command::new("ffmpeg")
+            .args(["-y", "-v", "error"])
+            .args(args)
+            .arg(output)
+            .output()
+            .unwrap();
+        assert!(made.status.success(), "{}", stderr(&made));
+    }
+
+    fn project(output: &Output) -> apollinaire_ascii::Animation {
+        assert!(output.status.success(), "{}", stderr(output));
+        apollinaire_ascii::Animation::from_json(std::str::from_utf8(&output.stdout).unwrap())
+            .unwrap()
+    }
+
+    #[test]
+    fn videos_convert_to_timed_projects_sampled_as_the_editor_samples() {
+        use apollinaire_ascii::{RenderOptions, video::render_rgba};
+        if !ffmpeg_present() {
+            return;
+        }
+        let dir = scratch("video");
+        // One second of black, then one of white, 64 x 48 pixels.
+        let halves = [
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:s=64x48:r=25:d=1",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=white:s=64x48:r=25:d=1",
+            "-filter_complex",
+            "[0][1]concat=n=2:v=1",
+        ];
+        let clip = dir.join("clip.mp4");
+        make(
+            &clip,
+            &[&halves[..], &["-c:v", "mpeg4", "-q:v", "2"][..]].concat(),
+        );
+        let solid = |level: u8| {
+            render_rgba(
+                64,
+                48,
+                [level, level, level, 255].repeat(64 * 48),
+                &RenderOptions::default(),
+            )
+            .unwrap()
+        };
+        let (black, white) = (solid(0), solid(255));
+        let path = clip.to_str().unwrap();
+        let whole = project(&cli(&["image", path]));
+        assert_eq!(whole.frames().len(), 20);
+        assert!(whole.frames().iter().all(|f| f.duration_ms == 100));
+        assert_eq!((whole.width(), whole.height()), (80, 30));
+        for (index, frame) in whole.frames().iter().enumerate() {
+            match index {
+                0..=8 => assert_eq!(frame.frame, black, "frame {index}"),
+                11.. => assert_eq!(frame.frame, white, "frame {index}"),
+                _ => {}
+            }
+        }
+        let cut = project(&cli(&[
+            "image", path, "--fps", "5", "--start", "0.5", "--end", "1.5",
+        ]));
+        assert_eq!(cut.frames().len(), 5);
+        assert!(cut.frames().iter().all(|f| f.duration_ms == 200));
+        assert_eq!(cut.frames()[0].frame, black);
+        assert_eq!(cut.frames()[4].frame, white);
+
+        // WebM goes through another demuxer; a name like an option or protocol is still a file.
+        let webm = dir.join("-concat:a|b.webm");
+        make(
+            &webm,
+            &[&halves[..], &["-c:v", "libvpx", "-b:v", "1M"][..]].concat(),
+        );
+        let named = project(&cli(&[
+            "image",
+            "--width",
+            "8",
+            "--",
+            webm.to_str().unwrap(),
+        ]));
+        assert_eq!(named.frames().len(), 20);
+
+        // Several inputs, images and videos alike, each to its own file.
+        let picture = dir.join("still.png");
+        make(
+            &picture,
+            &["-f", "lavfi", "-i", "color=c=white:s=8x8", "-frames:v", "1"],
+        );
+        let out = dir.join("out");
+        let batch = cli(&[
+            "image",
+            picture.to_str().unwrap(),
+            path,
+            "--fps",
+            "2",
+            "--output-dir",
+            out.to_str().unwrap(),
+        ]);
+        assert!(batch.status.success(), "{}", stderr(&batch));
+        assert!(out.join("still.png.txt").is_file());
+        let json = std::fs::read_to_string(out.join("clip.mp4.json")).unwrap();
+        assert_eq!(
+            apollinaire_ascii::Animation::from_json(&json)
+                .unwrap()
+                .frames()
+                .len(),
+            4
+        );
+
+        // A video marked to be shown turned a quarter is drawn upright, as ffmpeg shows it:
+        // 48 x 64 pixels give 54 rows at 80 columns.
+        let turned = dir.join("turned.mp4");
+        make(
+            &turned,
+            &["-display_rotation", "90", "-i", path, "-c", "copy"],
+        );
+        let upright = project(&cli(&["image", turned.to_str().unwrap(), "--fps", "1"]));
+        assert_eq!((upright.width(), upright.height()), (80, 54));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn videos_that_end_early_or_cannot_be_read_are_handled_as_ffmpeg_reports() {
+        if !ffmpeg_present() {
+            return;
+        }
+        let dir = scratch("video-ends");
+        // One second of picture in a file 2 seconds long: the frames there are keep their
+        // samples, and the last lasts to the end.
+        let short = dir.join("short.mov");
+        make(
+            &short,
+            &[
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc=s=32x24:r=25:d=1",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=d=2",
+                "-c:v",
+                "mpeg4",
+                "-c:a",
+                "pcm_s16le",
+            ],
+        );
+        let path = short.to_str().unwrap();
+        let ended = project(&cli(&["image", path]));
+        let durations: Vec<u32> = ended.frames().iter().map(|f| f.duration_ms).collect();
+        assert!((10..=11).contains(&durations.len()), "{durations:?}");
+        assert_eq!(durations.iter().sum::<u32>(), 2000);
+        assert!(durations[..durations.len() - 1].iter().all(|d| *d == 100));
+        let output = cli(&["image", path, "--start", "1.5"]);
+        assert_eq!(
+            stderr(&output),
+            format!("apollinaire: ffmpeg decoded no frames from {path}\n")
+        );
+
+        // Sound alone has no picture to draw.
+        let sound = dir.join("sound.mp4");
+        make(&sound, &["-f", "lavfi", "-i", "sine=d=1", "-c:a", "aac"]);
+        let output = cli(&["image", sound.to_str().unwrap()]);
+        assert_eq!(
+            stderr(&output),
+            format!(
+                "apollinaire: ffprobe found no video stream with a size and duration in {}\n",
+                sound.display()
+            )
+        );
+
+        // A playlist named like a video is not read: its format is not one of the video formats,
+        // so the clip it names is never opened.
+        let playlist = dir.join("list.mp4");
+        std::fs::write(
+            &playlist,
+            "#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXTINF:1,\nshort.mov\n#EXT-X-ENDLIST\n",
+        )
+        .unwrap();
+        let output = cli(&["image", playlist.to_str().unwrap()]);
+        assert!(
+            stderr(&output).starts_with(&format!(
+                "apollinaire: ffprobe could not read {}: ",
+                playlist.display()
+            )),
+            "{}",
+            stderr(&output)
+        );
+
+        // A file cut short part-way through its pictures is an error, not an early end.
+        let whole = dir.join("whole.mp4");
+        make(
+            &whole,
+            &[
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc=s=320x240:r=25:d=2",
+                "-c:v",
+                "mpeg4",
+                "-q:v",
+                "2",
+                "-movflags",
+                "+faststart",
+            ],
+        );
+        let bytes = std::fs::read(&whole).unwrap();
+        let cut = dir.join("cut.mp4");
+        std::fs::write(&cut, &bytes[..bytes.len() / 2]).unwrap();
+        let output = cli(&["image", cut.to_str().unwrap()]);
+        assert!(
+            stderr(&output).starts_with(&format!(
+                "apollinaire: ffmpeg could not read {}: ",
+                cut.display()
+            )),
+            "{}",
+            stderr(&output)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A box: its size, its kind and its body.
+    fn boxed(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
+        let size = u32::try_from(body.len() + 8).unwrap();
+        [&size.to_be_bytes()[..], kind, body].concat()
+    }
+
+    /// Point a QuickTime file's pictures at another file. The data reference becomes an alias
+    /// record: 150 bytes of fixed fields, holding `levels` up from the movie and down to the
+    /// target (0 for an absolute path), then a path record and the end mark. The boxes holding
+    /// it grow to match; the movie box ends the file, so no sample offset moves.
+    fn refer_to(bytes: &mut Vec<u8>, levels: u8, path: &[u8]) {
+        let mut chain = Vec::new();
+        let (mut start, mut end) = (0, bytes.len());
+        for kind in [b"moov", b"trak", b"mdia", b"minf", b"dinf", b"dref"] {
+            let mut at = start;
+            while &bytes[at + 4..at + 8] != kind {
+                at += u32::from_be_bytes(bytes[at..at + 4].try_into().unwrap()) as usize;
+                assert!(at < end, "no {}", String::from_utf8_lossy(kind));
+            }
+            let size = u32::from_be_bytes(bytes[at..at + 4].try_into().unwrap()) as usize;
+            chain.push((at, size));
+            (start, end) = (at + 8, at + size);
+        }
+        assert_eq!(
+            chain[0].0 + chain[0].1,
+            bytes.len(),
+            "the movie box ends the file"
+        );
+        let mut alias = vec![0; 150];
+        alias[130..134].copy_from_slice(&[0, levels, 0, levels]);
+        // A path of odd length is read with one byte more.
+        let length = u16::try_from(path.len()).unwrap();
+        let padding: &[u8] = if path.len() % 2 == 1 { &[0] } else { &[] };
+        let records = [
+            &[0, 2][..],
+            &length.to_be_bytes(),
+            path,
+            padding,
+            &[0xff, 0xff, 0, 0],
+        ]
+        .concat();
+        let entry = boxed(b"alis", &[&[0; 4][..], &alias, &records].concat());
+        let dref = boxed(b"dref", &[&[0, 0, 0, 0, 0, 0, 0, 1][..], &entry].concat());
+        let (at, size) = chain.pop().unwrap();
+        let grown = dref.len() - size;
+        bytes.splice(at..at + size, dref);
+        for (at, size) in chain {
+            let size = u32::try_from(size + grown).unwrap();
+            bytes[at..at + 4].copy_from_slice(&size.to_be_bytes());
+        }
+    }
+
+    #[test]
+    fn quicktime_references_to_other_files_are_never_opened() {
+        if !ffmpeg_present() {
+            return;
+        }
+        let dir = scratch("video-refs");
+        // Raw pictures, so both files lay out their samples alike.
+        for colour in ["black", "white"] {
+            make(
+                &dir.join(format!("{colour}.mov")),
+                &[
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    &format!("color=c={colour}:s=16x16:r=5:d=1"),
+                    "-c:v",
+                    "rawvideo",
+                    "-pix_fmt",
+                    "rgb24",
+                ],
+            );
+        }
+        let white = dir.join("white.mov");
+        let absolute = white.to_str().unwrap().as_bytes();
+        // One movie names white.mov beside it, the other its absolute path.
+        let movies = [
+            ("sibling.mov", 1, &b"/white.mov"[..], "0"),
+            ("absolute.mov", 0, absolute, "1"),
+        ];
+        for (name, levels, path, absolute_paths) in movies {
+            let mut bytes = std::fs::read(dir.join("black.mov")).unwrap();
+            refer_to(&mut bytes, levels, path);
+            let movie = dir.join(name);
+            std::fs::write(&movie, bytes).unwrap();
+            // With references turned on, ffmpeg draws white.mov's pictures through the file
+            // protocol alone.
+            let mut input = std::ffi::OsString::from("file:");
+            input.push(&movie);
+            let followed = Command::new("ffmpeg")
+                .args([
+                    "-v",
+                    "error",
+                    "-protocol_whitelist",
+                    "file",
+                    "-enable_drefs",
+                    "1",
+                ])
+                .args(["-use_absolute_path", absolute_paths, "-i"])
+                .arg(&input)
+                .args([
+                    "-frames:v",
+                    "1",
+                    "-f",
+                    "rawvideo",
+                    "-pix_fmt",
+                    "gray",
+                    "pipe:1",
+                ])
+                .output()
+                .unwrap();
+            assert_eq!(followed.stdout, [255; 256], "{name}: {}", stderr(&followed));
+        }
+
+        // A named pipe in its place would hold ffprobe or ffmpeg at once if either opened it,
+        // until the stall limit stopped it.
+        std::fs::remove_file(&white).unwrap();
+        let piped = Command::new("mkfifo").arg(&white).status().unwrap();
+        assert!(piped.success());
+        for (name, ..) in movies {
+            let movie = dir.join(name);
+            let output = cli(&["image", movie.to_str().unwrap()]);
+            assert_eq!(
+                stderr(&output),
+                format!(
+                    "apollinaire: ffmpeg decoded no frames from {}\n",
+                    movie.display()
+                )
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_first_video_track_is_the_one_drawn() {
+        if !ffmpeg_present() {
+            return;
+        }
+        let dir = scratch("video-tracks");
+        // A small black track first and a larger white one second, both marked default:
+        // ffmpeg on its own would pick the larger.
+        let black = ["-f", "lavfi", "-i", "color=c=black:s=32x24:r=5:d=1"];
+        let tracks = dir.join("tracks.mp4");
+        make(
+            &tracks,
+            &[
+                &black[..],
+                &["-f", "lavfi", "-i", "color=c=white:s=64x48:r=5:d=1"],
+                &["-map", "0", "-map", "1", "-c:v", "mpeg4", "-q:v", "2"],
+                &["-disposition:v:0", "default", "-disposition:v:1", "default"],
+            ]
+            .concat(),
+        );
+        let alone = dir.join("black.mp4");
+        make(
+            &alone,
+            &[&black[..], &["-c:v", "mpeg4", "-q:v", "2"]].concat(),
+        );
+        let drawn = |path: &std::path::Path| {
+            let project = project(&cli(&["image", path.to_str().unwrap(), "--fps", "2"]));
+            project
+                .frames()
+                .iter()
+                .map(|f| f.frame.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(drawn(&tracks), drawn(&alone));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

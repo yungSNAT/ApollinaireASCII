@@ -801,6 +801,8 @@ mod tests {
         "art_file",
         "design_file",
     ];
+    /// The image tool's picture comes as data, never a video file, so it takes no video options.
+    const VIDEO_ONLY: &[&str] = &["fps", "start", "end"];
 
     #[test]
     fn every_command_and_argument_is_a_tool_or_left_out_on_purpose() {
@@ -831,6 +833,7 @@ mod tests {
                         .any(|(known, _)| *known == id)
                         || tool.content.as_ref().is_some_and(|c| c.replaces == id)
                         || NOT_TAKEN.contains(&id)
+                        || (tool.name == "image" && VIDEO_ONLY.contains(&id))
                         || matches!(id, "help" | "version");
                     assert!(taken, "the {} tool does not take {id}", tool.name);
                 }

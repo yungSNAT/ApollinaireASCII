@@ -1,6 +1,7 @@
 mod check;
 mod edit;
 mod fetch;
+mod ffmpeg;
 mod mcp;
 
 use apollinaire_ascii::{
@@ -364,10 +365,11 @@ enum Command {
         /// Text with one node per line, or `-` for stdin. Deeper indentation makes a child.
         input: PathBuf,
     },
-    /// Convert images or animated GIFs to text, from files or https:// URLs.
+    /// Convert images, animated GIFs or video files to text, from files or https:// URLs.
     Image {
         /// Image files or `-` for stdin, up to 128 MiB each, or https:// URLs, up to 16 MiB.
-        /// Several inputs need --output-dir.
+        /// Video files (.mp4, .m4v, .mov, .webm, .mkv, .avi, .ogv, .mpg, .mpeg) are decoded by
+        /// an installed ffmpeg. Several inputs need --output-dir.
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
         /// Create one new file per input in this directory, named after the input.
@@ -414,6 +416,15 @@ enum Command {
         /// Greyscale value from 0 to 255 that transparent pixels are composited onto.
         #[arg(long, default_value_t = 0)]
         background: u8,
+        /// Video: frames sampled per second, 1 to 60; 10 by default.
+        #[arg(long, value_parser = clap::value_parser!(u32).range(1..=60))]
+        fps: Option<u32>,
+        /// Video: seconds from the start of the video to the first frame; 0 by default.
+        #[arg(long)]
+        start: Option<f64>,
+        /// Video: seconds from the start of the video to stop at; the video's end by default.
+        #[arg(long)]
+        end: Option<f64>,
     },
     /// Deterministic procedural ASCII scenes, exported as timed JSON.
     Animate {
@@ -756,7 +767,23 @@ fn run(args: Args) -> Result<()> {
             contrast,
             cell_aspect,
             background,
+            fps,
+            start,
+            end,
         } => {
+            let video = |input: &Path| {
+                ffmpeg::is_video(input) && !input.to_str().is_some_and(fetch::is_url)
+            };
+            if (fps.is_some() || start.is_some() || end.is_some())
+                && !inputs.iter().any(|input| video(input))
+            {
+                return Err("--fps, --start and --end need a video input".into());
+            }
+            let sampling = ffmpeg::Sampling {
+                fps: fps.unwrap_or(10),
+                start_ms: start.unwrap_or(0.0) * 1000.0,
+                end_ms: end.map(|seconds| seconds * 1000.0),
+            };
             let glyphs = if shapes { Glyphs::Shapes } else { Glyphs::Ramp };
             let ramp = apollinaire_ascii::image_renderer::RAMPS
                 .iter()
@@ -777,6 +804,9 @@ fn run(args: Args) -> Result<()> {
             };
             options.validate()?;
             let convert = |input: &Path| {
+                if video(input) {
+                    return ffmpeg::convert(input, &sampling, &options, glyphs);
+                }
                 let bytes = match input.to_str().filter(|s| fetch::is_url(s)) {
                     Some(url) => fetch::image(url)?,
                     None => read_bounded(input, MAX_MEDIA_BYTES)?,
