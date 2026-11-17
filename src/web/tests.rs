@@ -119,6 +119,9 @@ fn blank(width: usize, height: usize) {
     check("mirror-glyphs", false);
     check("stamp-transparent", true);
     check("constrain", false);
+    check("gradient-radial", false);
+    check("gradient-dither", false);
+    set_value("gradient-ramp", " .:-=+*#%@");
     check("border", false);
     element::<HtmlSelectElement>("border-style").set_value("plain");
     set_value("brush", "#");
@@ -577,6 +580,40 @@ fn rectangle_draws_by_pointer_and_keyboard() {
         art(),
         rows(&["####     ", "#  # oooo", "#### o  o", "     oooo"])
     );
+}
+
+#[wasm_bindgen_test]
+fn gradient_fills_the_touching_run_by_pointer_and_keyboard() {
+    blank(7, 3);
+    tool("rectangle");
+    drag(&[(0, 0), (6, 2)]);
+    let boxed = art();
+    tool("gradient");
+    set_value("gradient-ramp", "abc");
+    drag(&[(1, 1), (3, 1), (5, 1)]);
+    assert_eq!(art(), rows(&["#######", "#abbcc#", "#######"]));
+    assert!(key_with("z", true, false));
+    assert_eq!(art(), boxed, "the gradient is one undo step");
+    check("gradient-radial", true);
+    cursor_to((3, 1));
+    keys(&[" ", "ArrowRight", "ArrowRight", " "]);
+    assert_eq!(art(), rows(&["#######", "#cbabc#", "#######"]));
+    // Columns 1 to 5 sit 0, 0.5, 1, 1.5 and 2 steps along. Rounding took the later character at
+    // both half steps; row 1's pattern thresholds there (0.91 and 0.78) keep the earlier one.
+    assert!(key_with("z", true, false));
+    check("gradient-radial", false);
+    check("gradient-dither", true);
+    drag(&[(1, 1), (5, 1)]);
+    assert_eq!(art(), rows(&["#######", "#aabbc#", "#######"]));
+    assert!(key_with("z", true, false));
+    check("gradient-dither", false);
+    check("gradient-radial", true);
+    drag(&[(3, 1), (5, 1)]);
+    assert_eq!(art(), rows(&["#######", "#cbabc#", "#######"]));
+    set_value("gradient-ramp", "");
+    drag(&[(1, 1), (2, 1)]);
+    assert!(status().contains("at least one character"), "{}", status());
+    assert_eq!(art(), rows(&["#######", "#cbabc#", "#######"]));
 }
 
 #[wasm_bindgen_test]
