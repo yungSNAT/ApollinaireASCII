@@ -113,7 +113,7 @@ apollinaire import release.nfo --output release.txt
 
 The checked toolchain is pinned in `rust-toolchain.toml`. Existing output files are never overwritten. Static artwork defaults to text; animations default to JSON so frames and timings are retained. Use `--format text --frame 0` to deliberately select one animated frame.
 
-The `.cast` and code exports, the `edit`, `table`, `tree`, `model`, `generate` and `mcp` commands, `image --shapes`, `transform ... rotate`, ANSI, binary art and REXPaint input, the bubble, digital and term fonts, 39 of the catalogue pieces, `.cow` files in `say`, box designs and projects with layers or keyframes (versions 2 and 3) are newer than v0.4.1: until the next release, install with `--git` as above to use them. v0.4.1 does not know the `.cast` format and writes JSON under a `.cast` name, it reads an `.ans` file as text, refusing CP437 bytes, and it refuses a project the browser editor saved with layers or keyframes.
+The `.cast` and code exports, the `edit`, `table`, `tree`, `model`, `generate` and `mcp` commands, `image --shapes`, `transform ... rotate`, ANSI, binary art and REXPaint input, the bubble, digital and term fonts, 39 of the catalogue pieces, `.cow` files in `say`, box designs (`transform ... border --design` and `--design-file`) and projects with layers or keyframes (versions 2 and 3) are newer than v0.4.1: until the next release, install with `--git` as above to use them. v0.4.1 does not know the `.cast` format and writes JSON under a `.cast` name, it reads an `.ans` file as text, refusing CP437 bytes, and it refuses a project the browser editor saved with layers or keyframes.
 
 ## Use the library
 
