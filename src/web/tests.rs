@@ -2484,6 +2484,7 @@ async fn palettes_fill_the_picker_feed_gradients_and_conversion_and_round_trip()
     pick(b'O').click();
     assert_eq!(element::<HtmlInputElement>("brush").value(), "O");
     assert_eq!(pick(b'O').tab_index(), 0);
+    pick(b'O').focus().unwrap();
     assert_eq!(pick_key("ArrowRight"), b'#');
     assert_eq!(pick_key("ArrowRight"), b'#');
     assert_eq!(pick_key("ArrowDown"), b'#');
