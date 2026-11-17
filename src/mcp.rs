@@ -283,6 +283,7 @@ const TOOLS: &[Tool] = &[
             ("width", Integer),
             ("height", Integer),
             ("style", Text),
+            ("design", Text),
             ("turns", Integer),
         ],
         require: &[],
@@ -793,7 +794,13 @@ mod tests {
         "mcp",
     ];
     /// Arguments no tool takes: files and directories, which the server never names.
-    const NOT_TAKEN: &[&str] = &["output", "output_dir", "font_file", "art_file"];
+    const NOT_TAKEN: &[&str] = &[
+        "output",
+        "output_dir",
+        "font_file",
+        "art_file",
+        "design_file",
+    ];
     /// The image tool's picture comes as data, never a video file, so it takes no video options.
     const VIDEO_ONLY: &[&str] = &["fps", "start", "end"];
 
