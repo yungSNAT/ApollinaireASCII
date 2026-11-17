@@ -202,15 +202,61 @@ impl Canvas {
     /// Replace the 4-connected run of identical characters containing a cell.
     pub fn flood_fill(&mut self, x: i32, y: i32, value: u8) -> Result<()> {
         printable(&[value])?;
-        let Some(target) = self.get(x, y).filter(|target| *target != value) else {
-            return Ok(());
+        for index in self.run(x, y) {
+            self.cells[index] = value;
+        }
+        Ok(())
+    }
+    /// Fill the 4-connected run of identical characters containing `start` with `ramp`: its
+    /// first character at `start`, its last at `end` and beyond, and between them by the
+    /// distance along the line from `start` to `end`, or, when `radial`, from `start` alone.
+    /// Rows count double, as a cell is about twice as tall as it is wide.
+    pub fn gradient_fill(
+        &mut self,
+        start: (i32, i32),
+        end: (i32, i32),
+        ramp: &[u8],
+        radial: bool,
+    ) -> Result<()> {
+        printable(ramp)?;
+        let last = ramp
+            .len()
+            .checked_sub(1)
+            .ok_or("A gradient needs at least one character")?;
+        let offset = |x: i32, y: i32| {
+            (
+                f64::from(x) - f64::from(start.0),
+                2.0 * (f64::from(y) - f64::from(start.1)),
+            )
         };
+        let (dx, dy) = offset(end.0, end.1);
+        let reach = dx * dx + dy * dy;
+        for index in self.run(start.0, start.1) {
+            let (x, y) = offset((index % self.width) as i32, (index / self.width) as i32);
+            let share = match (reach == 0.0, radial) {
+                (true, _) => 0.0,
+                (false, true) => ((x * x + y * y) / reach).sqrt(),
+                (false, false) => (x * dx + y * dy) / reach,
+            };
+            self.cells[index] = ramp[(share.clamp(0.0, 1.0) * last as f64).round() as usize];
+        }
+        Ok(())
+    }
+    /// The indices of the 4-connected run of identical characters containing a cell; empty
+    /// outside the grid.
+    fn run(&self, x: i32, y: i32) -> Vec<usize> {
+        let Some(target) = self.get(x, y) else {
+            return Vec::new();
+        };
+        let mut seen = vec![false; self.cells.len()];
+        let mut run = Vec::new();
         let mut pending = vec![y as usize * self.width + x as usize];
         while let Some(index) = pending.pop() {
-            if self.cells[index] != target {
+            if seen[index] || self.cells[index] != target {
                 continue;
             }
-            self.cells[index] = value;
+            seen[index] = true;
+            run.push(index);
             let (column, row) = (index % self.width, index / self.width);
             if column > 0 {
                 pending.push(index - 1);
@@ -225,7 +271,7 @@ impl Canvas {
                 pending.push(index + self.width);
             }
         }
-        Ok(())
+        run
     }
     pub fn finish(self) -> Frame {
         Frame::new(self.width, self.height, self.cells).expect("Canvas preserves ASCII invariant")

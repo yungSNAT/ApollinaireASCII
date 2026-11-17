@@ -133,6 +133,51 @@ fn flood_fill_replaces_only_the_four_connected_run() {
 }
 
 #[test]
+fn gradient_fill_spreads_the_ramp_along_the_drag_within_the_run() {
+    let mut grid = blank(5, 1);
+    grid.gradient_fill((0, 0), (4, 0), b"abcde", false).unwrap();
+    assert_eq!(text(grid), "abcde");
+    // Before the start and past the end, the first and last characters hold.
+    let mut grid = blank(7, 1);
+    grid.gradient_fill((1, 0), (3, 0), b"abc", false).unwrap();
+    assert_eq!(text(grid), "aabcccc");
+    // Only the run of the start cell's character changes.
+    let mut grid = canvas("#####\n#   #\n#####");
+    grid.gradient_fill((1, 1), (3, 1), b"123", false).unwrap();
+    assert_eq!(text(grid), "#####\n#123#\n#####");
+    // The ramp may hold the character it replaces.
+    let mut grid = blank(3, 1);
+    grid.gradient_fill((0, 0), (2, 0), b" x", false).unwrap();
+    assert_eq!(text(grid), " xx");
+}
+
+#[test]
+fn radial_gradient_counts_rows_double() {
+    let mut grid = blank(5, 3);
+    grid.gradient_fill((2, 1), (4, 1), b"abc", true).unwrap();
+    // One row up is as far as 2 columns across.
+    assert_eq!(text(grid), "ccccc\ncbabc\nccccc");
+}
+
+#[test]
+fn gradient_fill_without_length_or_start_uses_the_first_character_or_nothing() {
+    for radial in [false, true] {
+        let mut grid = blank(2, 1);
+        grid.gradient_fill((0, 0), (0, 0), b"ab", radial).unwrap();
+        assert_eq!(text(grid), "aa");
+        let mut grid = blank(2, 1);
+        grid.gradient_fill((5, 0), (0, 0), b"ab", radial).unwrap();
+        assert_eq!(text(grid), "  ");
+    }
+    assert!(blank(1, 1).gradient_fill((0, 0), (0, 0), b"", false).is_err());
+    assert!(
+        blank(1, 1)
+            .gradient_fill((0, 0), (0, 0), b"a\n", false)
+            .is_err()
+    );
+}
+
+#[test]
 fn flood_fill_covers_the_largest_grid() {
     let mut grid = blank(apollinaire_ascii::MAX_WIDTH, apollinaire_ascii::MAX_HEIGHT);
     grid.flood_fill(100, 100, b'~').unwrap();
