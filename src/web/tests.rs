@@ -577,6 +577,42 @@ fn rectangle_draws_by_pointer_and_keyboard() {
 }
 
 #[wasm_bindgen_test]
+fn curve_bends_by_pointer_and_keyboard() {
+    blank(9, 3);
+    tool("curve");
+    drag(&[(0, 2), (8, 2)]);
+    assert!(status().starts_with("End set."), "{}", status());
+    assert_eq!(art(), rows(&["         ", "         ", "#########"]));
+    // The released pointer bends the curve as it moves; a click finishes it.
+    pointer("pointermove", (4, 0));
+    assert_eq!(art(), rows(&["         ", "  #####  ", "##     ##"]));
+    pointer("pointerdown", (4, 0));
+    pointer("pointerup", (4, 0));
+    let drawn = art();
+    assert_eq!(drawn, rows(&["         ", "  #####  ", "##     ##"]));
+    pointer("pointermove", (4, 2));
+    assert_eq!(
+        art(),
+        drawn,
+        "a finished curve no longer follows the pointer"
+    );
+    assert!(key_with("z", true, false));
+    assert_eq!(art(), rows(&["         "; 3]), "the curve is one undo step");
+    cursor_to((0, 2));
+    keys(&[" "]);
+    repeat("ArrowRight", 8);
+    keys(&[" ", "ArrowUp", "ArrowUp"]);
+    assert_eq!(art(), rows(&["         ", "   ######", "###     #"]));
+    keys(&["Escape"]);
+    assert_eq!(art(), rows(&["         "; 3]));
+    cursor_to((8, 2));
+    keys(&[" "]);
+    repeat("ArrowLeft", 8);
+    keys(&[" ", "ArrowUp", "ArrowUp", " "]);
+    assert_eq!(art(), rows(&["         ", "######   ", "#     ###"]));
+}
+
+#[wasm_bindgen_test]
 fn ellipse_draws_by_pointer_and_keyboard() {
     blank(11, 5);
     tool("ellipse");

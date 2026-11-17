@@ -117,6 +117,41 @@ impl Canvas {
         }
         Ok(())
     }
+    /// A quadratic Bezier curve from `start` to `end`, pulled towards `control`, drawn as joined
+    /// lines between points sampled along it.
+    pub fn curve(
+        &mut self,
+        start: (i32, i32),
+        control: (i32, i32),
+        end: (i32, i32),
+        value: u8,
+    ) -> Result<()> {
+        printable(&[value])?;
+        if [start, control, end]
+            .iter()
+            .any(|(x, y)| !(-4096..=4096).contains(x) || !(-4096..=4096).contains(y))
+        {
+            return Err("Curve coordinates must be within -4096..=4096".into());
+        }
+        let span = |a: (i32, i32), b: (i32, i32)| (a.0 - b.0).abs().max((a.1 - b.1).abs());
+        let steps = (span(start, control) + span(control, end)).max(1);
+        let mut last = start;
+        for step in 1..=steps {
+            let t = f64::from(step) / f64::from(steps);
+            let axis = |s: i32, c: i32, e: i32| {
+                let u = 1.0 - t;
+                (u * u * f64::from(s) + 2.0 * u * t * f64::from(c) + t * t * f64::from(e)).round()
+                    as i32
+            };
+            let next = (
+                axis(start.0, control.0, end.0),
+                axis(start.1, control.1, end.1),
+            );
+            self.line(last, next, value)?;
+            last = next;
+        }
+        Ok(())
+    }
     pub fn rectangle(
         &mut self,
         x: i32,

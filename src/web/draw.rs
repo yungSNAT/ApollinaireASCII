@@ -30,6 +30,7 @@ enum Tool {
     Line,
     Rectangle,
     Ellipse,
+    Curve,
     Fill,
     Type,
     Area,
@@ -44,6 +45,7 @@ impl Tool {
             "line" => Self::Line,
             "rectangle" => Self::Rectangle,
             "ellipse" => Self::Ellipse,
+            "curve" => Self::Curve,
             "fill" => Self::Fill,
             "type" => Self::Type,
             "area" => Self::Area,
@@ -68,6 +70,9 @@ impl Tool {
             }
             Self::Ellipse => {
                 "Ellipse: drag between opposite corners of its box. Keyboard: Space, arrow keys, then Space."
+            }
+            Self::Curve => {
+                "Curve: drag from start to end and release, then move to bend it and click to finish. Keyboard: Space, arrow keys, Space, arrow keys to bend, Space. Escape cancels."
             }
             Self::Fill => {
                 "Fill: replace the touching run of one character. Keyboard: arrow keys move; Space fills."
@@ -94,6 +99,8 @@ struct Stroke {
     pointer: Option<i32>,
     /// Selected contents being moved, with their area before the move.
     lifted: Option<(Frame, Area)>,
+    /// A curve's end once set; the pointer or cursor then bends it.
+    end: Option<(i32, i32)>,
 }
 
 /// Editor drawing state. A stroke previews against its base frame and becomes one undo step.
@@ -405,6 +412,7 @@ impl App {
             last: point,
             pointer,
             lifted,
+            end: None,
         });
         if pointer.is_none() {
             status(
@@ -453,6 +461,10 @@ impl App {
                 let (x, y, width, height) = bounds(start, shape_end(start, point)?);
                 canvas.ellipse(x, y, width, height, brush()?)?
             }
+            Tool::Curve => match stroke.end {
+                Some(end) => canvas.curve(start, point, end, brush()?)?,
+                None => canvas.line(start, point, brush()?)?,
+            },
             Tool::Area => match &stroke.lifted {
                 Some((contents, (x, y, width, height))) => {
                     // Keep the moved area whole by stopping it at the grid edges.
@@ -482,6 +494,17 @@ impl App {
         if self.recovery.locked {
             self.drawing_cancel();
             return Err("Wait for the recovery operation to finish.".into());
+        }
+        if let Some(stroke) = self.drawing.stroke.as_mut()
+            && self.drawing.tool == Tool::Curve
+            && stroke.end.is_none()
+        {
+            stroke.end = Some(stroke.last);
+            status(
+                "End set. Move to bend the curve, then click or press Space to finish; Escape cancels.",
+                false,
+            );
+            return Ok(());
         }
         let Some(stroke) = self.drawing.stroke.take() else {
             return Ok(());
@@ -677,6 +700,8 @@ fn pointer(event: Event) -> Result<()> {
         let (ours, busy) = app.drawing.stroke.as_ref().map_or((false, false), |s| {
             (s.pointer == Some(event.pointer_id()), s.pointer.is_some())
         });
+        // A curve waiting to be bent has no button down, so it has lost its pointer capture.
+        let bending = app.drawing.stroke.as_ref().is_some_and(|s| s.end.is_some());
         match event.type_().as_str() {
             "pointerdown" if event.button() == 0 && event.is_primary() && (ours || !busy) => {
                 event.prevent_default();
@@ -688,7 +713,12 @@ fn pointer(event: Event) -> Result<()> {
                 node::<HtmlElement>("art")?
                     .focus_with_options(&options)
                     .map_err(|_| "Cannot focus the artwork")?;
-                app.begin(point, Some(event.pointer_id()))?;
+                if ours && bending {
+                    app.extend(point)?;
+                    app.finish()?;
+                } else {
+                    app.begin(point, Some(event.pointer_id()))?;
+                }
             }
             "pointermove" if ours => {
                 // Redraw only when the pointer enters another cell.
@@ -702,7 +732,7 @@ fn pointer(event: Event) -> Result<()> {
                 app.extend(cell(app, &event)?)?;
                 app.finish()?;
             }
-            "pointercancel" | "lostpointercapture" if ours => app.cancel(),
+            "pointercancel" | "lostpointercapture" if ours && !bending => app.cancel(),
             _ => return Ok(()),
         }
         app.display(false)
