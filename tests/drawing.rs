@@ -769,6 +769,12 @@ fn flowcharts_refuse_drawings_over_512_columns_or_256_rows() {
         flowchart(&format!("graph LR\nA {long}> B {long}> C")).unwrap_err(),
         "The flowchart needs at least 1021 columns; the limit is 512"
     );
+    // A box widens to hold its links' ends 2 apart: 4,096 links leaving A need 8,195 columns,
+    // refused with the other early checks, before the ranks are ordered.
+    assert_eq!(
+        flowchart(&format!("graph TD\n{}", "A --> B\n".repeat(4096))).unwrap_err(),
+        "The flowchart needs at least 8195 columns; the limit is 512"
+    );
     // Input over 16 MiB is refused before it is read.
     assert_eq!(
         flowchart(&format!(
