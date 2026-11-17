@@ -151,21 +151,7 @@ export function addApollinaireArt(renderer) {{
 /// A Bubble Tea v2 program in Go: the `Art` model and a `main` that plays it until `q` or
 /// Ctrl+C. To embed `Art`, change the package line and delete `main`.
 pub fn bubbletea(project: &Animation) -> String {
-    let list = |items: Vec<String>| items.join(", ");
-    let frames = list(
-        project
-            .frames()
-            .iter()
-            .map(|e| serde_json::to_string(&e.frame.text()).expect("a string always serialises"))
-            .collect(),
-    );
-    let durations = list(
-        project
-            .frames()
-            .iter()
-            .map(|e| e.duration_ms.to_string())
-            .collect(),
-    );
+    let (frames, durations) = literals(project);
     let looping = project.looping();
     format!(
         "// ApollinaireASCII artwork as a Bubble Tea program.
@@ -229,6 +215,174 @@ func main() {{
 \t\tfmt.Fprintln(os.Stderr, err)
 \t\tos.Exit(1)
 \t}}
+}}
+"
+    )
+}
+
+/// The frames as comma-separated JSON strings, which are also valid Go, Python and C# string
+/// literals: frames hold only printable ASCII and line feeds, so JSON escapes only `"`, `\` and
+/// the line feed. The durations follow as comma-separated milliseconds.
+fn literals(project: &Animation) -> (String, String) {
+    let frames: Vec<String> = project
+        .frames()
+        .iter()
+        .map(|e| serde_json::to_string(&e.frame.text()).expect("a string always serialises"))
+        .collect();
+    let durations: Vec<String> = project
+        .frames()
+        .iter()
+        .map(|e| e.duration_ms.to_string())
+        .collect();
+    (frames.join(", "), durations.join(", "))
+}
+
+/// A Python 3 program that needs only the standard library. Run as a script, it plays the
+/// artwork in a terminal as `apollinaire play` does: once, or until Ctrl+C when it loops.
+/// Imported, `play()` draws to any text stream.
+pub fn python(project: &Animation) -> String {
+    let (frames, durations) = literals(project);
+    let looping = if project.looping() { "True" } else { "False" };
+    format!(
+        "# ApollinaireASCII artwork as a Python 3 program. Run it to play the artwork in a terminal
+# that understands ANSI escape codes: once, or until Ctrl+C when it loops. To use it in another
+# program, import it and call play().
+import sys
+import time
+
+FRAMES = [{frames}]
+
+# Milliseconds each frame shows for.
+DURATIONS = [{durations}]
+
+LOOP = {looping}
+
+
+def play(out=sys.stdout):
+    \"\"\"Draw each frame from the top-left corner for its duration.\"\"\"
+    out.write(\"\\x1b[2J\")
+    try:
+        while True:
+            for frame, ms in zip(FRAMES, DURATIONS):
+                out.write(\"\\x1b[H\" + frame)
+                out.flush()
+                time.sleep(ms / 1000)
+            if not LOOP:
+                break
+    except KeyboardInterrupt:
+        pass
+    out.write(\"\\n\")
+    out.flush()
+
+
+if __name__ == \"__main__\":
+    play()
+"
+    )
+}
+
+/// A Ruby program that needs only Ruby's core. Run as a script, it plays the artwork in a
+/// terminal as `apollinaire play` does: once, or until Ctrl+C when it loops. Required,
+/// `ApollinaireArt.play` draws to any IO.
+pub fn ruby(project: &Animation) -> String {
+    let (frames, durations) = literals(project);
+    // A double-quoted Ruby string reads `#{` as interpolation, so every `#` is escaped.
+    let frames = frames.replace('#', "\\#");
+    let looping = project.looping();
+    format!(
+        "# ApollinaireASCII artwork as a Ruby program. Run it to play the artwork in a terminal that
+# understands ANSI escape codes: once, or until Ctrl+C when it loops. To use it in another
+# program, require it and call ApollinaireArt.play.
+module ApollinaireArt
+  FRAMES = [{frames}].freeze
+
+  # Milliseconds each frame shows for.
+  DURATIONS = [{durations}].freeze
+
+  LOOP = {looping}
+
+  # Draw each frame from the top-left corner for its duration.
+  def self.play(out = $stdout)
+    out.write(\"\\e[2J\")
+    begin
+      loop do
+        FRAMES.zip(DURATIONS) do |frame, ms|
+          out.write(\"\\e[H\", frame)
+          out.flush
+          sleep(ms / 1000.0)
+        end
+        break unless LOOP
+      end
+    rescue Interrupt
+      nil
+    end
+    out.write(\"\\n\")
+    out.flush
+  end
+end
+
+ApollinaireArt.play if __FILE__ == $PROGRAM_NAME
+"
+    )
+}
+
+/// A C# program for `dotnet run <file>.cs` (.NET 10 or later), which needs no project file. It
+/// plays the artwork in a terminal as `apollinaire play` does: once, or until Ctrl+C when it
+/// loops. To use the artwork in another program, copy the `ApollinaireArt` class and call
+/// `ApollinaireArt.Play` with any `TextWriter`.
+pub fn csharp(project: &Animation) -> String {
+    let (frames, durations) = literals(project);
+    let looping = project.looping();
+    format!(
+        "// ApollinaireASCII artwork as a C# program. Run `dotnet run <this file>` (.NET 10 or later) to
+// play the artwork in a terminal: once, or until Ctrl+C when it loops. To use it in another
+// program, copy the ApollinaireArt class and call ApollinaireArt.Play.
+using System;
+using System.IO;
+using System.Threading;
+
+ApollinaireArt.Play(Console.Out);
+
+/// <summary>The artwork's frames and a player for them.</summary>
+public static class ApollinaireArt
+{{
+    public static readonly string[] Frames = [{frames}];
+
+    /// <summary>Milliseconds each frame shows for.</summary>
+    public static readonly int[] Durations = [{durations}];
+
+    public static readonly bool Loop = {looping};
+
+    /// <summary>Draw each frame from the top-left corner for its duration.</summary>
+    public static void Play(TextWriter output)
+    {{
+        using var stop = new ManualResetEventSlim();
+        ConsoleCancelEventHandler cancel = (_, e) =>
+        {{
+            e.Cancel = true;
+            stop.Set();
+        }};
+        Console.CancelKeyPress += cancel;
+        try
+        {{
+            output.Write(\"\\u001b[2J\");
+            do
+            {{
+                for (var i = 0; i < Frames.Length && !stop.IsSet; i++)
+                {{
+                    output.Write(\"\\u001b[H\" + Frames[i]);
+                    output.Flush();
+                    stop.Wait(Durations[i]);
+                }}
+            }} while (Loop && !stop.IsSet);
+            output.Write(\"\\n\");
+            output.Flush();
+        }}
+        finally
+        {{
+            Console.CancelKeyPress -= cancel;
+        }}
+    }}
 }}
 "
     )

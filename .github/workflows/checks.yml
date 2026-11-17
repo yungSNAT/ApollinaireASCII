@@ -126,7 +126,8 @@ jobs:
           fail_ci_if_error: true
 
   # The React, Ink, OpenTUI and Bubble Tea exports of 2 projects, run in Node, Bun and Go at
-  # the versions pinned in tests/code_exports.
+  # the versions pinned in tests/code_exports, and the Python, Ruby and C# programs under the
+  # runner's Python 3 and Ruby and .NET 10.
   code-exports:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -150,6 +151,9 @@ jobs:
         with:
           go-version-file: tests/code_exports/go/go.mod
           cache: false
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: 10.0.x
       - run: cargo build --locked --bin apollinaire
       - run: bash tests/code_exports/run.sh target/debug/apollinaire
 

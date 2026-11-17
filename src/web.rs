@@ -999,12 +999,17 @@ fn action(id: &str) -> Result<()> {
                     "ink" => (export::ink(&project), "artwork-ink.js"),
                     "opentui" => (export::opentui(&project), "artwork-opentui.js"),
                     "bubbletea" => (export::bubbletea(&project), "artwork.go"),
+                    "python" => (export::python(&project), "artwork.py"),
+                    "ruby" => (export::ruby(&project), "artwork.rb"),
+                    "csharp" => (export::csharp(&project), "artwork.cs"),
                     _ => return Err("Unknown code format".into()),
                 };
-                let mime = if name.ends_with(".go") {
-                    "text/x-go;charset=utf-8"
-                } else {
-                    "text/javascript;charset=utf-8"
+                let mime = match name.rsplit_once('.').map(|(_, extension)| extension) {
+                    Some("go") => "text/x-go;charset=utf-8",
+                    Some("py") => "text/x-python;charset=utf-8",
+                    Some("rb") => "text/x-ruby;charset=utf-8",
+                    Some("cs") => "text/x-csharp;charset=utf-8",
+                    _ => "text/javascript;charset=utf-8",
                 };
                 download(&code, name, mime)?;
             }

@@ -1127,9 +1127,43 @@ fn code_exports_carry_every_frame_as_a_literal_that_cannot_break_out() {
         [120, 30]
     );
     assert!(go.contains("\nconst loop = true\n"));
+    // Python and C# read the JSON literals as Go does; Ruby escapes `#`, which would start
+    // `#{...}` interpolation, so its literals read back as JSON once that escape is undone.
+    for (code, frames, durations, looping) in [
+        (
+            export::python(&project),
+            "FRAMES = ",
+            "DURATIONS = ",
+            "\nLOOP = True\n",
+        ),
+        (
+            export::csharp(&project),
+            "    public static readonly string[] Frames = ",
+            "    public static readonly int[] Durations = ",
+            " Loop = true;\n",
+        ),
+        (
+            export::ruby(&project)
+                .replace("\\#", "#")
+                .replace("].freeze", "]"),
+            "  FRAMES = ",
+            "  DURATIONS = ",
+            "\n  LOOP = true\n",
+        ),
+    ] {
+        assert!(code.bytes().all(|b| b == b'\n' || (32..=126).contains(&b)));
+        assert_eq!(literal::<Vec<String>>(&code, frames, '['), shown);
+        assert_eq!(literal::<Vec<u32>>(&code, durations, '['), [120, 30]);
+        assert!(code.contains(looping), "{looping}");
+    }
+    let hashes = Animation::new(vec![timed("#{x}\\#", 50)], false).unwrap();
+    assert!(export::ruby(&hashes).contains("FRAMES = [\"\\#{x}\\\\\\#\"].freeze"));
     let once = Animation::new(vec![timed("a", 50)], false).unwrap();
     assert!(export::react(&once).contains("const loop = false;\n"));
     assert!(export::bubbletea(&once).contains("\nconst loop = false\n"));
+    assert!(export::python(&once).contains("\nLOOP = False\n"));
+    assert!(export::ruby(&once).contains("\n  LOOP = false\n"));
+    assert!(export::csharp(&once).contains(" Loop = false;\n"));
 }
 
 #[test]

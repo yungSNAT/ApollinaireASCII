@@ -2052,6 +2052,13 @@ async fn playback_and_saves_keep_unsaved_edits() {
             "artwork.go",
             "var frames = []string{\"#  \", \"  #\"}",
         ),
+        ("python", "artwork.py", "FRAMES = [\"#  \", \"  #\"]"),
+        (
+            "ruby",
+            "artwork.rb",
+            "FRAMES = [\"\\#  \", \"  \\#\"].freeze",
+        ),
+        ("csharp", "artwork.cs", "Frames = [\"#  \", \"  #\"];"),
     ] {
         element::<web_sys::HtmlSelectElement>("code-format").set_value(format);
         let (name, code) = save("download-code").await;
