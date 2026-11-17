@@ -278,12 +278,13 @@ fn decode_gif_frames(
         if !(10..=60_000).contains(&delay) {
             return Err("GIF frame delay is outside 10..=60000 ms".into());
         }
-        let frame = render_image_as(&DynamicImage::ImageRgba8(screen), options, glyphs)?;
+        let screen = DynamicImage::ImageRgba8(screen);
+        let frame = render_image_as(&screen, options, glyphs)?;
         frames.push(TimedFrame {
             frame,
             duration_ms: delay,
         });
-        Ok(())
+        Ok(screen.into_rgba8())
     })?;
     if frames.len() != count {
         return Err("GIF frame count does not match its container".into());
