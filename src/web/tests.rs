@@ -2667,6 +2667,158 @@ async fn a_locked_layer_keeps_its_art_and_solo_changes_only_the_stage() {
     click("layer-merge");
 }
 
+/// Put the chosen layer in `name`'s group, or none, as typing and leaving the field does.
+fn group_as(name: &str) {
+    set_value("layer-group", name);
+    change_event("layer-group");
+}
+/// Choose the layer at `row` of the list, the top layer being row 0.
+fn choose_row(row: i32) {
+    element::<HtmlSelectElement>("layer").set_selected_index(row);
+    change_event("layer");
+}
+
+#[wasm_bindgen_test]
+async fn groups_keep_their_layers_together_and_change_them_in_one_step() {
+    blank(4, 1);
+    let group_controls = [
+        "group-name",
+        "group-visible",
+        "group-locked",
+        "group-solo",
+        "group-up",
+        "group-down",
+        "group-delete",
+    ];
+    for id in group_controls {
+        assert!(!enabled(id), "#{id} without a group");
+    }
+    // A group holding every layer cannot be deleted; clearing the field leaves it.
+    group_as("All");
+    assert_eq!(layer_list(), ["All > Layer 1"]);
+    assert!(!enabled("group-delete"));
+    group_as("");
+    assert_eq!(layer_list(), ["Layer 1"]);
+
+    apply_frame("a   ");
+    click("layer-add");
+    apply_frame(" b  ");
+    click("layer-add");
+    apply_frame("  c ");
+    group_as("Top");
+    // A new layer joins the chosen layer's group.
+    click("layer-add");
+    apply_frame("   d");
+    assert_eq!(
+        layer_list(),
+        ["Top > Layer 4", "Top > Layer 3", "Layer 2", "Layer 1"]
+    );
+    assert_eq!(art(), "abcd");
+
+    // Layer 1 cannot join Top from below Layer 2, and the field shows its group again.
+    choose_row(3);
+    group_as("Top");
+    assert!(
+        status().contains("The layers in group Top must be next to each other"),
+        "{}",
+        status()
+    );
+    assert_eq!(element::<HtmlInputElement>("layer-group").value(), "");
+    // A layer outside a group moves past the whole group, not into it.
+    click("layer-up");
+    click("layer-up");
+    assert_eq!(
+        layer_list(),
+        ["Layer 1", "Top > Layer 4", "Top > Layer 3", "Layer 2"]
+    );
+    click("layer-down");
+    assert_eq!(
+        layer_list(),
+        ["Top > Layer 4", "Top > Layer 3", "Layer 1", "Layer 2"]
+    );
+    // Inside the group a layer moves; at the group's edge it does not.
+    choose_row(1);
+    assert!(!enabled("layer-down"), "Layer 3 left its group");
+    click("layer-up");
+    assert_eq!(
+        layer_list(),
+        ["Top > Layer 3", "Top > Layer 4", "Layer 1", "Layer 2"]
+    );
+
+    // A mixed group shows a dash; ticking shows every layer, unticking hides every layer, and
+    // one Undo restores the group.
+    check("layer-visible", false);
+    let shown = element::<HtmlInputElement>("group-visible");
+    assert!(shown.indeterminate() && !shown.checked());
+    check("group-visible", true);
+    assert!(!shown.indeterminate() && shown.checked());
+    assert_eq!(art(), "abcd");
+    check("group-visible", false);
+    assert_eq!(art(), "ab  ");
+    assert_eq!(
+        layer_list()[..2],
+        ["Top > Layer 3 (hidden)", "Top > Layer 4 (hidden)"]
+    );
+    click("undo");
+    assert_eq!(art(), "abcd");
+    assert!(shown.checked());
+
+    // Locking the group blocks deleting it and merging; solo shows only the group on the
+    // stage, not in what is saved.
+    check("group-locked", true);
+    assert!(!enabled("group-delete") && !enabled("layer-merge"));
+    check("group-solo", true);
+    assert_eq!(art(), "  cd");
+    assert_eq!(save("download-text").await.1, "abcd\n");
+    check("group-solo", false);
+    assert_eq!(art(), "abcd");
+    check("group-locked", false);
+
+    // Renaming changes every member; a name another group holds is refused.
+    set_value("group-name", "Front");
+    change_event("group-name");
+    assert_eq!(layer_list()[..2], ["Front > Layer 3", "Front > Layer 4"]);
+    choose_row(3);
+    group_as("Back");
+    choose_row(0);
+    set_value("group-name", "Back");
+    change_event("group-name");
+    assert!(
+        status().contains("There is already a group named Back"),
+        "{}",
+        status()
+    );
+    assert_eq!(element::<HtmlInputElement>("group-name").value(), "Front");
+    let saved = super::Layered::from_json(&save("download-json").await.1).unwrap();
+    let groups: Vec<Option<&str>> = saved
+        .layers()
+        .iter()
+        .map(|layer| layer.group.as_deref())
+        .collect();
+    assert_eq!(groups, [Some("Back"), None, Some("Front"), Some("Front")]);
+
+    // The group moves as a block, keeping the chosen layer; deleting it is one undo step.
+    click("group-down");
+    click("group-down");
+    assert_eq!(
+        layer_list(),
+        [
+            "Layer 1",
+            "Back > Layer 2",
+            "Front > Layer 3",
+            "Front > Layer 4"
+        ]
+    );
+    assert_eq!(element::<HtmlInputElement>("layer-name").value(), "Layer 3");
+    assert!(!enabled("group-down"));
+    click("group-delete");
+    assert_eq!(layer_list(), ["Layer 1", "Back > Layer 2"]);
+    assert_eq!(art(), "ab  ");
+    click("undo");
+    assert_eq!(art(), "abcd");
+    assert_eq!(layer_list().len(), 4);
+}
+
 #[wasm_bindgen_test]
 async fn a_lock_is_undone_with_the_art_and_whole_project_changes_still_apply() {
     blank(5, 1);

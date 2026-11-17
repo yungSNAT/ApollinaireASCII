@@ -1,14 +1,40 @@
 // Copyright 2026 Ryan Duguid
 // SPDX-License-Identifier: MIT
 
-//! The Layers panel: choose the layer to edit, add, delete, reorder, rename, hide and merge.
-//! The list shows the top layer first, as it is drawn over the others.
+//! The Layers panel: choose the layer to edit, add, delete, reorder, rename, hide, group and
+//! merge. The list shows the top layer first, as it is drawn over the others. A group is a
+//! label on adjacent layers ([`crate::Layer::group`]); its commands change every member in one
+//! undo step, and a lone layer moves past a whole group rather than into it.
 use super::{
     App, checked, document, element, input, listen, media::set_disabled, node, report, state,
     status,
 };
 use crate::{Animation, Frame, Layer, Layered, Result, TimedFrame, layers::MAX_LAYERS};
+use std::ops::Range;
 use web_sys::{HtmlSelectElement, HtmlTextAreaElement};
+
+/// What the stage shows. A view setting: not saved, not undone, and copies, saves and exports
+/// still show every visible layer.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) enum Solo {
+    #[default]
+    Off,
+    /// Only the active layer.
+    Layer,
+    /// Only the active layer's group.
+    Group,
+}
+
+impl Solo {
+    /// The layers shown on the stage.
+    pub(super) fn shown(self, layers: &Layered, active: usize) -> Range<usize> {
+        match self {
+            Solo::Off => 0..layers.layers().len(),
+            Solo::Layer => active..active + 1,
+            Solo::Group => layers.block(active),
+        }
+    }
+}
 
 pub(super) const MERGE_FIRST: &str =
     "Every layer shares one size and frame count. Merge layers first to change them.";
@@ -20,6 +46,9 @@ pub(super) fn start() -> std::result::Result<(), wasm_bindgen::JsValue> {
         "layer-up",
         "layer-down",
         "layer-merge",
+        "group-up",
+        "group-down",
+        "group-delete",
     ] {
         listen(id, "click", move |_| report(command(id)))?;
     }
@@ -29,6 +58,11 @@ pub(super) fn start() -> std::result::Result<(), wasm_bindgen::JsValue> {
         "layer-locked",
         "layer-solo",
         "layer-name",
+        "layer-group",
+        "group-name",
+        "group-visible",
+        "group-locked",
+        "group-solo",
     ] {
         listen(id, "change", move |_| report(command(id)))?;
     }
@@ -45,7 +79,10 @@ fn command(id: &str) -> Result<()> {
         let result = change(app, id);
         if result.is_err() {
             // Put the panel back to the project as it stands.
-            input("layer-name")?.set_value(&app.layers.layers()[app.active].name);
+            let layer = &app.layers.layers()[app.active];
+            input("layer-name")?.set_value(&layer.name);
+            input("layer-group")?.set_value(layer.group.as_deref().unwrap_or_default());
+            input("group-name")?.set_value(layer.group.as_deref().unwrap_or_default());
             app.display(false)?;
         }
         result
@@ -65,11 +102,22 @@ fn change(app: &mut App, id: &str) -> Result<()> {
             app.reset_drawing();
             return app.display(true);
         }
-        "layer-solo" => {
-            app.solo = checked("layer-solo")?;
-            if app.solo {
+        "layer-solo" | "group-solo" => {
+            app.solo = match (checked(id)?, id) {
+                (false, _) => Solo::Off,
+                (true, "layer-solo") => Solo::Layer,
+                (true, _) => Solo::Group,
+            };
+            if app.solo != Solo::Off {
+                let what = if app.solo == Solo::Layer {
+                    "layer"
+                } else {
+                    "group"
+                };
                 status(
-                    "Showing only the chosen layer. Copies, saves and exports still show every visible layer.",
+                    &format!(
+                        "Showing only the chosen {what}. Copies, saves and exports still show every visible layer."
+                    ),
                     false,
                 );
             }
@@ -89,6 +137,9 @@ fn change(app: &mut App, id: &str) -> Result<()> {
         _ => {}
     }
     let mut layers = app.layers.layers().to_vec();
+    let block = app.layers.block(active);
+    let group = layers[active].group.clone();
+    let in_group = || group.clone().ok_or("The chosen layer is not in a group");
     match id {
         "layer-add" => {
             if count == MAX_LAYERS {
@@ -113,6 +164,8 @@ fn change(app: &mut App, id: &str) -> Result<()> {
                     art: Animation::new(frames, art.looping())?,
                     locked: false,
                     motion: Default::default(),
+                    // Joining the chosen layer's group keeps the group together.
+                    group: group.clone(),
                 },
             );
         }
@@ -121,19 +174,78 @@ fn change(app: &mut App, id: &str) -> Result<()> {
             layers.remove(active);
             active = active.min(layers.len() - 1);
         }
-        "layer-up" => {
-            if active + 1 == count {
-                return Err("Already the top layer".into());
+        "layer-up" | "layer-down" => {
+            let up = id == "layer-up";
+            let edge = if up { block.end - 1 } else { block.start };
+            match &group {
+                // Inside a group a layer swaps with its neighbour; it leaves only by name.
+                Some(_) if active != edge => {
+                    let other = if up { active + 1 } else { active - 1 };
+                    layers.swap(active, other);
+                    active = other;
+                }
+                Some(name) => {
+                    return Err(format!(
+                        "{} is at the edge of group {name}. Clear its group to move it out, or move the whole group.",
+                        layers[active].name
+                    ));
+                }
+                None => active = move_block(&app.layers, &mut layers, block, up)?,
             }
-            layers.swap(active, active + 1);
-            active += 1;
         }
-        "layer-down" => {
-            active = active.checked_sub(1).ok_or("Already the bottom layer")?;
-            layers.swap(active, active + 1);
+        "group-up" | "group-down" => {
+            in_group()?;
+            let offset = active - block.start;
+            active = move_block(&app.layers, &mut layers, block, id == "group-up")? + offset;
+        }
+        "group-delete" => {
+            let name = in_group()?;
+            if let Some(layer) = layers[block.clone()].iter().find(|layer| layer.locked) {
+                return Err(format!(
+                    "{} is locked. Untick Lock this group to delete it.",
+                    layer.name
+                ));
+            }
+            if block.len() == count {
+                return Err(format!(
+                    "Group {name} holds every layer, and a project needs one."
+                ));
+            }
+            layers.drain(block.clone());
+            active = block.start.min(layers.len() - 1);
         }
         "layer-visible" => layers[active].visible = checked("layer-visible")?,
         "layer-locked" => layers[active].locked = checked("layer-locked")?,
+        "group-visible" => {
+            in_group()?;
+            let on = checked(id)?;
+            layers[block]
+                .iter_mut()
+                .for_each(|layer| layer.visible = on);
+        }
+        "group-locked" => {
+            in_group()?;
+            let on = checked(id)?;
+            layers[block].iter_mut().for_each(|layer| layer.locked = on);
+        }
+        "layer-group" => {
+            let name = input(id)?.value();
+            layers[active].group = (!name.is_empty()).then_some(name);
+        }
+        "group-name" => {
+            let old = in_group()?;
+            let name = input(id)?.value();
+            if name != old
+                && layers
+                    .iter()
+                    .any(|layer| layer.group.as_ref() == Some(&name))
+            {
+                return Err(format!("There is already a group named {name}"));
+            }
+            for layer in &mut layers[block] {
+                layer.group = Some(name.clone());
+            }
+        }
         _ => {
             app.unlocked()?;
             layers[active].name = input("layer-name")?.value();
@@ -141,6 +253,31 @@ fn change(app: &mut App, id: &str) -> Result<()> {
     }
     app.replace_layers(Layered::new(layers)?, active);
     app.display(true)
+}
+
+/// Move `block` past the block above it (`up`) or below it, in one step, and return where the
+/// block now starts.
+fn move_block(
+    project: &Layered,
+    layers: &mut [Layer],
+    block: Range<usize>,
+    up: bool,
+) -> Result<usize> {
+    if up {
+        if block.end == layers.len() {
+            return Err("Already at the top".into());
+        }
+        let above = project.block(block.end);
+        layers[block.start..above.end].rotate_left(block.len());
+        Ok(block.start + above.len())
+    } else {
+        if block.start == 0 {
+            return Err("Already at the bottom".into());
+        }
+        let below = project.block(block.start - 1);
+        layers[below.start..block.end].rotate_right(block.len());
+        Ok(below.start)
+    }
 }
 
 /// Fill the panel from the project and enable what applies.
@@ -151,10 +288,14 @@ pub(super) fn controls(app: &App, busy: bool, editor: bool) -> Result<()> {
         .iter()
         .rev()
         .map(|layer| {
+            let name = match &layer.group {
+                Some(group) => format!("{group} > {}", layer.name),
+                None => layer.name.clone(),
+            };
             if layer.visible {
-                layer.name.clone()
+                name
             } else {
-                format!("{} (hidden)", layer.name)
+                format!("{name} (hidden)")
             }
         })
         .collect();
@@ -172,12 +313,31 @@ pub(super) fn controls(app: &App, busy: bool, editor: bool) -> Result<()> {
     }
     list.set_selected_index((layers.len() - 1 - app.active) as i32);
     let layer = &layers[app.active];
+    let group = layer.group.as_deref().unwrap_or_default();
     if editor {
         input("layer-name")?.set_value(&layer.name);
+        input("layer-group")?.set_value(group);
+        input("group-name")?.set_value(group);
     }
     input("layer-visible")?.set_checked(layer.visible);
     input("layer-locked")?.set_checked(layer.locked);
-    input("layer-solo")?.set_checked(app.solo);
+    input("layer-solo")?.set_checked(app.solo == Solo::Layer);
+    input("group-solo")?.set_checked(app.solo == Solo::Group);
+    let block = app.layers.block(app.active);
+    let members = &layers[block.clone()];
+    // All, none or some: a mixed group shows a dash, and ticking sets every member.
+    for (id, flag) in [
+        (
+            "group-visible",
+            members.iter().filter(|l| l.visible).count(),
+        ),
+        ("group-locked", members.iter().filter(|l| l.locked).count()),
+    ] {
+        let check = input(id)?;
+        check.set_checked(flag == members.len());
+        check.set_indeterminate(flag != 0 && flag != members.len());
+    }
+    let grouped = layer.group.is_some();
     // A locked layer's frame cannot be typed in; its duration still can.
     node::<HtmlTextAreaElement>("editor")?.set_read_only(layer.locked);
     let any_locked = layers.iter().any(|layer| layer.locked);
@@ -195,8 +355,26 @@ pub(super) fn controls(app: &App, busy: bool, editor: bool) -> Result<()> {
         ("layer-solo", busy),
         ("layer-add", busy || layers.len() == MAX_LAYERS),
         ("layer-delete", busy || single || layer.locked),
-        ("layer-up", busy || app.active + 1 == layers.len()),
-        ("layer-down", busy || app.active == 0),
+        // A layer at its group's edge moves out only by clearing its group.
+        (
+            "layer-up",
+            busy || app.active + 1 == layers.len() || grouped && app.active + 1 == block.end,
+        ),
+        (
+            "layer-down",
+            busy || app.active == 0 || grouped && app.active == block.start,
+        ),
+        ("layer-group", busy),
+        ("group-name", busy || !grouped),
+        ("group-visible", busy || !grouped),
+        ("group-locked", busy || !grouped),
+        ("group-solo", busy || !grouped && app.solo != Solo::Group),
+        ("group-up", busy || !grouped || block.end == layers.len()),
+        ("group-down", busy || !grouped || block.start == 0),
+        (
+            "group-delete",
+            busy || !grouped || block.len() == layers.len() || members.iter().any(|l| l.locked),
+        ),
         // One layer with keys can be merged to draw its motion into its frames.
         (
             "layer-merge",

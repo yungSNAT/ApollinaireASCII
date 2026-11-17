@@ -43,6 +43,7 @@ fn layer(name: &str, art: Animation, motion: Motion) -> Layer {
         locked: false,
         art,
         motion,
+        group: None,
     }
 }
 fn texts(project: &Layered) -> Vec<String> {
