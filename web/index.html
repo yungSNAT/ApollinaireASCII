@@ -125,6 +125,14 @@
           <div class="tool-options">
           <div><label for="brush">Character</label><input id="brush" type="text" value="#" maxlength="1" autocomplete="off" spellcheck="false"></div>
           <div id="char-picker-box"><span id="char-picker-label">Character picker</span><div id="char-picker" role="group" aria-labelledby="char-picker-label"></div></div>
+          <div id="palette-box">
+            <label for="palette">Character palette, shown in the picker</label><select id="palette"></select>
+            <div class="actions"><button id="palette-gradient" type="button">Use for gradients</button><button id="palette-convert" type="button">Use for conversion</button><button id="palette-save" type="button">Save palette .json</button><button id="palette-remove" type="button" disabled>Remove palette</button></div>
+            <div class="pair"><div><label for="palette-name">New palette name</label><input id="palette-name" type="text" maxlength="64" autocomplete="off"></div><div><label for="palette-characters">New palette characters, in order</label><input id="palette-characters" type="text" maxlength="95" autocomplete="off" spellcheck="false"></div></div>
+            <button id="palette-add" type="button">Add palette</button>
+            <label for="palette-file">Open a character palette (.json, as Ascii-Motion exports one; ASCII characters only)</label><input id="palette-file" type="file" accept=".json">
+            <p class="hint">Added and opened palettes stay for this session, up to 16; adding one with a name already added replaces it. A palette lists each printable ASCII character at most once.</p>
+          </div>
           <div><label for="stamp">Text and box label</label><input id="stamp" type="text" value="" maxlength="128" autocomplete="off" spellcheck="false"></div>
           <button id="stamp-text" type="button" disabled>Stamp text</button>
            <div><label for="art-stamp">Saved art stamp</label><select id="art-stamp" disabled><option>No stamps yet</option></select></div>
