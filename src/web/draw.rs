@@ -9,7 +9,7 @@ use super::{
 };
 use crate::{
     Canvas, Frame, Result,
-    canvas::bounds,
+    canvas::{GradientStyle, bounds},
     diagram::{self, TableRules},
 };
 use wasm_bindgen::JsCast;
@@ -32,6 +32,7 @@ enum Tool {
     Ellipse,
     Curve,
     Fill,
+    Gradient,
     Type,
     Area,
     Stamp,
@@ -47,6 +48,7 @@ impl Tool {
             "ellipse" => Self::Ellipse,
             "curve" => Self::Curve,
             "fill" => Self::Fill,
+            "gradient" => Self::Gradient,
             "type" => Self::Type,
             "area" => Self::Area,
             "stamp-art" => Self::Stamp,
@@ -76,6 +78,9 @@ impl Tool {
             }
             Self::Fill => {
                 "Fill: replace the touching run of one character. Keyboard: arrow keys move; Space fills."
+            }
+            Self::Gradient => {
+                "Gradient: drag from where the first gradient character goes to where the last goes; the touching run of the character you start on fills. Keyboard: Space, arrow keys, then Space."
             }
             Self::Type => {
                 "Type: choose a cell, then type. Enter starts the next row and Backspace erases. Without a keyboard, use Stamp text."
@@ -465,6 +470,15 @@ impl App {
                 Some(end) => canvas.curve(start, point, end, brush()?)?,
                 None => canvas.line(start, point, brush()?)?,
             },
+            Tool::Gradient => canvas.gradient_fill(
+                start,
+                point,
+                input("gradient-ramp")?.value().as_bytes(),
+                GradientStyle {
+                    radial: checked("gradient-radial")?,
+                    dither: checked("gradient-dither")?,
+                },
+            )?,
             Tool::Area => match &stroke.lifted {
                 Some((contents, (x, y, width, height))) => {
                     // Keep the moved area whole by stopping it at the grid edges.
