@@ -16,6 +16,8 @@ use web_sys::{Element, Event, HtmlElement, HtmlSelectElement, KeyboardEvent};
 const COLUMNS: usize = 16;
 const MAX_ADDED: usize = 16;
 const MAX_FILE_BYTES: f64 = 64.0 * 1024.0;
+/// The palettes [`built_in`] lists.
+const BUILT_IN: usize = 1 + RAMPS.len();
 
 thread_local! {
     /// Palettes added or opened in this session, after the built-in ones.
@@ -107,7 +109,7 @@ fn show(index: usize) -> Result<()> {
         grid.append_child(&button).map_err(fail)?;
     }
     let remove = node::<Element>("palette-remove")?;
-    if index < built_in().len() {
+    if index < BUILT_IN {
         remove.set_attribute("disabled", "")
     } else {
         remove.remove_attribute("disabled")
@@ -135,7 +137,7 @@ fn add(palette: Palette) -> Result<()> {
                 added.len() - 1
             }
         };
-        Ok(built_in().len() + at)
+        Ok(BUILT_IN + at)
     })?;
     show(index)
 }
@@ -152,7 +154,7 @@ fn button(id: &str) -> Result<()> {
         }
         "palette-remove" => {
             let at = index
-                .checked_sub(built_in().len())
+                .checked_sub(BUILT_IN)
                 .ok_or("Built-in palettes cannot be removed")?;
             ADDED.with(|added| added.borrow_mut().remove(at));
             show(0)?;

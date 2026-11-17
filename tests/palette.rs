@@ -20,6 +20,7 @@ fn a_palette_holds_distinct_printable_characters_under_a_trimmed_name() {
             .contains("at least one")
     );
     assert!(Palette::new("Bad", b"a\x7f").is_err());
+    assert!(Palette::new("High", &[0x80, 0xff]).is_err());
     let error = Palette::new("Twice", b"abaca").unwrap_err();
     assert!(error.ends_with("repeated: \"a\""), "{error}");
 }
