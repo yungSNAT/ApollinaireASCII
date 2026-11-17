@@ -222,9 +222,7 @@ fn open() -> Result<()> {
 /// The picker's buttons, in order.
 fn buttons() -> Result<Vec<HtmlElement>> {
     let fail = || "The character picker is missing".to_string();
-    let list = document()
-        .query_selector_all("#char-picker button")
-        .map_err(|_| fail())?;
+    let list = node::<Element>("char-picker")?.children();
     (0..list.length())
         .map(|i| {
             list.item(i)
