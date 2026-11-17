@@ -103,6 +103,29 @@ fn ellipse_collapses_to_a_line_or_cell_clips_and_validates() {
 }
 
 #[test]
+fn curve_bends_towards_its_control_point_and_stays_joined() {
+    let mut grid = blank(9, 3);
+    // The control point may lie outside the grid.
+    grid.curve((0, 2), (4, -2), (8, 2), b'#').unwrap();
+    assert_eq!(text(grid), "   ###   \n ##   ## \n#       #");
+    let mut grid = blank(7, 4);
+    grid.curve((0, 0), (6, 0), (6, 3), b'#').unwrap();
+    assert_eq!(text(grid), "####   \n    ## \n      #\n      #");
+    // A control point on the line, or at an end, draws the straight line.
+    for control in [(2, 0), (0, 0), (4, 0)] {
+        let mut grid = blank(5, 1);
+        grid.curve((0, 0), control, (4, 0), b'*').unwrap();
+        assert_eq!(text(grid), "*****");
+    }
+    let mut grid = blank(2, 1);
+    grid.curve((1, 0), (1, 0), (1, 0), b'.').unwrap();
+    assert_eq!(text(grid), " .");
+    assert!(blank(2, 2).curve((0, 0), (4097, 0), (1, 1), b'#').is_err());
+    assert!(blank(2, 2).curve((0, -4097), (0, 0), (1, 1), b'#').is_err());
+    assert!(blank(2, 2).curve((0, 0), (0, 0), (1, 1), b'\n').is_err());
+}
+
+#[test]
 fn fill_area_is_solid_clipped_and_validated() {
     let mut grid = blank(4, 3);
     grid.fill_area(-1, 1, 3, 9, b'#').unwrap();
