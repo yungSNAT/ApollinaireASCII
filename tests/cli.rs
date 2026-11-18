@@ -1308,6 +1308,10 @@ fn edit_checks_its_file_and_options_before_needing_a_terminal() {
     let keyed = dir.join("keyed.json");
     let three = r#"{"format":"asciiforge","version":3,"width":1,"height":1,"loop":false,"layers":[{"name":"Layer 1","visible":true,"motion":{"x":[{"frame":0,"value":0.5,"easing":"hold"}]}}],"frames":[{"duration_ms":10,"layers":["x"]}]}"#;
     std::fs::write(&keyed, three).unwrap();
+    // One visible layer named Layer 1, but in a group, which a plain animation cannot hold.
+    let grouped = dir.join("grouped.json");
+    let one = r#"{"format":"asciiforge","version":2,"width":1,"height":1,"loop":false,"layers":[{"name":"Layer 1","visible":true,"group":"G"}],"frames":[{"duration_ms":10,"layers":["x"]}]}"#;
+    std::fs::write(&grouped, one).unwrap();
     let path = |p: &std::path::Path| p.to_str().unwrap().to_string();
     for (args, error) in [
         (
@@ -1320,11 +1324,15 @@ fn edit_checks_its_file_and_options_before_needing_a_terminal() {
         ),
         (
             vec![path(&layered)],
-            "This project uses layers or keyframes; merge its layers in the browser editor first",
+            "This project uses layers, groups or keyframes; merge its layers in the browser editor first",
         ),
         (
             vec![path(&keyed)],
-            "This project uses layers or keyframes; merge its layers in the browser editor first",
+            "This project uses layers, groups or keyframes; merge its layers in the browser editor first",
+        ),
+        (
+            vec![path(&grouped)],
+            "This project uses layers, groups or keyframes; merge its layers in the browser editor first",
         ),
         (vec!["-".into()], "Edit needs a .txt or .json file"),
         (
@@ -1364,6 +1372,60 @@ fn edit_checks_its_file_and_options_before_needing_a_terminal() {
     assert!(!new.exists(), "nothing is created without a save");
     assert_eq!(std::fs::read_to_string(&existing).unwrap(), "old\n");
     assert_eq!(std::fs::read_to_string(&layered).unwrap(), two);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn groups_change_no_export_or_check() {
+    let dir = scratch("groups-ignored");
+    let project = dir.join("project.json");
+    // Every output of a file, for the same file name.
+    let outputs = |json: &serde_json::Value| {
+        std::fs::write(&project, json.to_string()).unwrap();
+        let input = project.to_str().unwrap();
+        let mut outputs: Vec<_> = [
+            "json",
+            "html",
+            "cast",
+            "react",
+            "ink",
+            "opentui",
+            "bubbletea",
+        ]
+        .into_iter()
+        .map(|format| cli(&["import", input, "--format", format]))
+        .collect();
+        // Text holds one frame; the second shows the keyframed layer moved.
+        outputs.push(cli(&["import", input, "--format", "text", "--frame", "1"]));
+        outputs.push(cli(&["check", input]));
+        outputs
+            .into_iter()
+            .map(|output| (output.status.code(), output.stdout, output.stderr))
+            .collect::<Vec<_>>()
+    };
+    let fixtures =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/project_json");
+    for name in ["version-3-groups.json", "version-2.json"] {
+        let text = std::fs::read_to_string(fixtures.join(name)).unwrap();
+        let mut plain: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let mut grouped = plain.clone();
+        for layer in plain["layers"].as_array_mut().unwrap() {
+            layer.as_object_mut().unwrap().remove("group");
+        }
+        for layer in grouped["layers"].as_array_mut().unwrap() {
+            layer
+                .as_object_mut()
+                .unwrap()
+                .entry("group")
+                .or_insert("All".into());
+        }
+        let plain_outputs = outputs(&plain);
+        assert!(
+            plain_outputs.iter().all(|(code, ..)| *code == Some(0)),
+            "{name}"
+        );
+        assert_eq!(outputs(&grouped), plain_outputs, "{name}");
+    }
     std::fs::remove_dir_all(&dir).unwrap();
 }
 

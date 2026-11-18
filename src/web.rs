@@ -46,9 +46,7 @@ struct App {
     drawing: draw::Drawing,
     camera: Option<media::Camera>,
     recovery: recovery::Recovery,
-    /// Show only the active layer on the stage. A view setting: not saved, not undone, and
-    /// copies, saves and exports still show every visible layer.
-    solo: bool,
+    solo: layer_panel::Solo,
 }
 struct Snapshot {
     layers: Layered,
@@ -227,6 +225,7 @@ impl App {
                     locked: layer.locked,
                     art,
                     motion,
+                    group: layer.group.clone(),
                 })
             })
             .collect::<Result<Vec<_>>>()?;
@@ -428,7 +427,7 @@ pub fn start() -> std::result::Result<(), JsValue> {
             drawing: draw::Drawing::default(),
             camera: None,
             recovery: recovery::Recovery::default(),
-            solo: false,
+            solo: layer_panel::Solo::Off,
         })
     });
     for id in [

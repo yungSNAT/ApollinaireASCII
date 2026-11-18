@@ -106,6 +106,7 @@ pub fn read(bytes: &[u8]) -> Result<Layered> {
             locked: false,
             art: Animation::still(Frame::new(columns, rows, cells)?),
             motion: Default::default(),
+            group: None,
         });
     }
     if !rest.is_empty() {

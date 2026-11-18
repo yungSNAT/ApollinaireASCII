@@ -225,18 +225,20 @@ impl App {
         } else {
             Cow::Borrowed(edited)
         };
-        let stacked = (layers.len() > 1 || !layers[0].visible || self.solo).then(|| {
-            let shown: Vec<Cow<Frame>> = layers
-                .iter()
-                .enumerate()
-                .filter(|(index, layer)| layer.visible && (!self.solo || *index == self.active))
-                .map(|(index, layer)| match index == self.active {
-                    true => Cow::Borrowed(edited.as_ref()),
-                    false => layer.drawn(self.selected),
-                })
-                .collect();
-            crate::layers::stack(columns, rows, shown.iter().map(AsRef::as_ref))
-        });
+        let solo = self.solo.shown(&self.layers, self.active);
+        let stacked =
+            (layers.len() > 1 || !layers[0].visible || solo.len() < layers.len()).then(|| {
+                let shown: Vec<Cow<Frame>> = layers
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, layer)| layer.visible && solo.contains(index))
+                    .map(|(index, layer)| match index == self.active {
+                        true => Cow::Borrowed(edited.as_ref()),
+                        false => layer.drawn(self.selected),
+                    })
+                    .collect();
+                crate::layers::stack(columns, rows, shown.iter().map(AsRef::as_ref))
+            });
         let shown = stacked.as_ref().unwrap_or(&edited);
         // A live camera writes its own preview into the grid; the overlays wait until it stops.
         let live = self.camera.is_some();

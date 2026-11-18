@@ -8,8 +8,8 @@
 //! let sky = Animation::still(Frame::from_text("* *")?);
 //! let bird = Animation::still(Frame::from_text(" v ")?);
 //! let project = Layered::new(vec![
-//!     Layer { name: "Sky".into(), visible: true, locked: false, art: sky, motion: Default::default() },
-//!     Layer { name: "Bird".into(), visible: true, locked: false, art: bird, motion: Default::default() },
+//!     Layer { name: "Sky".into(), visible: true, locked: false, art: sky, motion: Default::default(), group: None },
+//!     Layer { name: "Bird".into(), visible: true, locked: false, art: bird, motion: Default::default(), group: None },
 //! ])?;
 //! assert_eq!(project.flatten().frames()[0].frame.text(), "*v*");
 //! assert_eq!(Layered::from_json(&project.to_json())?, project);
@@ -35,6 +35,10 @@ pub struct Layer {
     pub art: Animation,
     /// Keys that move, scale and turn the layer over the frames; empty for none.
     pub motion: Motion,
+    /// The name of the group the layer is in, 1 to 32 printable ASCII characters, or `None`.
+    /// A group is a label: the layers in one are next to each other in the list, and the
+    /// browser editor shows, hides, locks, moves and deletes them together. Drawing ignores it.
+    pub group: Option<String>,
 }
 
 impl Layer {
@@ -70,8 +74,21 @@ impl Layered {
             return Err(format!("A project needs 1..={MAX_LAYERS} layers"));
         }
         let first = &layers[0].art;
-        for layer in &layers {
-            check_name(&layer.name)?;
+        for (index, layer) in layers.iter().enumerate() {
+            check_name(&layer.name, "layer")?;
+            if let Some(group) = &layer.group {
+                check_name(group, "group")?;
+                let next = layers.get(index + 1).and_then(|l| l.group.as_ref());
+                if next != Some(group)
+                    && layers[index + 1..]
+                        .iter()
+                        .any(|l| l.group.as_ref() == Some(group))
+                {
+                    return Err(format!(
+                        "The layers in group {group} must be next to each other"
+                    ));
+                }
+            }
             if layer
                 .motion
                 .last_frame()
@@ -129,7 +146,10 @@ impl Layered {
             .iter()
             // A key is at most 158 bytes (a 3-digit frame, and a value and 4 curve points of
             // up to 24 characters each); the layer's other fields and track names fit in 160.
-            .map(|layer| 2 * layer.name.len() + 160 + 160 * layer.motion.len())
+            .map(|layer| {
+                let group = layer.group.as_ref().map_or(0, |group| 2 * group.len() + 12);
+                2 * layer.name.len() + group + 160 + 160 * layer.motion.len()
+            })
             .sum();
         // Per frame: {"duration_ms":60000,"layers":[]}, and the header with its brackets.
         texts + names + 40 * self.layers[0].art.frames().len() + 128
@@ -142,21 +162,40 @@ impl Layered {
                 locked: false,
                 art,
                 motion: Motion::default(),
+                group: None,
             }],
         }
     }
     pub fn layers(&self) -> &[Layer] {
         &self.layers
     }
+    /// The layers that move together with layer `index`: its group, or the layer alone. Panics
+    /// when `index` is not a layer of the project.
+    pub fn block(&self, index: usize) -> Range<usize> {
+        let Some(group) = &self.layers[index].group else {
+            return index..index + 1;
+        };
+        let same = |layer: &Layer| layer.group.as_ref() == Some(group);
+        let start = self.layers[..index]
+            .iter()
+            .rposition(|layer| !same(layer))
+            .map_or(0, |at| at + 1);
+        let end = self.layers[index..]
+            .iter()
+            .position(|layer| !same(layer))
+            .map_or(self.layers.len(), |at| index + at);
+        start..end
+    }
     /// The animation, when the project is one visible, unlocked layer named [`DEFAULT_NAME`]
-    /// with no keys: the project a version 1 file holds.
+    /// with no keys and no group: the project a version 1 file holds.
     pub fn plain(&self) -> Option<&Animation> {
         match &self.layers[..] {
             [layer]
                 if layer.visible
                     && !layer.locked
                     && layer.name == DEFAULT_NAME
-                    && layer.motion.is_empty() =>
+                    && layer.motion.is_empty()
+                    && layer.group.is_none() =>
             {
                 Some(&layer.art)
             }
@@ -311,6 +350,7 @@ impl Layered {
                     locked: layer.locked,
                     art,
                     motion,
+                    group: layer.group.clone(),
                 })
             })
             .collect::<Result<Vec<_>>>()?;
@@ -326,11 +366,15 @@ impl Layered {
     }
 }
 
-/// A layer's entry in the `layers` list: `locked` only when true, and its keys in version 3.
+/// A layer's entry in the `layers` list: `locked` only when true, `group` only when set, and
+/// its keys in version 3.
 fn layer_json(layer: &Layer) -> Value {
     let mut entry = json!({"name":layer.name,"visible":layer.visible});
     if layer.locked {
         entry["locked"] = Value::Bool(true);
+    }
+    if let Some(group) = &layer.group {
+        entry["group"] = json!(group);
     }
     if !layer.motion.is_empty() {
         let tracks: Map<String, Value> = Property::ALL
@@ -352,9 +396,11 @@ fn layer_json(layer: &Layer) -> Value {
     entry
 }
 
-fn check_name(name: &str) -> Result<()> {
+fn check_name(name: &str, of: &str) -> Result<()> {
     if name.is_empty() || name.len() > 32 || !name.bytes().all(|b| (32..=126).contains(&b)) {
-        return Err("A layer name needs 1 to 32 printable ASCII characters".into());
+        return Err(format!(
+            "A {of} name needs 1 to 32 printable ASCII characters"
+        ));
     }
     Ok(())
 }
@@ -423,6 +469,7 @@ mod tests {
             locked: true,
             art,
             motion,
+            group: Some("\\".repeat(32)),
         };
         let project = Layered::new(vec![layer.clone(), layer]).unwrap();
         let json = project.to_json();

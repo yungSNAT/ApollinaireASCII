@@ -25,6 +25,7 @@ fn layer(name: &str, visible: bool, texts: &[&str]) -> Layer {
         locked: false,
         art: art(texts, true),
         motion: Motion::default(),
+        group: None,
     }
 }
 /// Sky stays still while the bird moves across it; a hidden layer covers everything.
@@ -139,6 +140,7 @@ fn layers_must_share_one_timeline_a_limit_and_valid_names() {
         )
         .unwrap(),
         motion: Motion::default(),
+        group: None,
     };
     // 16 layers of 4 frames of 131,072 cells is 8,388,608 cells.
     assert!(
@@ -205,6 +207,99 @@ fn a_lock_is_saved_only_when_set_and_kept_through_frame_changes() {
     let value: Value = serde_json::from_str(&one.to_json()).unwrap();
     assert_eq!(value["version"], 2);
     assert_eq!(Layered::from_json(&one.to_json()).unwrap(), one);
+}
+
+/// Sky, Bird and Fog with the groups given bottom to top.
+fn grouped(groups: [Option<&str>; 3]) -> Result<Layered, String> {
+    let mut layers = scene().layers().to_vec();
+    for (layer, group) in layers.iter_mut().zip(groups) {
+        layer.group = group.map(Into::into);
+    }
+    Layered::new(layers)
+}
+
+#[test]
+fn a_group_is_saved_only_when_set_kept_through_frame_changes_and_never_drawn() {
+    let mut project = grouped([Some("Back"), Some("Back"), None]).unwrap();
+    let json = project.to_json();
+    let value: Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(value["version"], 2);
+    assert_eq!(
+        value["layers"],
+        json!([{"name":"Sky","visible":true,"group":"Back"},{"name":"Bird","visible":true,"group":"Back"},{"name":"Fog","visible":false}])
+    );
+    assert_eq!(Layered::from_json(&json).unwrap(), project);
+    // Every reader that flattens sees the ungrouped project's artwork.
+    assert_eq!(project.flatten(), scene().flatten());
+    assert_eq!(Animation::from_json(&json).unwrap(), scene().flatten());
+    assert_eq!(project.block(0), 0..2);
+    assert_eq!(project.block(1), 0..2);
+    assert_eq!(project.block(2), 2..3);
+
+    project.insert_blank_frame(1, 50).unwrap();
+    project.move_frames(0..1, 2).unwrap();
+    project.remove_frames(0..1).unwrap();
+    let groups: Vec<_> = project.layers().iter().map(|l| l.group.clone()).collect();
+    assert_eq!(groups, [Some("Back".into()), Some("Back".into()), None]);
+
+    // A lone grouped layer is not version 1, which has no groups.
+    let mut one = Layered::single(art(&["ab"], false)).layers().to_vec();
+    one[0].group = Some("G".into());
+    let one = Layered::new(one).unwrap();
+    assert_eq!(one.plain(), None);
+    let value: Value = serde_json::from_str(&one.to_json()).unwrap();
+    assert_eq!(value["version"], 2);
+    assert_eq!(Layered::from_json(&one.to_json()).unwrap(), one);
+}
+
+#[test]
+fn a_group_keeps_its_layers_together_and_a_valid_name() {
+    // Neighbouring groups and a group above or below a lone layer are fine.
+    for groups in [
+        [Some("A"), Some("B"), Some("B")],
+        [None, Some("a"), Some("A")],
+        [Some("A"), Some("A"), Some("A")],
+    ] {
+        let project = grouped(groups).unwrap();
+        assert_eq!(Layered::from_json(&project.to_json()).unwrap(), project);
+    }
+    let split = grouped([Some("A"), None, Some("A")]).unwrap_err();
+    assert_eq!(split, "The layers in group A must be next to each other");
+    assert!(
+        grouped([Some("A"), Some("B"), Some("A")])
+            .unwrap_err()
+            .contains("group A ")
+    );
+    for name in ["", &"g".repeat(33), "tab\t", "caf\u{e9}"] {
+        let error = grouped([Some(name), None, None]).unwrap_err();
+        assert_eq!(
+            error,
+            "A group name needs 1 to 32 printable ASCII characters"
+        );
+    }
+    assert!(grouped([Some(&"g".repeat(32)), None, None]).is_ok());
+
+    // The parser refuses what the constructor refuses, and anything but a string.
+    let split = two_layer_json(|v| {
+        v["layers"][0]["group"] = json!("A");
+        v["layers"][2]["group"] = json!("A");
+    });
+    assert!(
+        Layered::from_json(&split)
+            .unwrap_err()
+            .contains("must be next to each other")
+    );
+    for group in [json!(null), json!(1), json!(["A"]), json!("")] {
+        let input = two_layer_json(|v| v["layers"][0]["group"] = group.clone());
+        assert!(Layered::from_json(&input).is_err(), "{group}");
+    }
+    let twice = two_layer_json(|v| v["layers"][0]["group"] = json!("A"))
+        .replace("\"group\":\"A\"", "\"group\":\"A\",\"group\":\"A\"");
+    assert!(
+        Layered::from_json(&twice)
+            .unwrap_err()
+            .contains("duplicate field `group`")
+    );
 }
 
 fn two_layer_json(edit: impl FnOnce(&mut Value)) -> String {
@@ -345,6 +440,7 @@ fn narrow(frames: usize, spaces: usize) -> Result<Layered, String> {
                 )
                 .unwrap(),
                 motion: Motion::default(),
+                group: None,
             })
             .collect(),
     )
@@ -411,6 +507,7 @@ fn the_project_json_fuzz_seeds_load_and_round_trip_with_and_without_layers_and_k
             ("version-2-hidden-layer.json".to_owned(), 3),
             ("version-2.json".to_owned(), 2),
             ("version-3-curve-digits.json".to_owned(), 2),
+            ("version-3-groups.json".to_owned(), 4),
             ("version-3-keyframes.json".to_owned(), 2),
         ]
     );
