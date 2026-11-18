@@ -1368,7 +1368,6 @@ fn groups_change_no_export_or_check() {
         std::fs::write(&project, json.to_string()).unwrap();
         let input = project.to_str().unwrap();
         let mut outputs: Vec<_> = [
-            "text",
             "json",
             "html",
             "cast",
@@ -1380,6 +1379,8 @@ fn groups_change_no_export_or_check() {
         .into_iter()
         .map(|format| cli(&["import", input, "--format", format]))
         .collect();
+        // Text holds one frame; the second shows the keyframed layer moved.
+        outputs.push(cli(&["import", input, "--format", "text", "--frame", "1"]));
         outputs.push(cli(&["check", input]));
         outputs
             .into_iter()
