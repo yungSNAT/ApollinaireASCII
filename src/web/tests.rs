@@ -2862,6 +2862,11 @@ async fn groups_keep_their_layers_together_and_change_them_in_one_step() {
         status()
     );
     assert_eq!(element::<HtmlInputElement>("layer-group").value(), "");
+    assert_eq!(
+        layer_list(),
+        ["Top > Layer 4", "Top > Layer 3", "Layer 2", "Layer 1"]
+    );
+    assert_eq!(art(), "abcd");
     // A layer outside a group moves past the whole group, not into it.
     click("layer-up");
     click("layer-up");

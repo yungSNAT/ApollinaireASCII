@@ -216,17 +216,16 @@ fn change(app: &mut App, id: &str) -> Result<()> {
         }
         "layer-visible" => layers[active].visible = checked("layer-visible")?,
         "layer-locked" => layers[active].locked = checked("layer-locked")?,
-        "group-visible" => {
+        "group-visible" | "group-locked" => {
             in_group()?;
             let on = checked(id)?;
-            layers[block]
-                .iter_mut()
-                .for_each(|layer| layer.visible = on);
-        }
-        "group-locked" => {
-            in_group()?;
-            let on = checked(id)?;
-            layers[block].iter_mut().for_each(|layer| layer.locked = on);
+            for layer in &mut layers[block] {
+                *if id == "group-visible" {
+                    &mut layer.visible
+                } else {
+                    &mut layer.locked
+                } = on;
+            }
         }
         "layer-group" => {
             let name = input(id)?.value();

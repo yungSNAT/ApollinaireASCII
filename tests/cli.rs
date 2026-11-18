@@ -1359,6 +1359,59 @@ fn edit_checks_its_file_and_options_before_needing_a_terminal() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+#[test]
+fn groups_change_no_export_or_check() {
+    let dir = scratch("groups-ignored");
+    let project = dir.join("project.json");
+    // Every output of a file, for the same file name.
+    let outputs = |json: &serde_json::Value| {
+        std::fs::write(&project, json.to_string()).unwrap();
+        let input = project.to_str().unwrap();
+        let mut outputs: Vec<_> = [
+            "text",
+            "json",
+            "html",
+            "cast",
+            "react",
+            "ink",
+            "opentui",
+            "bubbletea",
+        ]
+        .into_iter()
+        .map(|format| cli(&["import", input, "--format", format]))
+        .collect();
+        outputs.push(cli(&["check", input]));
+        outputs
+            .into_iter()
+            .map(|output| (output.status.code(), output.stdout, output.stderr))
+            .collect::<Vec<_>>()
+    };
+    let fixtures =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/project_json");
+    for name in ["version-3-groups.json", "version-2.json"] {
+        let text = std::fs::read_to_string(fixtures.join(name)).unwrap();
+        let mut plain: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let mut grouped = plain.clone();
+        for layer in plain["layers"].as_array_mut().unwrap() {
+            layer.as_object_mut().unwrap().remove("group");
+        }
+        for layer in grouped["layers"].as_array_mut().unwrap() {
+            layer
+                .as_object_mut()
+                .unwrap()
+                .entry("group")
+                .or_insert("All".into());
+        }
+        let plain_outputs = outputs(&plain);
+        assert!(
+            plain_outputs.iter().all(|(code, ..)| *code == Some(0)),
+            "{name}"
+        );
+        assert_eq!(outputs(&grouped), plain_outputs, "{name}");
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 #[cfg(unix)]
 #[test]
 fn edit_refuses_a_link_to_a_missing_file() {
