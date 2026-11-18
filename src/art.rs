@@ -389,6 +389,73 @@ pub const CATALOGUE: &[Piece] = &[
  (_(_(_(_(_)o<
   ' ' ' ' '"
     ),
+    art!(
+        "horse",
+        "animals",
+        ["pony", "mammal", "farm"],
+        r"        __
+       / _)>
+  .---/ /
+ /       |
+ \  ___  /
+  ||   ||
+  ^^   ^^"
+    ),
+    art!(
+        "cow",
+        "animals",
+        ["farm", "mammal", "milk"],
+        r"  _(\_/)_
+ ( o  o )_________
+  \ (_) /         \~
+   '---'|  ____  |
+        | |    | |
+        '-'    '-'"
+    ),
+    art!(
+        "sheep",
+        "animals",
+        ["lamb", "farm", "wool"],
+        r#"    .-.-.-.
+  .(       ).
+ (   o  o   )
+  (   --   )
+   '-.-.-.-'
+    |  |  |
+    "  "  ""#
+    ),
+    art!(
+        "lion",
+        "animals",
+        ["cat", "mammal", "mane", "safari"],
+        r"   \\\|||///
+  \\  .-.  //
+ --  ( o o )  --
+  //  \ v /  \\
+   ///|||\\\"
+    ),
+    art!(
+        "monkey",
+        "animals",
+        ["ape", "mammal", "jungle"],
+        r#"     .-"""-.
+  _ / .   . \ _
+ ( |   ___   | )
+  '|  (o o)  |'
+    \  '-'  /
+     '-----'"#
+    ),
+    art!(
+        "shark",
+        "animals",
+        ["fish", "sea", "ocean", "fin"],
+        r"           |\
+           | \
+ __________|  \_________   /|
+/                       \_/ |
+\  o  <<<<               _  |
+ '-.____________________/ \_|"
+    ),
     // Nature and sky
     art!(
         "mountain",
@@ -609,6 +676,69 @@ pub const CATALOGUE: &[Piece] = &[
   |    |
    \  /
     \/"
+    ),
+    art!(
+        "palm-tree",
+        "nature",
+        ["tree", "beach", "tropical"],
+        r"   __ _.--..--._ _
+.-' _/   _/\_   \_'-.
+|__ /   _/\__\_   \__|
+   |___/\_\    \___|
+          |  |
+          |  |
+         _|  |_
+   ~~~~~~~~~~~~~~~~~"
+    ),
+    art!(
+        "pine-tree",
+        "nature",
+        ["tree", "forest", "evergreen", "christmas"],
+        r"      /\
+     /  \
+    /    \
+   /__  __\
+    /    \
+   /      \
+  /___  ___\
+      ||"
+    ),
+    art!(
+        "tulip",
+        "nature",
+        ["flower", "spring", "garden"],
+        r"   _  _  _
+  ( \( )/ )
+   \  |  /
+    '-+-'
+      |  _
+   _  | / )
+  ( \ |/ /
+   \_\|/"
+    ),
+    art!(
+        "pumpkin",
+        "nature",
+        ["halloween", "autumn", "harvest"],
+        r"       _\/
+   .-'-' '-'-.
+  /  /\   /\  \
+ |    __ __    |
+ |   \/\/\/    |
+  \           /
+   '-._____.-'"
+    ),
+    art!(
+        "constellation",
+        "nature",
+        ["stars", "sky", "night", "space"],
+        r" *         .        *
+      \        .
+   .   *---*     .
+      /     \
+ *---*   .   *---*
+          .       \
+   .     *         *"
     ),
     // Objects
     art!(
@@ -956,6 +1086,74 @@ pub const CATALOGUE: &[Piece] = &[
       \         /
        '-------'"
     ),
+    art!(
+        "lighthouse",
+        "objects",
+        ["sea", "coast", "light", "beacon"],
+        r"      \ | /
+    -- (_) --
+      /|_|\
+      |   |
+      | = |
+      |   |
+     /| = |\
+ ~~~/_|___|_\~~~~"
+    ),
+    art!(
+        "bicycle",
+        "objects",
+        ["bike", "cycle", "wheel", "ride"],
+        r"      __o
+     /\/
+ .-. /\ .-.
+( o )--( o )
+ '-'    '-'"
+    ),
+    art!(
+        "train",
+        "objects",
+        ["locomotive", "railway", "steam"],
+        r"     o O  ___
+   ,_____|[_]|
+   |      |  |
+  _|_     |  |__
+ |___|____|___|_|
+  (o)  (o)  (o)"
+    ),
+    art!(
+        "telescope",
+        "objects",
+        ["stars", "astronomy", "lens"],
+        r"      *       .
+           _____
+  .   ____/ ___/
+     /___/ /
+        /_/
+        /\
+       /  \
+      /    \"
+    ),
+    art!(
+        "headphones",
+        "objects",
+        ["music", "audio", "listen"],
+        r"    .------.
+   /        \
+  |          |
+ _|_        _|_
+| | |      | | |
+|_|_|      |_|_|"
+    ),
+    art!(
+        "paper-plane",
+        "objects",
+        ["plane", "fly", "origami", "message"],
+        r"        __
+   ____/ /
+  /    \/
+ /__/\__\
+    \/"
+    ),
     // Characters
     art!(
         "ghost",
@@ -1091,6 +1289,75 @@ pub const CATALOGUE: &[Piece] = &[
       | |
       | |"
     ),
+    art!(
+        "viking",
+        "characters",
+        ["warrior", "norse", "helmet"],
+        r"  (\ ____ /)
+   \/    \/
+   | o  o |
+   |  /\  |
+   /\/\/\/\
+   \/\/\/\/"
+    ),
+    art!(
+        "cowboy",
+        "characters",
+        ["western", "hat", "ranch"],
+        r"     ____
+  __|____|__
+ '-.______.-'
+   ( o  o )
+    \ -- /
+  .--'  '--."
+    ),
+    art!(
+        "superhero",
+        "characters",
+        ["hero", "cape", "power"],
+        r"     .--.
+    ( oo )
+  __/ \/ \__
+ /  | /\ |  \
+/   |/  \|   \
+    /    \
+   /_/  \_\"
+    ),
+    art!(
+        "mummy",
+        "characters",
+        ["halloween", "egypt", "bandage"],
+        r"   .-====-.
+  |==o==o==|
+  |===  ===|
+   \==--==/
+  /=|====|=\
+ |  |====|  |
+    |=||=|"
+    ),
+    art!(
+        "vampire",
+        "characters",
+        ["halloween", "dracula", "cape", "night"],
+        r"   .------.
+  / /\  /\ \
+  | (o)(o) |
+  \   VV   /
+ /\'------'/\
+/  \      /  \"
+    ),
+    art!(
+        "magician",
+        "characters",
+        ["magic", "wand", "hat", "trick"],
+        r"     _____
+    |     |
+   _|_____|_
+    ( o o )
+     \ ~ /
+   *--| |--*
+      / \"
+    ),
     // Borders and dividers
     art!(
         "frame-double",
@@ -1190,6 +1457,37 @@ pub const CATALOGUE: &[Piece] = &[
         ["divider", "rule", "dots"],
         r"o . o . o . o . o . o . o . o"
     ),
+    art!(
+        "frame-brackets",
+        "borders",
+        ["frame", "box", "brackets"],
+        r".-[                    ]-.
+|                        |
+|                        |
+'-[                    ]-'"
+    ),
+    art!(
+        "frame-corners",
+        "borders",
+        ["frame", "box", "corners"],
+        r"+---              ---+
+|                    |
+
+|                    |
++---              ---+"
+    ),
+    art!(
+        "divider-zigzag",
+        "borders",
+        ["divider", "line", "zigzag"],
+        r"/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\"
+    ),
+    art!(
+        "divider-hearts",
+        "borders",
+        ["divider", "line", "love"],
+        r"--<3----<3----<3----<3----<3--"
+    ),
     // Emoticons
     art!("happy", "emoticons", ["smile", "face", "joy"], r"(^_^)"),
     art!("cheer", "emoticons", ["hooray", "face", "joy"], r"\(^o^)/"),
@@ -1236,6 +1534,20 @@ pub const CATALOGUE: &[Piece] = &[
         r"(^_^;)"
     ),
     art!("crying", "emoticons", ["sad", "face", "tears"], r"(T_T)"),
+    art!(
+        "peace",
+        "emoticons",
+        ["face", "victory", "happy"],
+        r"(^_^)v"
+    ),
+    art!(
+        "bow",
+        "emoticons",
+        ["sorry", "thanks", "polite"],
+        r"m(_ _)m"
+    ),
+    art!("kiss", "emoticons", ["face", "love", "smooch"], r"(^3^)~*"),
+    art!("think", "emoticons", ["face", "hmm", "wonder"], r"(o_O)?"),
     // Banners
     art!(
         "welcome",
@@ -1335,5 +1647,23 @@ pub const CATALOGUE: &[Piece] = &[
         r" .--------------------.
  |  > Hello, world!_  |
  '--------------------'"
+    ),
+    art!(
+        "well-done",
+        "banners",
+        ["sign", "praise", "congratulations"],
+        r"*~*~*~*~*~*~*~*~*~*~*~*~*
+*   W E L L   D O N E   *
+*~*~*~*~*~*~*~*~*~*~*~*~*"
+    ),
+    art!(
+        "happy-holidays",
+        "banners",
+        ["sign", "greeting", "holiday"],
+        r"   .   *   .   *   .   *   .
+ .-------------------------.
+ |   HAPPY  HOLIDAYS  !    |
+ '-------------------------'
+   *   .   *   .   *   .   *"
     ),
 ];
