@@ -559,6 +559,7 @@ mod tests {
                 art: Animation::still(Frame::from_text("AS   ").unwrap()),
                 locked: false,
                 motion: Default::default(),
+                group: None,
             },
             crate::Layer {
                 name: "Front".into(),
@@ -566,6 +567,7 @@ mod tests {
                 art: Animation::still(Frame::from_text("  CII").unwrap()),
                 locked: false,
                 motion: Default::default(),
+                group: None,
             },
         ])
         .unwrap();

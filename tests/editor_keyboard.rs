@@ -396,4 +396,32 @@ fn layers_panel_works_from_the_keyboard_alone() {
     browser.settles(["Layer 1"].map(String::from).to_vec(), |b| b.layers().0);
     browser.settles("Layers merged into one.".to_string(), Browser::status);
     browser.settles("layer".to_string(), Browser::focused);
+
+    // The group field follows the layer buttons; Enter puts the layer in the typed group, and
+    // the group's own controls then join the order. Its buttons stay out while the group holds
+    // every layer.
+    browser.tab_through(
+        &[
+            "layer-name",
+            "layer-visible",
+            "layer-locked",
+            "layer-solo",
+            "layer-add",
+            "layer-group",
+        ],
+        false,
+    );
+    browser.type_text("Back");
+    browser.press(ENTER, 1);
+    browser.settles(["Back > Layer 1"].map(String::from).to_vec(), |b| {
+        b.layers().0
+    });
+    browser.tab_through(
+        &["group-name", "group-visible", "group-locked", "group-solo"],
+        false,
+    );
+    browser.press(SPACE, 1);
+    browser.settles(json!(true), |b| {
+        b.script("return document.getElementById('group-solo').checked;")
+    });
 }
