@@ -258,7 +258,10 @@ fn tool_schemas_come_from_the_command_line() {
             "react",
             "ink",
             "opentui",
-            "bubbletea"
+            "bubbletea",
+            "python",
+            "ruby",
+            "csharp"
         ])
     );
     assert_eq!(art["properties"]["frame"]["type"], "integer");

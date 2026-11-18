@@ -10,7 +10,7 @@ import (
 )
 
 // The frames of once.json and loop.json, which differ only in looping.
-var want = []string{"<\"'>\\\n`${}`", " \\ / \n  -  ", "#####\n#   #"}
+var want = []string{"<\"'>\\\n`${}`", " \\ / \n  -  ", "#{1}#\n#@a #"}
 
 func TestArtPlaysTheFrames(t *testing.T) {
 	var model tea.Model = NewArt()

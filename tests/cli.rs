@@ -736,6 +736,19 @@ fn code_formats_write_components_and_a_go_name_writes_bubble_tea() {
         assert!(printed.status.success(), "{}", text(&printed.stderr));
         assert!(text(&printed.stdout).contains(signature), "{format}");
     }
+    // A .py, .rb or .cs name chooses the program in that language.
+    for (extension, format, signature) in [
+        ("py", "python", "import time\n"),
+        ("rb", "ruby", "module ApollinaireArt\n"),
+        ("cs", "csharp", "public static class ApollinaireArt\n"),
+    ] {
+        let file = dir.join(format!("ghost.{extension}"));
+        let saved = cli(&["animate", "ghost", "--output", file.to_str().unwrap()]);
+        assert!(saved.status.success(), "{}", text(&saved.stderr));
+        let printed = cli(&["animate", "ghost", "--format", format]);
+        assert_eq!(std::fs::read(&file).unwrap(), printed.stdout, "{format}");
+        assert!(text(&printed.stdout).contains(signature), "{format}");
+    }
     std::fs::remove_dir_all(dir).unwrap();
 }
 
@@ -757,6 +770,9 @@ fn image_batches_use_safe_names_and_the_requested_export_format() {
             "go",
             "// ApollinaireASCII artwork as a Bubble Tea",
         ),
+        ("python", "py", "# ApollinaireASCII artwork as a Python"),
+        ("ruby", "rb", "# ApollinaireASCII artwork as a Ruby"),
+        ("csharp", "cs", "// ApollinaireASCII artwork as a C#"),
     ] {
         let output = dir.join(format);
         let result = cli(&[

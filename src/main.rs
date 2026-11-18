@@ -57,6 +57,12 @@ enum Format {
     Opentui,
     /// A Bubble Tea v2 program (.go).
     Bubbletea,
+    /// A Python 3 program (.py).
+    Python,
+    /// A Ruby program (.rb).
+    Ruby,
+    /// A C# program for `dotnet run` (.cs).
+    Csharp,
 }
 #[derive(Clone, Copy, ValueEnum)]
 enum Align {
@@ -1125,6 +1131,9 @@ fn export(project: &Animation, args: &Export, output: Option<&Path>) -> Result<(
             Some("html") => Format::Html,
             Some("cast") => Format::Cast,
             Some("go") => Format::Bubbletea,
+            Some("py") => Format::Python,
+            Some("rb") => Format::Ruby,
+            Some("cs") => Format::Csharp,
             _ if project.frames().len() > 1 && args.frame.is_none() => Format::Json,
             _ => Format::Text,
         }
@@ -1152,6 +1161,9 @@ fn export(project: &Animation, args: &Export, output: Option<&Path>) -> Result<(
         Format::Ink => export::ink(project),
         Format::Opentui => export::opentui(project),
         Format::Bubbletea => export::bubbletea(project),
+        Format::Python => export::python(project),
+        Format::Ruby => export::ruby(project),
+        Format::Csharp => export::csharp(project),
     };
     Ok((format, content))
 }
@@ -1202,6 +1214,9 @@ fn batch(
                 Format::Cast => "cast",
                 Format::React | Format::Ink | Format::Opentui => "js",
                 Format::Bubbletea => "go",
+                Format::Python => "py",
+                Format::Ruby => "rb",
+                Format::Csharp => "cs",
             };
             let path = dir.join(format!("{stem}.{extension}"));
             create_new(&path, &content)?;
