@@ -208,7 +208,7 @@ impl From<Phase> for generator::Phase {
         }
     }
 }
-/// The size and seed every generator takes.
+/// The size and seed the maze and sky generators share; a pattern takes its own size and no seed.
 #[derive(clap::Args)]
 struct Size {
     /// Columns, 1 to 512.

@@ -63,26 +63,21 @@ pub(super) fn xbin(bytes: &[u8]) -> Result<Frame> {
         .get(offset..)
         .ok_or("The XBIN file ends inside its palette or font")?;
     let cells = width * height;
-    let codes = if flags & 4 == 0 {
-        // Bytes after the last cell are not art, so only the cells are read in pairs.
-        let codes: Vec<u8> = body
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|&[character, _]| character)
-            .take(cells)
-            .collect();
-        if codes.len() < cells {
-            return Err(format!(
-                "The XBIN file holds {} of its {cells} cells",
-                codes.len()
-            ));
-        }
-        codes
-    } else {
-        xbin_runs(body, cells)?
-    };
-    grid(codes.into_iter(), width)
+    if flags & 4 != 0 {
+        return grid(xbin_runs(body, cells)?.into_iter(), width);
+    }
+    // Bytes after the last cell are not art, so only the cells are read in pairs.
+    let pairs = body.as_chunks::<2>().0;
+    if pairs.len() < cells {
+        return Err(format!(
+            "The XBIN file holds {} of its {cells} cells",
+            pairs.len()
+        ));
+    }
+    grid(
+        pairs[..cells].iter().map(|&[character, _]| character),
+        width,
+    )
 }
 
 /// XBIN's compression: each run starts with a byte whose top 2 bits give its kind and whose
