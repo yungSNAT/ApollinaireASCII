@@ -52,3 +52,48 @@ for (const [name, command, args, extension] of programs) {
     assert.ok(result.output.endsWith('\n'));
   });
 }
+
+// Ctrl+C can arrive during the first write, which clears the screen; a stream whose first write
+// raises the interrupt stands in for it.
+const firstWriteInterrupted = [
+  ['Python', 'python3', '-c', `
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("art", "out/loop.py")
+art = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(art)
+class Stream:
+    writes = 0
+    def write(self, text):
+        self.writes += 1
+        if self.writes == 1:
+            raise KeyboardInterrupt
+        sys.stdout.write(text)
+    def flush(self):
+        sys.stdout.flush()
+art.play(Stream())
+`],
+  ['Ruby', 'ruby', '-e', `
+load "./out/loop.rb"
+class Stream
+  def initialize
+    @writes = 0
+  end
+  def write(*texts)
+    @writes += 1
+    raise Interrupt if @writes == 1
+    $stdout.write(*texts)
+  end
+  def flush
+    $stdout.flush
+  end
+end
+ApollinaireArt.play(Stream.new)
+`],
+];
+for (const [name, command, flag, script] of firstWriteInterrupted) {
+  test(`${name} ends its line when Ctrl+C arrives during the first write`, async () => {
+    const result = run(command, [flag], script);
+    assert.deepEqual(await result.exit, { code: 0, signal: null }, result.errors);
+    assert.equal(result.output, '\n');
+  });
+}

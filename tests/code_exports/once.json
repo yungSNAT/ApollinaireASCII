@@ -1,1 +1,1 @@
-{"format":"asciiforge","version":1,"width":5,"height":2,"loop":false,"frames":[{"text":"<\"'>\\\n`${}`","duration_ms":200},{"text":" \\ / \n  -  ","duration_ms":300},{"text":"#####\n#   #","duration_ms":400}]}
+{"format":"asciiforge","version":1,"width":5,"height":2,"loop":false,"frames":[{"text":"<\"'>\\\n`${}`","duration_ms":200},{"text":" \\ / \n  -  ","duration_ms":300},{"text":"#{1}#\n#@a #","duration_ms":400}]}
