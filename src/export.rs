@@ -260,8 +260,8 @@ LOOP = {looping}
 
 def play(out=sys.stdout):
     \"\"\"Draw each frame from the top-left corner for its duration.\"\"\"
-    out.write(\"\\x1b[2J\")
     try:
+        out.write(\"\\x1b[2J\")
         while True:
             for frame, ms in zip(FRAMES, DURATIONS):
                 out.write(\"\\x1b[H\" + frame)
@@ -303,8 +303,8 @@ module ApollinaireArt
 
   # Draw each frame from the top-left corner for its duration.
   def self.play(out = $stdout)
-    out.write(\"\\e[2J\")
     begin
+      out.write(\"\\e[2J\")
       loop do
         FRAMES.zip(DURATIONS) do |frame, ms|
           out.write(\"\\e[H\", frame)
