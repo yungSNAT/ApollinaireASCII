@@ -216,7 +216,7 @@ fn index(shown: &[Shown], context: &str) -> String {
     format!(
         r#"<!doctype html>
 <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ApollinaireASCII effect showroom</title>
+<title>ApollinaireASCII effect showroom</title><link rel="icon" href="data:,">
 <style>
 :root{{color-scheme:dark}}body{{margin:24px;background:#000000;color:#FFFFF0;font:16px system-ui}}
 a{{color:#FFD32A}}a:focus-visible{{outline:3px solid #FFD32A;outline-offset:4px}}

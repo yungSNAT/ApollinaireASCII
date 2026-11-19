@@ -2807,6 +2807,8 @@ async fn a_locked_layer_keeps_its_art_and_solo_changes_only_the_stage() {
     assert_eq!(art(), " v   ");
     check("layer-solo", false);
     assert_eq!(art(), "*v***");
+    // Unticking says the stage shows every layer again, not the message from ticking.
+    assert_eq!(status(), "Showing every visible layer.");
 
     check("layer-locked", false);
     click("layer-merge");
@@ -2922,6 +2924,7 @@ async fn groups_keep_their_layers_together_and_change_them_in_one_step() {
     assert_eq!(save("download-text").await.1, "abcd\n");
     check("group-solo", false);
     assert_eq!(art(), "abcd");
+    assert_eq!(status(), "Showing every visible layer.");
     check("group-locked", false);
 
     // Renaming changes every member; a name another group holds is refused.
