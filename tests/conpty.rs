@@ -227,8 +227,6 @@ fn the_editor_works_in_a_windows_pseudo_console() {
 /// source, as offline. CI's code-exports job runs it with
 /// `cargo test --locked --test conpty -- --ignored exported_programs`.
 #[test]
-// Run it from a process that takes Ctrl+C, as a terminal does: one started in a new process group
-// ignores Ctrl+C, and the programs it starts inherit that.
 #[ignore = "needs Python, Ruby and .NET 10 on PATH; CI runs it on Windows"]
 fn exported_programs_play_in_a_windows_pseudo_console() {
     let work = std::env::temp_dir().join(format!("conpty-programs-{}", std::process::id()));
@@ -252,15 +250,29 @@ fn exported_programs_play_in_a_windows_pseudo_console() {
             .find(last)
             .is_some_and(|at| drawn[at..].contains(first))
     };
+    // A process started in a new process group ignores Ctrl+C, and the programs it starts inherit
+    // that; CI's runner starts tests that way, a terminal does not. So Python and Ruby take
+    // Ctrl+C back, as a terminal's programs have it, then run the file unchanged. .NET takes
+    // Ctrl+C whatever it inherits.
+    let python = "import ctypes, runpy, sys; \
+        ctypes.windll.kernel32.SetConsoleCtrlHandler(None, False); \
+        runpy.run_path(sys.argv[1], run_name='__main__')";
+    let ruby = "require 'fiddle'; \
+        Fiddle::Function.new(Fiddle.dlopen('kernel32')['SetConsoleCtrlHandler'], \
+        [Fiddle::TYPE_VOIDP, Fiddle::TYPE_INT], Fiddle::TYPE_INT).call(nil, 0); \
+        load ARGV[0]";
     let mut failed = Vec::new();
     for (name, program, args, extension) in [
-        ("Python", "python", &[][..], "py"),
-        ("Ruby", "ruby", &[][..], "rb"),
+        ("Python", "python", &["-c", python][..], "py"),
+        ("Ruby", "ruby", &["-e", ruby][..], "rb"),
         ("C#", "dotnet", &["run"][..], "cs"),
     ] {
-        let projects: [(&str, &dyn Fn(&str) -> bool, &[&str]); 2] =
-            [("once", &played, &[]), ("loop", &looped, &["\x03"])];
-        for (project, check, keys) in projects {
+        for project in ["once", "loop"] {
+            let (check, keys): (&dyn Fn(&str) -> bool, &[&str]) = if project == "loop" {
+                (&looped, &["\x03"])
+            } else {
+                (&played, &[])
+            };
             let file = fresh(&work, &format!("{project}.{extension}"));
             let status = std::process::Command::new(BINARY)
                 .arg("import")
@@ -274,6 +286,13 @@ fn exported_programs_play_in_a_windows_pseudo_console() {
             command.args(args);
             command.arg(path(&file));
             command.cwd(&work);
+            if program == "dotnet" {
+                // Any package fetch fails, whatever NuGet configuration is read: an empty package
+                // folder and a proxy at a closed port.
+                command.env("NUGET_PACKAGES", work.join("packages"));
+                command.env("HTTP_PROXY", "http://127.0.0.1:9");
+                command.env("HTTPS_PROXY", "http://127.0.0.1:9");
+            }
             let (out, code) = run(command, check, keys);
             let ok = code == Some(0) && check(&out);
             println!(
