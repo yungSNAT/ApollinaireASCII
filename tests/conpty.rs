@@ -260,7 +260,7 @@ fn exported_programs_play_in_a_windows_pseudo_console() {
     let ruby = "require 'fiddle'; \
         Fiddle::Function.new(Fiddle.dlopen('kernel32')['SetConsoleCtrlHandler'], \
         [Fiddle::TYPE_VOIDP, Fiddle::TYPE_INT], Fiddle::TYPE_INT).call(nil, 0); \
-        load ARGV[0]";
+        $PROGRAM_NAME = ARGV[0]; load ARGV[0]";
     let mut failed = Vec::new();
     for (name, program, args, extension) in [
         ("Python", "python", &["-c", python][..], "py"),
@@ -268,11 +268,14 @@ fn exported_programs_play_in_a_windows_pseudo_console() {
         ("C#", "dotnet", &["run"][..], "cs"),
     ] {
         for project in ["once", "loop"] {
-            let (check, keys): (&dyn Fn(&str) -> bool, &[&str]) = if project == "loop" {
-                (&looped, &["\x03"])
-            } else {
-                (&played, &[])
+            let check = |drawn: &str| {
+                if project == "loop" {
+                    looped(drawn)
+                } else {
+                    played(drawn)
+                }
             };
+            let keys: &[&str] = if project == "loop" { &["\x03"] } else { &[] };
             let file = fresh(&work, &format!("{project}.{extension}"));
             let status = std::process::Command::new(BINARY)
                 .arg("import")
@@ -293,7 +296,7 @@ fn exported_programs_play_in_a_windows_pseudo_console() {
                 command.env("HTTP_PROXY", "http://127.0.0.1:9");
                 command.env("HTTPS_PROXY", "http://127.0.0.1:9");
             }
-            let (out, code) = run(command, check, keys);
+            let (out, code) = run(command, &check, keys);
             let ok = code == Some(0) && check(&out);
             println!(
                 "{} {name} {project} code={code:?}",
