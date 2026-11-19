@@ -223,13 +223,21 @@ fn the_editor_works_in_a_windows_pseudo_console() {
 
 /// The Python, Ruby and C# exports of `tests/code_exports`, run in a Windows pseudo console:
 /// `once.json` draws its first and last frames and ends by itself; `loop.json` comes back to
-/// its first frame and ends with exit code 0 on Ctrl+C. CI's code-exports job runs it with
+/// its first frame and ends with exit code 0 on Ctrl+C. The C# program runs with no NuGet
+/// source, as offline. CI's code-exports job runs it with
 /// `cargo test --locked --test conpty -- --ignored exported_programs`.
 #[test]
+// Run it from a process that takes Ctrl+C, as a terminal does: one started in a new process group
+// ignores Ctrl+C, and the programs it starts inherit that.
 #[ignore = "needs Python, Ruby and .NET 10 on PATH; CI runs it on Windows"]
 fn exported_programs_play_in_a_windows_pseudo_console() {
     let work = std::env::temp_dir().join(format!("conpty-programs-{}", std::process::id()));
     fs::create_dir_all(&work).unwrap();
+    fs::write(
+        work.join("nuget.config"),
+        "<configuration><packageSources><clear /></packageSources></configuration>\n",
+    )
+    .unwrap();
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/code_exports");
     // Rows of the first and last frames that the pseudo console redraws whole.
     let (first, last) = ("<\"'>\\", "#{1}#");

@@ -337,6 +337,8 @@ pub fn csharp(project: &Animation) -> String {
         "// ApollinaireASCII artwork as a C# program. Run `dotnet run <this file>` (.NET 10 or later) to
 // play the artwork in a terminal: once, or until Ctrl+C when it loops. To use it in another
 // program, copy the ApollinaireArt class and call ApollinaireArt.Play.
+// Without ahead-of-time compilation, `dotnet run` needs no NuGet package, so it runs offline.
+#:property PublishAot=false
 using System;
 using System.IO;
 using System.Threading;
