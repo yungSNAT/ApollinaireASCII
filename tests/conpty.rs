@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: MIT
 
 //! Drive `apollinaire edit` through a Windows pseudo console (ConPTY): type, draw, save and quit.
-//! CI runs it with the release build: `cargo test --locked --release --test conpty -- --ignored`.
+//! CI runs it with the release build:
+//! `cargo test --locked --release --test conpty -- --ignored the_editor_works`.
 #![cfg(windows)]
 
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
@@ -20,6 +21,18 @@ const BINARY: &str = env!("CARGO_BIN_EXE_apollinaire");
 /// Start the editor, wait for its status line, send each key chunk, then wait for it to end.
 /// Returns everything it drew and its exit status, or None if it was still running.
 fn session(args: &[&str], keys: &[&str]) -> (String, Option<u32>) {
+    let mut command = CommandBuilder::new(BINARY);
+    command.args(args);
+    run(command, |drawn| drawn.contains("frame "), keys)
+}
+
+/// Start `command`, wait until what it drew is `ready`, send each key chunk, then wait for it
+/// to end. Returns everything it drew and its exit status, or None if it was still running.
+fn run(
+    command: CommandBuilder,
+    ready: impl Fn(&str) -> bool,
+    keys: &[&str],
+) -> (String, Option<u32>) {
     let pair = native_pty_system()
         .openpty(PtySize {
             rows: 24,
@@ -28,8 +41,6 @@ fn session(args: &[&str], keys: &[&str]) -> (String, Option<u32>) {
             pixel_height: 0,
         })
         .unwrap();
-    let mut command = CommandBuilder::new(BINARY);
-    command.args(args);
     let mut child = pair.slave.spawn_command(command).unwrap();
     drop(pair.slave);
     let mut reader = pair.master.try_clone_reader().unwrap();
@@ -49,11 +60,11 @@ fn session(args: &[&str], keys: &[&str]) -> (String, Option<u32>) {
         child.try_wait().unwrap().is_none()
     };
     // The pseudo console asks where the cursor is before it shows any output, and waits for the
-    // answer. A cold runner can take seconds to start the program; keys sent before the editor
-    // reads them are lost.
+    // answer. A cold runner can take seconds to start the program, and `dotnet run` compiles
+    // first; keys sent before the program reads them are lost.
     let mut answered = false;
-    let end = Instant::now() + Duration::from_secs(30);
-    while !drawn().contains("frame ") && alive(&mut child) && Instant::now() < end {
+    let end = Instant::now() + Duration::from_secs(120);
+    while !ready(&drawn()) && alive(&mut child) && Instant::now() < end {
         if !answered && drawn().contains("\x1b[6n") {
             writer.write_all(b"\x1b[1;1R").unwrap();
             answered = true;
@@ -206,6 +217,67 @@ fn the_editor_works_in_a_windows_pseudo_console() {
         format!("code={code:?}"),
         &out,
     );
+    assert!(failed.is_empty(), "failed: {failed:?}");
+    fs::remove_dir_all(&work).unwrap();
+}
+
+/// The Python, Ruby and C# exports of `tests/code_exports`, run in a Windows pseudo console:
+/// `once.json` draws its first and last frames and ends by itself; `loop.json` comes back to
+/// its first frame and ends with exit code 0 on Ctrl+C. CI's code-exports job runs it with
+/// `cargo test --locked --test conpty -- --ignored exported_programs`.
+#[test]
+#[ignore = "needs Python, Ruby and .NET 10 on PATH; CI runs it on Windows"]
+fn exported_programs_play_in_a_windows_pseudo_console() {
+    let work = std::env::temp_dir().join(format!("conpty-programs-{}", std::process::id()));
+    fs::create_dir_all(&work).unwrap();
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/code_exports");
+    // Rows of the first and last frames that the pseudo console redraws whole.
+    let (first, last) = ("<\"'>\\", "#{1}#");
+    let played = |drawn: &str| {
+        drawn
+            .find(first)
+            .is_some_and(|at| drawn[at..].contains(last))
+    };
+    // A loop is ready for Ctrl+C once its first frame comes back after the last.
+    let looped = |drawn: &str| {
+        drawn
+            .find(last)
+            .is_some_and(|at| drawn[at..].contains(first))
+    };
+    let mut failed = Vec::new();
+    for (name, program, args, extension) in [
+        ("Python", "python", &[][..], "py"),
+        ("Ruby", "ruby", &[][..], "rb"),
+        ("C#", "dotnet", &["run"][..], "cs"),
+    ] {
+        let projects: [(&str, &dyn Fn(&str) -> bool, &[&str]); 2] =
+            [("once", &played, &[]), ("loop", &looped, &["\x03"])];
+        for (project, check, keys) in projects {
+            let file = fresh(&work, &format!("{project}.{extension}"));
+            let status = std::process::Command::new(BINARY)
+                .arg("import")
+                .arg(fixtures.join(format!("{project}.json")))
+                .arg("--output")
+                .arg(&file)
+                .status()
+                .unwrap();
+            assert!(status.success());
+            let mut command = CommandBuilder::new(program);
+            command.args(args);
+            command.arg(path(&file));
+            command.cwd(&work);
+            let (out, code) = run(command, check, keys);
+            let ok = code == Some(0) && check(&out);
+            println!(
+                "{} {name} {project} code={code:?}",
+                if ok { "PASS" } else { "FAIL" }
+            );
+            if !ok {
+                println!("  output: {out:?}");
+                failed.push(format!("{name} {project}"));
+            }
+        }
+    }
     assert!(failed.is_empty(), "failed: {failed:?}");
     fs::remove_dir_all(&work).unwrap();
 }
