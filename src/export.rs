@@ -400,7 +400,7 @@ pub fn html(project: &Animation) -> String {
     let mut result = String::from(
         r#"<!doctype html>
 <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ApollinaireASCII text animation</title>
+<title>ApollinaireASCII text animation</title><link rel="icon" href="data:,">
 <style>
 :root{color-scheme:dark}body{margin:24px;background:#000000;color:#FFFFF0;font:16px system-ui}
 button{font:inherit;min-height:44px;padding:8px 16px;background:#66023C;color:#FFFFF0;border:1px solid #FFFFF0;cursor:pointer}
