@@ -108,19 +108,16 @@ fn change(app: &mut App, id: &str) -> Result<()> {
                 (true, "layer-solo") => Solo::Layer,
                 (true, _) => Solo::Group,
             };
-            if app.solo != Solo::Off {
-                let what = if app.solo == Solo::Layer {
-                    "layer"
-                } else {
-                    "group"
-                };
-                status(
-                    &format!(
-                        "Showing only the chosen {what}. Copies, saves and exports still show every visible layer."
-                    ),
-                    false,
-                );
-            }
+            let shown = match app.solo {
+                Solo::Off => "Showing every visible layer.",
+                Solo::Layer => {
+                    "Showing only the chosen layer. Copies, saves and exports still show every visible layer."
+                }
+                Solo::Group => {
+                    "Showing only the chosen group. Copies, saves and exports still show every visible layer."
+                }
+            };
+            status(shown, false);
             return app.display(true);
         }
         "layer-merge" => {

@@ -1180,3 +1180,17 @@ fn speech_bubbles_bound_the_message_before_wrapping_it() {
         "The message wraps to more than 252 rows"
     );
 }
+
+/// The editor page and the HTML player name an empty icon. Without one the browser asks the
+/// site root for /favicon.ico, which a project page on a shared host does not own, and logs the
+/// 404 as an error on every visit.
+#[test]
+fn served_pages_name_an_icon() {
+    let icon = r#"<link rel="icon" href="data:,">"#;
+    assert!(
+        include_str!("../web/index.html").contains(icon),
+        "web/index.html"
+    );
+    let player = export::html(&Animation::still(Frame::from_text("a").unwrap()));
+    assert!(player.contains(icon), "HTML player");
+}
