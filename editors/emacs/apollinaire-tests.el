@@ -122,8 +122,30 @@
           (next-error)
           (should (equal (line-number-at-pos) 3))
           (should (eq (char-after) #x2019))
-          (should-error (next-error) :type 'user-error))
+          (should-error (next-error) :type 'user-error)
+          ;; Past the end, the last problem visited is still the place to step from.
+          (previous-error)
+          (should (eq (char-after) ?\t))
+          (next-error)
+          (should (eq (char-after) #x2019))
+          ;; C-u starts again from the first.
+          (next-error '(4))
+          (should (eq (char-after) ?\t))
+          (should-error (previous-error) :type 'user-error))
       (kill-buffer source)
+      (kill-buffer "*apollinaire-check*"))))
+
+(ert-deftest apollinaire-check-of-a-killed-buffer ()
+  (let ((source (generate-new-buffer "apollinaire-source"))
+        (apollinaire-program apollinaire-tests-bin))
+    (unwind-protect
+        (progn
+          (with-current-buffer source
+            (insert "a\tb\n")
+            (apollinaire-check))
+          (kill-buffer source)
+          (let ((err (should-error (next-error) :type 'user-error)))
+            (should (equal (cadr err) "No problem to visit on this line"))))
       (kill-buffer "*apollinaire-check*"))))
 
 (ert-deftest apollinaire-check-of-a-region-from-mid-line ()
