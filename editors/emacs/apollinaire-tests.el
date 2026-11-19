@@ -94,30 +94,53 @@
       (should-error (apollinaire "art cat") :type 'file-missing))
     (should (equal (buffer-string) "x\n"))))
 
+(defun apollinaire-tests-listing ()
+  "The text of the *apollinaire-check* buffer."
+  (with-current-buffer "*apollinaire-check*"
+    (buffer-substring-no-properties (point-min) (point-max))))
+
 (ert-deftest apollinaire-check-lists-problems-for-next-error ()
-  ;; A tab, then 2 letters and a right single quotation mark (U+2019).
-  (let ((file (make-temp-file "apollinaire" nil ".txt"
-                              (concat "first line\nabcde\na\tbc" (string #x2019) "\n")))
+  ;; A buffer visiting no file. Line 3 holds a tab, then 2 letters and a right single
+  ;; quotation mark (U+2019).
+  (let ((source (generate-new-buffer "apollinaire-source"))
         (apollinaire-program apollinaire-tests-bin))
     (unwind-protect
-        (with-current-buffer (find-file-noselect file)
+        (with-current-buffer source
+          (insert "first line\nabcde\na\tbc" (string #x2019) "\n")
           (goto-char (point-min))
           (apollinaire-check (line-beginning-position 2) (point-max))
-          (should (equal (with-current-buffer "*apollinaire-check*"
-                           (buffer-substring-no-properties (point-min) (point-max)))
+          (should (equal (apollinaire-tests-listing)
                          (concat "apollinaire: 2 problems in stdin:\n"
-                                 file ":3:2: a tab; use spaces\n"
-                                 file ":3:5: U+2019 is not ASCII; use '\n")))
+                                 (buffer-name) ":3:2: a tab; use spaces\n"
+                                 (buffer-name) ":3:5: U+2019 is not ASCII; use '\n")))
+          (goto-char (point-min))
           (next-error)
+          (should (eq (current-buffer) source))
           (should (equal (list (line-number-at-pos) (current-column)) '(3 1)))
           (should (eq (char-after) ?\t))
           ;; check counts the tab as one character, not as the screen columns it spans.
           (next-error)
           (should (equal (line-number-at-pos) 3))
           (should (eq (char-after) #x2019))
-          (set-buffer-modified-p nil)
-          (kill-buffer))
-      (delete-file file)
+          (should-error (next-error) :type 'user-error))
+      (kill-buffer source)
+      (kill-buffer "*apollinaire-check*"))))
+
+(ert-deftest apollinaire-check-of-a-region-from-mid-line ()
+  (let ((source (generate-new-buffer "apollinaire-source"))
+        (apollinaire-program apollinaire-tests-bin))
+    (unwind-protect
+        (with-current-buffer source
+          (insert "abc\tdef\n")
+          ;; The region starts at the c, so its tab is in column 2 of the checked text.
+          (apollinaire-check 3 (point-max))
+          (should (equal (apollinaire-tests-listing)
+                         (concat "apollinaire: 1 problem in stdin:\n"
+                                 (buffer-name) ":1:4: a tab; use spaces\n")))
+          (goto-char (point-min))
+          (next-error)
+          (should (equal (point) 4)))
+      (kill-buffer source)
       (kill-buffer "*apollinaire-check*"))))
 
 (ert-deftest apollinaire-check-reports-valid-art ()

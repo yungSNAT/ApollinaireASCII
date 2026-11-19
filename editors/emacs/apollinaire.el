@@ -24,8 +24,6 @@
 
 ;;; Code:
 
-(require 'compile)
-
 (defgroup apollinaire nil
   "Run the apollinaire ASCII art CLI."
   :group 'tools
@@ -81,50 +79,99 @@ it was and signals its error."
         (goto-char start))
       (insert (nth 1 result)))))
 
+(defvar-keymap apollinaire-check-mode-map
+  :doc "Keys in the *apollinaire-check* buffer."
+  :parent special-mode-map
+  "RET" #'apollinaire-check-visit
+  "n" #'next-error-no-select
+  "p" #'previous-error-no-select)
+
+(define-derived-mode apollinaire-check-mode special-mode "Apollinaire-Check"
+  "The problems `apollinaire-check' found, one a line after the first.
+RET visits the problem on its line, and `next-error' visits each in turn."
+  (setq next-error-function #'apollinaire-check--next-error))
+
+(defvar-local apollinaire-check--line 1
+  "The line of the problem visited last, or 1, the count's line, before any.")
+
+(defun apollinaire-check-visit ()
+  "Visit the problem on this line."
+  (interactive)
+  (let ((place (get-text-property (line-beginning-position) 'apollinaire-check)))
+    (unless (and place (buffer-live-p (marker-buffer place)))
+      (user-error "No problem to visit on this line"))
+    (setq apollinaire-check--line (line-number-at-pos))
+    (pop-to-buffer (marker-buffer place))
+    (goto-char place)))
+
+(defun apollinaire-check--next-error (n &optional reset)
+  "Visit the Nth problem after the last one visited, or the first with RESET.
+Point in this buffer is not used, as `next-error' runs this away from
+its window."
+  (let ((line (+ (if reset 1 apollinaire-check--line) n)))
+    ;; The buffer ends with a line feed.
+    (unless (<= 2 line (1- (line-number-at-pos (point-max))))
+      (user-error "No more problems"))
+    (goto-char (point-min))
+    (forward-line (1- line))
+    (let ((window (get-buffer-window)))
+      (when window
+        (set-window-point window (point)))))
+  (apollinaire-check-visit))
+
+(defun apollinaire-check--place (start line column)
+  "A marker at LINE and COLUMN, counted in characters, of text from START."
+  (save-excursion
+    (goto-char start)
+    (when (> line 1)
+      (forward-line (1- line)))
+    ;; A short row's problem sits one past its last character.
+    (goto-char (min (+ (point) (1- column)) (line-end-position)))
+    (point-marker)))
+
 ;;;###autoload
 (defun apollinaire-check (&optional start end)
   "Check the text from START to END, or the whole buffer, as apollinaire art.
 Interactively, check the active region.  List each problem in the
-*apollinaire-check* buffer, where `next-error' visits it in a buffer
-visiting a file."
+*apollinaire-check* buffer, where `next-error' visits it."
   (interactive (and (use-region-p) (list (region-beginning) (region-end))))
   (let* ((start (or start (point-min)))
          (end (or end (point-max)))
-         (offset (1- (line-number-at-pos start t)))
-         ;; shortcut: problems point at the buffer's file, so `next-error' cannot visit
-         ;; a buffer with none; markers in the listing would reach any buffer.
-         (name (or buffer-file-name (buffer-name)))
-         (directory default-directory)
          (result (apollinaire--run '("check" "-")
                                    (buffer-substring-no-properties start end)))
          (stderr (nth 2 result))
-         (problems nil))
+         (header (car (split-string stderr "\n")))
+         (from 0)
+         (lines nil))
     (if (eql (nth 0 result) 0)
         (message "%s" (string-trim (nth 1 result)))
-      (with-temp-buffer
-        (insert stderr)
-        (goto-char (point-min))
-        (while (re-search-forward
-                "^  line \\([0-9]+\\), column \\([0-9]+\\): \\(.*\\)$" nil t)
-          (push (format "%s:%d:%s: %s\n" name
-                        (+ offset (string-to-number (match-string 1)))
-                        (match-string 2) (match-string 3))
-                problems)))
-      (unless problems
+      (while (string-match "^  line \\([0-9]+\\), column \\([0-9]+\\): \\(.*\\)$"
+                           stderr from)
+        (setq from (match-end 0))
+        (let* ((what (match-string 3 stderr))
+               (place (apollinaire-check--place
+                       start (string-to-number (match-string 1 stderr))
+                       (string-to-number (match-string 2 stderr)))))
+          (push (propertize
+                 (save-excursion
+                   (goto-char place)
+                   (format "%s:%d:%d: %s\n" (buffer-name) (line-number-at-pos nil t)
+                           (1+ (- place (line-beginning-position))) what))
+                 'apollinaire-check place)
+                lines)))
+      (unless lines
         (user-error "%s" (string-trim stderr)))
-      (with-current-buffer (get-buffer-create "*apollinaire-check*")
-        (let ((inhibit-read-only t))
-          (erase-buffer)
-          (setq default-directory directory)
-          (insert (car (split-string stderr "\n")) "\n")
-          (apply #'insert (nreverse problems)))
-        (compilation-mode)
-        ;; check counts characters, not screen columns.
-        (setq-local compilation-error-screen-columns nil)
-        (goto-char (point-min))
-        (setq next-error-last-buffer (current-buffer))
-        (display-buffer (current-buffer)))
-      (message "%s" (car (split-string stderr "\n"))))))
+      (let ((listing (get-buffer-create "*apollinaire-check*")))
+        (with-current-buffer listing
+          (let ((inhibit-read-only t))
+            (erase-buffer)
+            (insert header "\n")
+            (apply #'insert (nreverse lines)))
+          (apollinaire-check-mode)
+          (goto-char (point-min)))
+        (setq next-error-last-buffer listing)
+        (display-buffer listing))
+      (message "%s" header))))
 
 (provide 'apollinaire)
 
