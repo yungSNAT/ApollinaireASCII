@@ -82,7 +82,7 @@ jobs:
       # drawing, frames, playback, save and quit, with the release build.
       - name: Terminal editor in a Windows pseudo console
         if: matrix.os == 'windows-latest'
-        run: cargo test --locked --release --test conpty -- --ignored --nocapture
+        run: cargo test --locked --release --test conpty -- --ignored --nocapture the_editor_works
       # The release packaging and benchmark tools, a separate crate with its own lockfile.
       - name: xtask
         if: matrix.os == 'ubuntu-latest'
@@ -127,10 +127,18 @@ jobs:
 
   # The React, Ink, OpenTUI and Bubble Tea exports of 2 projects, run in Node, Bun and Go at
   # the versions pinned in tests/code_exports, and the Python, Ruby and C# programs under the
-  # runner's Python 3 and Ruby and .NET 10.
+  # runner's Python 3 and Ruby and .NET 10. On Windows it runs the Python, Ruby and C# programs
+  # in a pseudo console, where Ctrl+C is a console event rather than a signal.
   code-exports:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -139,23 +147,33 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/master' }}
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - if: matrix.os == 'ubuntu-latest'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 26
           package-manager-cache: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      - if: matrix.os == 'ubuntu-latest'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
           no-cache: true
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - if: matrix.os == 'ubuntu-latest'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: tests/code_exports/go/go.mod
           cache: false
       - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: 10.0.x
-      - run: cargo build --locked --bin apollinaire
-      - run: bash tests/code_exports/run.sh target/debug/apollinaire
+      - if: matrix.os == 'ubuntu-latest'
+        run: cargo build --locked --bin apollinaire
+      - if: matrix.os == 'ubuntu-latest'
+        run: bash tests/code_exports/run.sh target/debug/apollinaire
+      - name: Python, Ruby and C# programs in a Windows pseudo console
+        if: matrix.os == 'windows-latest'
+        run: |
+          python --version && ruby --version && dotnet --version
+          cargo test --locked --test conpty -- --ignored exported_programs --nocapture
 
   # The Neovim plugin and Emacs package in editors/, run headless against this build: Neovim
   # 0.10.4, the oldest the plugin supports, and Ubuntu 24.04's Emacs 29.3.
