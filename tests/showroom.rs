@@ -353,6 +353,11 @@ fn every_effect_runs_through_the_cli_with_each_option_in_printable_ascii() {
         Vec::<&str>::new(),
         "showroom index"
     );
+    // An empty icon, so the browser does not ask the host root for /favicon.ico.
+    assert!(
+        page.contains(r#"<link rel="icon" href="data:,">"#),
+        "showroom index names no icon"
+    );
     if let Some(out) = std::env::var_os("APOLLINAIRE_SHOWROOM") {
         let out = std::path::Path::new(&out);
         std::fs::create_dir(out).expect("APOLLINAIRE_SHOWROOM must name a new directory");
