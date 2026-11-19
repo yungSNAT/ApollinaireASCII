@@ -13,7 +13,7 @@
 [![OpenSSF Scorecard](https://raw.githubusercontent.com/ryanduguid/.github/badges/EquityBot/ApollinaireASCII.svg)](https://scorecard.dev/viewer/?uri=github.com/yungSNAT/ApollinaireASCII)<br>
 [![release](https://badgen.net/github/release/yungSNAT/ApollinaireASCII/stable?label=release&color=66023C&labelColor=000000)](https://github.com/yungSNAT/ApollinaireASCII/releases/latest) [![crates.io](https://badgen.net/crates/v/apollinaire-ascii?label=crates.io&color=66023C&labelColor=000000)](https://crates.io/crates/apollinaire-ascii) [![rust: 1.99+](.github/assets/badges/rust.svg)](https://www.rust-lang.org/) [![Licence: MIT](.github/assets/badges/licence.svg)](LICENSE.md) [![Editor: in browser](.github/assets/badges/editor.svg)](https://yungsnat.github.io/ApollinaireASCII/)
 
-[What it does](#what-it-does) · [Install](#install-and-run-the-cli) · [Use the library](#use-the-library) · [Browser editor](#build-the-browser-editor) · [Alternatives](#when-to-choose-something-else) · [Development](#development) · [Credits](#credits) · [Licence](#licence)
+[What it does](#what-it-does) · [Install](#install-and-run-the-cli) · [Use the library](#use-the-library) · [Neovim and Emacs](#use-it-in-neovim-or-emacs) · [Browser editor](#build-the-browser-editor) · [Alternatives](#when-to-choose-something-else) · [Development](#development) · [Credits](#credits) · [Licence](#licence)
 
 </div>
 
@@ -49,6 +49,7 @@ Every frame contains bytes 32 through 126. Line feeds separate rows when saved a
 | Browser editor | Pencil, eraser, line, rectangle, ellipse, Bezier curve, fill, linear, radial and dithered character gradients, typing, area select/move/copy/paste/rotate and reusable art stamps on the character grid, each usable by keyboard; a character picker showing any of 5 built-in palettes or palettes added in the session, read from and saved as Ascii-Motion character palette JSON and usable as gradient or conversion characters; an option that keeps rectangles square and ellipses round; optional directional ASCII mirrors; diagram mode for joined `+-|` boxes, labels and arrows; up to 16 layers that share the frames, with show, hide, lock, show-only, reorder and merge, and named groups of neighbouring layers that show, hide, lock, show alone, move and delete together, saved in JSON and flattened in text and player exports; keyframes that move, stretch and turn a layer about an anchor, eased by 8 presets or a custom cubic curve drawn in ASCII, with line characters turning as the layer turns, shown in every export and CLI command; onion skin; select/copy text, timeline, frame-range timing/duplication/deletion/reordering, undo/redo, local file imports and opt-in local recovery |
 | Export | Plain `.txt`, timed `.json` projects and standalone `.html` text players; code that plays the artwork as a React or Ink component, in OpenTUI, as a Bubble Tea program or as a Python, Ruby or C# program; from the CLI, asciicast v2 `.cast` recordings for asciinema's terminal and web players |
 | Terminal | `apollinaire edit`: an interactive editor for `.txt` and `.json` files, with typing, mouse drawing, a chosen brush, frames, playback and undo, on Windows, macOS and Linux; `apollinaire play` for playback. Escape codes only move the cursor; saved artwork remains plain text |
+| Neovim and Emacs | A Neovim plugin and an Emacs package that insert what any command prints, pass lines through `table`, `tree`, `diagram`, `say` or `transform` in place, and list what `check` finds where the editor's error list visits each problem |
 | AI agents | `apollinaire mcp` serves the artwork commands to AI agents as Model Context Protocol tools over stdio: art, lettering, speech bubbles, tables, trees, flowcharts, image conversion, effects, scenes, generators, transforms and checks. Text and images are sent with each call, so the server reads and writes no files |
 
 All maintained application logic is Rust, including the browser's DOM controls and file handling. HTML and CSS describe the interface. A small JavaScript loader starts WebAssembly; standalone HTML exports include a small JavaScript text player so each file works on its own.
@@ -144,6 +145,29 @@ fn main() -> Result<(), String> {
 `Frame` is an immutable rectangular ASCII grid. `palette::Palette` reads and writes character palette files; `Canvas` provides validated, clipped drawing, including Bezier curves, flood fill, character gradient fill and diagram boxes and arrows that join with `+`; `Animation` owns equal-size frames, durations and loop behaviour. See [the format and limits](docs/FORMAT.md) and the [API documentation](https://docs.rs/apollinaire-ascii).
 
 For a terminal interface built with ratatui, [apollinaire-ratatui](apollinaire-ratatui/README.md) draws lettering, catalogue pieces or any frame as a widget. Until it is on crates.io, depend on it as `apollinaire-ratatui = { git = "https://github.com/yungSNAT/ApollinaireASCII" }`.
+
+## Use it in Neovim or Emacs
+
+The Neovim plugin (Neovim 0.10 or later) and the Emacs package (Emacs 29.1 or later) in [`editors/`](editors/) run the `apollinaire` CLI, so they offer the commands of the version installed. With the repository cloned into your home folder (see [Development](#development)), add its folder to your configuration:
+
+```lua
+-- init.lua
+vim.opt.runtimepath:append(vim.fn.expand("~/ApollinaireASCII/editors/nvim"))
+```
+
+```elisp
+;; init.el
+(add-to-list 'load-path (expand-file-name "~/ApollinaireASCII/editors/emacs"))
+(require 'apollinaire)
+```
+
+| Neovim | Emacs | What it does |
+| --- | --- | --- |
+| `:Apollinaire art cat` | `M-x apollinaire RET art cat` | Inserts what the command prints: below the cursor line in Neovim, at point in Emacs |
+| `:'<,'>Apollinaire table - --separator ,` | `M-x apollinaire` with the region active | Sends the lines or region on stdin, written `-` as on the command line, and replaces them with the output |
+| `:ApollinaireCheck` | `M-x apollinaire-check` | Lists every problem `check` finds in the buffer, or the range or region: in the quickfix list in Neovim; in Emacs in `*apollinaire-check*`, where `next-error` visits each |
+
+Arguments are split as a shell splits them, quotes included, but nothing is expanded and no shell runs. A command that fails leaves the buffer as it was and shows its error. Set `vim.g.apollinaire_program` or `apollinaire-program` to run a program not on `PATH`. In Neovim, Tab completes the command name. `editors/test.sh` runs both editors' tests headless.
 
 ## Build the browser editor
 

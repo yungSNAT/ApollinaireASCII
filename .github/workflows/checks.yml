@@ -157,6 +157,29 @@ jobs:
       - run: cargo build --locked --bin apollinaire
       - run: bash tests/code_exports/run.sh target/debug/apollinaire
 
+  # The Neovim plugin and Emacs package in editors/, run headless against this build: Neovim
+  # 0.10.4, the oldest the plugin supports, and Ubuntu 24.04's Emacs 29.3.
+  editors:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+      - name: Install Neovim 0.10.4 and Emacs
+        run: |
+          curl --proto '=https' --tlsv1.2 -fsSLo "$RUNNER_TEMP/nvim.tar.gz" https://github.com/neovim/neovim/releases/download/v0.10.4/nvim-linux-x86_64.tar.gz
+          echo "95aaa8e89473f5421114f2787c13ae0ec6e11ebbd1a13a1bd6fcf63420f8073f  $RUNNER_TEMP/nvim.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/nvim.tar.gz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/nvim-linux-x86_64/bin" >> "$GITHUB_PATH"
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends emacs-nox
+      - run: cargo build --locked --bin apollinaire
+      - run: bash editors/test.sh target/debug/apollinaire
+
   # Formula/ makes this repository a Homebrew tap, as the README says: check it is the latest
   # release's formula, install the release it names and run the formula's test.
   homebrew:
