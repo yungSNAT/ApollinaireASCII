@@ -148,7 +148,7 @@ For a terminal interface built with ratatui, [apollinaire-ratatui](apollinaire-r
 
 ## Use it in Neovim or Emacs
 
-The Neovim plugin (Neovim 0.10 or later) and the Emacs package (Emacs 29.1 or later) in [`editors/`](editors/) run the `apollinaire` CLI, so they offer the commands of the version installed. With the repository cloned into your home folder (see [Development](#development)), add its folder to your configuration:
+The Neovim plugin (Neovim 0.10 or later) and the Emacs package (Emacs 29.1 or later) in [`editors/`](editors/) run the `apollinaire` CLI, so they offer the commands of the version installed. CI tests both with Neovim 0.10.4 on Linux, macOS and Windows, with Emacs 29.1, 29.2 and 29.3 on Linux, and with Homebrew's and Chocolatey's current Emacs on macOS and Windows. With the repository cloned into your home folder (see [Development](#development)), add its folder to your configuration:
 
 ```lua
 -- init.lua
@@ -167,7 +167,7 @@ vim.opt.runtimepath:append(vim.fn.expand("~/ApollinaireASCII/editors/nvim"))
 | `:'<,'>Apollinaire table - --separator ,` | `M-x apollinaire` with the region active | Sends the lines or region on stdin, written `-` as on the command line, and replaces them with the output |
 | `:ApollinaireCheck` | `M-x apollinaire-check` | Lists every problem `check` finds in the buffer, or the range or region: in the quickfix list in Neovim; in Emacs in `*apollinaire-check*`, where `next-error` visits each |
 
-Arguments are split as a shell splits them, quotes included, but nothing is expanded and no shell runs. A command that fails leaves the buffer as it was and shows its error. Set `vim.g.apollinaire_program` or `apollinaire-program` to run a program not on `PATH`. In Neovim, Tab completes the command name. `editors/test.sh` runs both editors' tests headless.
+Arguments are split as a shell splits them, quotes included, but nothing is expanded and no shell runs; in Neovim on Windows a backslash outside quotes is kept as written unless it comes before whitespace or a quote. Quote a Windows path that holds a space or a quote or ends in a backslash: single quotes keep every backslash but cannot hold an apostrophe; inside double quotes a doubled backslash stands for one, so write a final backslash, and each of the 2 that start a network path, twice. A command that fails leaves the buffer as it was and shows its error. Set `vim.g.apollinaire_program` or `apollinaire-program` to run a program not on `PATH`. In Neovim, Tab completes the command name. `editors/test.sh` runs both editors' tests headless.
 
 ## Build the browser editor
 
