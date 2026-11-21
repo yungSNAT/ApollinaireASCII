@@ -88,6 +88,22 @@
       (when (file-exists-p file)
         (delete-file file)))))
 
+(ert-deftest apollinaire-windows-path-reaches-the-cli-whole ()
+  (skip-unless (eq system-type 'windows-nt))
+  (let ((file (subst-char-in-string
+               ?/ ?\\ (concat (make-temp-name (expand-file-name "apollinaire" temporary-file-directory))
+                              ".txt"))))
+    (unwind-protect
+        (apollinaire-tests-with "a\n"
+          (apollinaire (concat "tree - --output " file) (point-min) (point-max))
+          (should (string-match-p "\\\\" file))
+          (should (equal (with-temp-buffer
+                           (insert-file-contents file)
+                           (buffer-string))
+                         "a\n")))
+      (when (file-exists-p file)
+        (delete-file file)))))
+
 (ert-deftest apollinaire-missing-program-leaves-the-buffer ()
   (apollinaire-tests-with "x\n"
     (let ((apollinaire-program "/nonexistent/apollinaire"))
