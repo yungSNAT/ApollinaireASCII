@@ -201,7 +201,7 @@ ApollinaireASCII keeps every output to printable ASCII and shares one Rust core 
 - Image conversion alone: [artem](https://github.com/FineFindus/artem) (Rust) or [ascii-image-converter](https://github.com/TheZoraiz/ascii-image-converter) (Go).
 - Terminal animation and effects in Python: [asciimatics](https://github.com/peterbrittain/asciimatics) or [terminaltexteffects](https://github.com/ChrisBuilds/terminaltexteffects).
 - Video playback in a terminal through FFmpeg: [tplay](https://github.com/maxcurzi/tplay).
-- Colour, layer groups, and image or video export in a browser editor: [Ascii-Motion](https://github.com/CameronFoxly/Ascii-Motion) (2.2.9, README read 16 November 2026).
+- Colour and image or video export in a browser editor: [Ascii-Motion](https://github.com/CameronFoxly/Ascii-Motion) (2.2.9, README read 16 November 2026).
 - Ready-made animated pieces to drop into a page: [ascii.rest](https://ascii.rest/) or [ascii-magic-art](https://www.npmjs.com/package/ascii-magic-art) (1.1.0, 734 pieces by its npm description, read 13 November 2026).
 
 ## Development
