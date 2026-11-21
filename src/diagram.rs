@@ -41,13 +41,14 @@ pub use sequence::sequence;
 /// ```
 pub fn mermaid(source: &str) -> Result<crate::Frame> {
     const KINDS: &str = "a Mermaid diagram starts with flowchart, graph or sequenceDiagram";
+    // A bad byte or a code fence that is unclosed, tagged otherwise or followed by text is
+    // reported before the diagram type.
+    mermaid_lines(source, |_, _| Ok(()))?;
     let first = source
         .split('\n')
         .enumerate()
         .map(|(index, line)| (index + 1, line.trim()))
-        .find(|(_, line)| {
-            !line.is_empty() && !["%%", "```", "~~~"].iter().any(|m| line.starts_with(m))
-        });
+        .find(|(_, line)| !line.is_empty() && !line.starts_with("%%") && !fence(line));
     let Some((number, line)) = first else {
         return Err(format!("The text is empty: {KINDS}"));
     };
@@ -62,6 +63,15 @@ pub fn mermaid(source: &str) -> Result<crate::Frame> {
         }
         _ => flowchart(source),
     }
+}
+
+/// Whether a trimmed line is a Markdown code fence that may hold Mermaid text: ```` ``` ```` or
+/// `~~~`, untagged or tagged `mermaid`.
+fn fence(line: &str) -> bool {
+    ["```", "~~~"].into_iter().any(|mark| {
+        line.starts_with(mark)
+            && matches!(line.trim_start_matches(&mark[..1]).trim(), "" | "mermaid")
+    })
 }
 
 /// Each line of Mermaid text with its number, inside one optional outer Markdown code fence
@@ -85,7 +95,7 @@ fn mermaid_lines(source: &str, mut statement: impl FnMut(usize, &str) -> Result<
         }
     });
     // The first line with text may open one outer Markdown code fence.
-    let mut fence = None;
+    let mut opened = None;
     for line in lines.by_ref() {
         let (number, text) = line?;
         let first = text.trim();
@@ -93,15 +103,13 @@ fn mermaid_lines(source: &str, mut statement: impl FnMut(usize, &str) -> Result<
             continue;
         }
         match ["```", "~~~"].into_iter().find(|f| first.starts_with(f)) {
-            Some(mark) if matches!(first.trim_start_matches(&mark[..1]).trim(), "" | "mermaid") => {
-                fence = Some((mark, number));
-            }
+            Some(mark) if fence(first) => opened = Some((mark, number)),
             Some(_) => return Err(format!("Line {number}: only a mermaid code block is read")),
             None => statement(number, text)?,
         }
         break;
     }
-    let Some((mark, opened)) = fence else {
+    let Some((mark, opened)) = opened else {
         for line in lines {
             let (number, text) = line?;
             statement(number, text)?;

@@ -35,6 +35,11 @@ fn messages_run_between_lifelines_with_their_text_above() {
         ]
         .join("\n")
     );
+    // A tab reads as a space.
+    assert_eq!(
+        drawn("sequenceDiagram\n\tAlice->>Bob:\tHi\n\tBob-->>Alice: Hello"),
+        drawn("sequenceDiagram\n  Alice->>Bob: Hi\n  Bob-->>Alice: Hello")
+    );
     // Through the Mermaid reader too, which picks the diagram type from the first statement.
     assert_eq!(
         mermaid("%% greeting\nsequenceDiagram; A->>B: hi")
@@ -215,7 +220,7 @@ sequenceDiagram
             "| +----------------------+ |",
             "+--------------------------+",
             "+-[par]--------------------+",
-            "|     |      x|      |     |",
+            "|     |   x   |      |     |",
             "|     |------------->|     |",
             "+-[and]--------------------+",
             "|     |   y   |      |     |",
@@ -361,6 +366,73 @@ fn sequence_diagrams_stay_within_the_limits() {
         refused(&" ".repeat(16 * 1024 * 1024 + 1)),
         "The sequence diagram exceeds the 16 MiB input limit"
     );
+    // A box exactly as wide as the limit still fits.
+    let widest = drawn(&format!(
+        "sequenceDiagram\nparticipant A as {}",
+        "w".repeat(508)
+    ));
+    assert!(widest.split('\n').all(|row| row.len() == 512), "{widest}");
+}
+
+#[test]
+fn message_text_sits_beside_its_sender_clear_of_other_lifelines() {
+    let source = "sequenceDiagram
+  participant A
+  participant B
+  participant C
+  A->>C: abc
+  C-->>A: a reply wider than one gap";
+    assert_eq!(
+        drawn(source),
+        [
+            "+---+  +---+                        +---+",
+            "| A |  | B |                        | C |",
+            "+-+-+  +-+-+                        +-+-+",
+            "  | abc  |                            |  ",
+            "  |---------------------------------->|  ",
+            "  |      | a reply wider than one gap |  ",
+            "  |<..................................|  ",
+            "+-+-+  +-+-+                        +-+-+",
+            "| A |  | B |                        | C |",
+            "+---+  +---+                        +---+",
+        ]
+        .join("\n")
+    );
+}
+
+#[test]
+fn entities_are_text_and_as_reads_in_any_case() {
+    // `#59;` is a `;` inside the text, not the end of the statement; a `#` that starts no
+    // entity stays as written.
+    let source = "sequenceDiagram
+  participant A AS Alice
+  A->>B: first #59; still first; B->>A: C# #quot;q#quot; #35;
+  Note over A: #lt;#gt;#amp;#semi;#colon;#num;#apos;#nbsp;.";
+    assert_eq!(
+        drawn(source),
+        [
+            "  +-------+               +---+",
+            "  | Alice |               | B |",
+            "  +---+---+               +-+-+",
+            "      | first ; still first |  ",
+            "      |-------------------->|  ",
+            "      |      C# \"q\" #       |  ",
+            "      |<--------------------|  ",
+            "+-----+-----+               |  ",
+            "| <>&;:#' . |               |  ",
+            "+-----+-----+               |  ",
+            "  +---+---+               +-+-+",
+            "  | Alice |               | B |",
+            "  +-------+               +---+",
+        ]
+        .join("\n")
+    );
+    for entity in ["#9829;", "#heart;"] {
+        assert_eq!(
+            refused(&format!("sequenceDiagram\n  A->>B: {entity}")),
+            format!("Line 2: {entity} is not an entity for a printable ASCII character")
+        );
+    }
 }
 
 #[test]
@@ -382,8 +454,19 @@ fn mermaid_reads_the_diagram_type_from_the_first_statement() {
             "stateDiagram-v2",
             "Line 1: a Mermaid diagram starts with flowchart, graph or sequenceDiagram",
         ),
-        // Other text keeps the flowchart reader's own error.
+        // A bad byte or fence is reported before the type, with its line.
         ("caf\u{e9}", "Line 1: byte 4 is 0xc3, not printable ASCII"),
+        ("```rust\n```", "Line 1: only a mermaid code block is read"),
+        (
+            "```mermaid",
+            "The code block opened on line 1 is not closed",
+        ),
+        ("```\n```\nmore", "Line 3: text after the code block"),
+        // Other text keeps the flowchart reader's own error.
+        (
+            "A-->B",
+            "Line 1: a flowchart starts with flowchart or graph and a direction",
+        ),
     ] {
         assert_eq!(mermaid(source).unwrap_err(), error, "{source:?}");
     }

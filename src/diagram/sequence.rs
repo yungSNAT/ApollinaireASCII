@@ -5,7 +5,7 @@
 //! arrows between them; see [`sequence`].
 
 use crate::{Canvas, Frame, MAX_HEIGHT, MAX_INPUT_BYTES, MAX_WIDTH, Result};
-use std::collections::HashMap;
+use std::{borrow::Cow, collections::HashMap};
 
 /// The narrowest participant box and the gap between boxes take 8 columns, so 64 fill the
 /// 512-column limit.
@@ -65,10 +65,14 @@ struct Diagram {
 ///   bottom.
 /// - Messages `A->>B: text`: `->>` and `-->>` end in `>`, `-x` and `--x` in `x`, `-)` and
 ///   `--)` in `)`, `<<->>` and `<<-->>` have a head at both ends, and `->` and `-->` have
-///   none. A doubled `-` draws a dotted line of `.`. The text is optional; a message to its
-///   sender loops back to its own lifeline. `+` or `-` before the receiver, and `activate`
+///   none. A doubled `-` draws a dotted line of `.`. The text is optional and sits above the
+///   arrow beside the sender, clear of other lifelines; a message to its sender loops back to
+///   its own lifeline. `+` or `-` before the receiver, and `activate`
 ///   and `deactivate` statements, are read but draw no activation bar.
 /// - `autonumber` numbers the messages after it from 1.
+/// - Text may hold the entities `#59;` (any decimal code for a printable ASCII character),
+///   `#quot;`, `#amp;`, `#lt;`, `#gt;`, `#semi;`, `#colon;`, `#num;`, `#apos;` and `#nbsp;`
+///   (a space); a `;` inside one does not end the statement.
 /// - Notes: `Note right of A: text`, `Note left of A: text`, `Note over A: text` and
 ///   `Note over A,B: text`.
 /// - Blocks `loop`, `opt`, `alt` with `else`, `par` with `and`, `critical` with `option`
@@ -76,7 +80,8 @@ struct Diagram {
 ///   are read but not drawn: they only colour a background.
 ///
 /// `box`, `create`, `destroy`, `title`, links, `autonumber` with a start or step, half
-/// arrowheads, participant names in other characters and any other syntax are refused with
+/// arrowheads, other entities, participant names in other characters and any other syntax are
+/// refused with
 /// their line number, as is a byte outside printable ASCII. Lines drawn later cover earlier
 /// ones where they cross. At most 64 participants and 256 drawn statements, and the drawing
 /// must fit 512 columns by 256 rows.
@@ -139,6 +144,76 @@ struct Reader {
     number: Option<usize>,
 }
 
+/// Named entities Mermaid text may use, as the ASCII character each stands for; `nbsp` is a
+/// plain space.
+const ENTITIES: &[(&str, char)] = &[
+    ("quot", '"'),
+    ("amp", '&'),
+    ("lt", '<'),
+    ("gt", '>'),
+    ("semi", ';'),
+    ("colon", ':'),
+    ("num", '#'),
+    ("apos", '\''),
+    ("nbsp", ' '),
+];
+
+/// The length of the entity such as `#59;` or `#quot;` at the start of `text`, if one is.
+fn entity_length(text: &str) -> Option<usize> {
+    let name = text[1..]
+        .bytes()
+        .take_while(u8::is_ascii_alphanumeric)
+        .count();
+    (name > 0 && text.as_bytes().get(1 + name) == Some(&b';')).then_some(name + 2)
+}
+
+/// The statements in a line, split at each `;` outside an entity.
+fn statements(line: &str) -> Vec<&str> {
+    let (mut parts, mut start, mut at) = (Vec::new(), 0, 0);
+    while let Some(&byte) = line.as_bytes().get(at) {
+        let entity = (byte == b'#').then(|| entity_length(&line[at..])).flatten();
+        if byte == b';' {
+            parts.push(&line[start..at]);
+            start = at + 1;
+        }
+        at += entity.unwrap_or(1);
+    }
+    parts.push(&line[start..]);
+    parts
+}
+
+/// Text with each entity written as its character: `#59;` as `;`, `#quot;` as `"`. An entity
+/// for a character outside printable ASCII, or a name this does not know, is refused.
+fn decode(number: usize, text: &str) -> Result<String> {
+    let mut decoded = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find('#') {
+        decoded.push_str(&rest[..at]);
+        rest = &rest[at..];
+        let Some(length) = entity_length(rest) else {
+            decoded.push('#');
+            rest = &rest[1..];
+            continue;
+        };
+        let name = &rest[1..length - 1];
+        let character = match name.parse::<u32>() {
+            Ok(code) => char::from_u32(code),
+            Err(_) => ENTITIES.iter().find(|e| e.0 == name).map(|e| e.1),
+        };
+        match character {
+            Some(character @ ' '..='~') => decoded.push(character),
+            _ => {
+                return Err(format!(
+                    "Line {number}: #{name}; is not an entity for a printable ASCII character"
+                ));
+            }
+        }
+        rest = &rest[length..];
+    }
+    decoded.push_str(rest);
+    Ok(decoded)
+}
+
 /// `text` without its first word when that word is `prefix` in any letter case.
 fn keyword<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {
     let (word, rest) = text.split_once(' ').unwrap_or((text, ""));
@@ -150,7 +225,12 @@ impl Reader {
         if line.trim_start().starts_with("%%") {
             return Ok(());
         }
-        for statement in line.replace('\t', " ").split(';') {
+        let line = if line.contains('\t') {
+            Cow::Owned(line.replace('\t', " "))
+        } else {
+            Cow::Borrowed(line)
+        };
+        for statement in statements(&line) {
             let statement = statement.trim();
             if statement.is_empty() {
                 continue;
@@ -175,13 +255,14 @@ impl Reader {
         let word = word.to_ascii_lowercase();
         match word.as_str() {
             "participant" | "actor" => {
-                let (name, label) = match rest.split_once(" as ") {
-                    Some((name, label)) => (name, Some(label.trim())),
+                // `as` in any letter case; ASCII lowering keeps every byte offset.
+                let (name, label) = match rest.to_ascii_lowercase().find(" as ") {
+                    Some(at) => (&rest[..at], Some(rest[at + 4..].trim())),
                     None => (rest, None),
                 };
                 let id = self.participant(number, name)?;
                 if let Some(label) = label {
-                    self.labels[id] = label.to_owned();
+                    self.labels[id] = decode(number, label)?;
                 }
                 Ok(())
             }
@@ -190,7 +271,7 @@ impl Reader {
                 self.blocks.push((word.clone(), true, number));
                 self.push(
                     number,
-                    Event::Open(format!("{word} {rest}").trim().to_owned()),
+                    Event::Open(decode(number, format!("{word} {rest}").trim())?),
                 )
             }
             "rect" => {
@@ -210,7 +291,7 @@ impl Reader {
                 }
                 self.push(
                     number,
-                    Event::Divide(format!("{word} {rest}").trim().to_owned()),
+                    Event::Divide(decode(number, format!("{word} {rest}").trim())?),
                 )
             }
             "end" if rest.is_empty() => match self.blocks.pop() {
@@ -285,7 +366,7 @@ impl Reader {
                 (id, id)
             }
         };
-        let text = text.trim().to_owned();
+        let text = decode(number, text.trim())?;
         self.push(
             number,
             Event::Note {
@@ -314,7 +395,7 @@ impl Reader {
         let (receiver, text) = rest.split_once(':').unwrap_or((rest, ""));
         let from = self.participant(number, sender)?;
         let to = self.participant(number, receiver)?;
-        let mut text = text.trim().to_owned();
+        let mut text = decode(number, text.trim())?;
         if let Some(next) = self.number.as_mut() {
             text = format!("{next}. {text}").trim_end().to_owned();
             *next += 1;
@@ -369,6 +450,12 @@ fn leftward(head: u8) -> u8 {
     }
 }
 
+/// The lifeline next to the sender's on the receiver's side. A message's text sits between the
+/// 2, so no other lifeline runs through it.
+fn beside(from: usize, to: usize) -> usize {
+    if to > from { from + 1 } else { from - 1 }
+}
+
 fn rows(event: &Event) -> usize {
     match event {
         Event::Message { from, to, .. } if from == to => 3,
@@ -399,7 +486,8 @@ fn layout(diagram: &Diagram) -> Result<Frame> {
                 right[*from] = right[*from].max(reach);
             }
             Event::Message { from, to, text, .. } => {
-                spans.push(((*from).min(*to), (*from).max(*to), text.len() + 3));
+                let near = beside(*from, *to);
+                spans.push((near.min(*from), near.max(*from), text.len() + 3));
             }
             Event::Note {
                 first,
@@ -547,7 +635,9 @@ fn layout(diagram: &Diagram) -> Result<Frame> {
                 let (a, b) = (x[*from].min(x[*to]), x[*from].max(x[*to]));
                 let mut y = y;
                 if !text.is_empty() {
-                    canvas.text(at(a + 1 + (b - a - 1 - text.len()) / 2), y, text)?;
+                    let near = x[beside(*from, *to)];
+                    let (c, d) = (near.min(x[*from]), near.max(x[*from]));
+                    canvas.text(at(c + 1 + (d - c - 1 - text.len()) / 2), y, text)?;
                     y += 1;
                 }
                 canvas.line((at(a + 1), y), (at(b - 1), y), *stroke)?;
