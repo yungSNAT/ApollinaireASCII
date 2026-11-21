@@ -57,6 +57,7 @@ function cases.splits_like_a_shell()
   same(apollinaire.split([[text 'a "b" \c']]), { "text", [[a "b" \c]] }, "single quotes")
   same(apollinaire.split([[text "a \"b\" \\ \c"]]), { "text", [[a "b" \ \c]] }, "escapes in double quotes")
   same(apollinaire.split([[text a\ b \"c ""]]), { "text", "a b", [["c]], "" }, "escaped space and quote, empty word")
+  same(apollinaire.split([[image 'C:\dir\' --flag "C:\'draft.txt"]]), { "image", [[C:\dir\]], "--flag", [[C:\'draft.txt]] }, "quoted Windows paths")
   if vim.fn.has("win32") == 1 then
     same(apollinaire.split([[image C:\art\a.png \\host\share\b.png]]), { "image", [[C:\art\a.png]], [[\\host\share\b.png]] }, "Windows paths")
   else

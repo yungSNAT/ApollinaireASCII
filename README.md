@@ -167,7 +167,7 @@ vim.opt.runtimepath:append(vim.fn.expand("~/ApollinaireASCII/editors/nvim"))
 | `:'<,'>Apollinaire table - --separator ,` | `M-x apollinaire` with the region active | Sends the lines or region on stdin, written `-` as on the command line, and replaces them with the output |
 | `:ApollinaireCheck` | `M-x apollinaire-check` | Lists every problem `check` finds in the buffer, or the range or region: in the quickfix list in Neovim; in Emacs in `*apollinaire-check*`, where `next-error` visits each |
 
-Arguments are split as a shell splits them, quotes included, but nothing is expanded and no shell runs; in Neovim on Windows a backslash outside quotes is kept as written unless it comes before a space, a tab or a quote, so a Windows path needs quotes only when it holds a space. A command that fails leaves the buffer as it was and shows its error. Set `vim.g.apollinaire_program` or `apollinaire-program` to run a program not on `PATH`. In Neovim, Tab completes the command name. `editors/test.sh` runs both editors' tests headless.
+Arguments are split as a shell splits them, quotes included, but nothing is expanded and no shell runs; in Neovim on Windows a backslash outside quotes is kept as written unless it comes before a space, a tab or a quote, so a Windows path needs quotes only when it holds a space or a quote or ends in a backslash before another argument; single quotes keep it exactly as written. A command that fails leaves the buffer as it was and shows its error. Set `vim.g.apollinaire_program` or `apollinaire-program` to run a program not on `PATH`. In Neovim, Tab completes the command name. `editors/test.sh` runs both editors' tests headless.
 
 ## Build the browser editor
 
