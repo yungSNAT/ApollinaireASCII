@@ -119,7 +119,7 @@ src
 
 Both refuse text with no rows and a result over 512 columns or 256 rows; a tree also stops at 256 lines.
 
-`diagram FILE` lays out a subset of Mermaid's flowchart syntax as boxes and arrows. The text starts with `flowchart` or `graph` and an optional direction, `TD` (or `TB`, the default), `BT`, `LR` or `RL`, and may sit inside one Markdown code block. It reads nodes with their text in the shapes `[..]`, `(..)`, `{..}`, `((..))`, `(((..)))`, `([..])`, `[[..]]`, `[(..)]`, `{{..}}`, `>..]`, `[/../]`, `[\..\]`, `[/..\]` and `[\../]`, each drawn as the same box; links `-->`, `---`, `<-->`, dotted `-.->` and thick `==>`, drawn alike, with an extra `-` asking for a longer link; link text written `-->|text|` or `-- text -->`; chains such as `A --> B --> C`; and groups such as `A & B --> C`. Style statements are skipped, since the output has no colour. Subgraphs, `click`, `direction`, shapes written `A@{ shape: .. }`, a link with an arrowhead at its start only (`A <-- B`), circle and cross link ends, a link from a node to itself and any other syntax are refused with the line number, as is a byte outside printable ASCII.
+`diagram FILE` lays out a subset of Mermaid's flowchart and sequence diagram syntax. The text starts with `flowchart` or `graph` and an optional direction, `TD` (or `TB`, the default), `BT`, `LR` or `RL`, and may sit inside one Markdown code block. It reads nodes with their text in the shapes `[..]`, `(..)`, `{..}`, `((..))`, `(((..)))`, `([..])`, `[[..]]`, `[(..)]`, `{{..}}`, `>..]`, `[/../]`, `[\..\]`, `[/..\]` and `[\../]`, each drawn as the same box; links `-->`, `---`, `<-->`, dotted `-.->` and thick `==>`, drawn alike, with an extra `-` asking for a longer link; link text written `-->|text|` or `-- text -->`; chains such as `A --> B --> C`; and groups such as `A & B --> C`. Style statements are skipped, since the output has no colour. Subgraphs, `click`, `direction`, shapes written `A@{ shape: .. }`, a link with an arrowhead at its start only (`A <-- B`), circle and cross link ends, a link from a node to itself and any other syntax are refused with the line number, as is a byte outside printable ASCII.
 
 Nodes sit in ranks along the direction, and links run between ranks; a link back up the chart keeps its arrowhead where it points. Where 2 links cross, the vertical line is drawn through, so `+` marks only a bend or the edge of a box. A chart is refused over 1,024 nodes, 4,096 links, or 512 columns by 256 rows.
 
@@ -136,7 +136,23 @@ $ printf 'graph TD\n  A[Start] -->|yes| B[Done]\n' | apollinaire diagram -
  +------+
 ```
 
-The browser editor's Tables, trees and flowcharts panel draws the same output from typed or pasted text and keeps it as an art stamp to place.
+Text whose first statement is `sequenceDiagram` is drawn as a sequence diagram instead: a box for each participant at the top and bottom, joined by its lifeline, with messages as arrows between lifelines in the order written. It reads participants named with ASCII letters, digits and `_`, in the order they first appear, declared early with `participant` or `actor` and given other text with `as`; messages `->>`, `-->>`, `-x`, `--x`, `-)`, `--)`, `<<->>`, `<<-->>`, `->` and `-->`, ending in `>`, `x`, `)`, a head at both ends or none, with a doubled `-` drawn as a dotted line of `.`, optional text after `:` and a message to its sender looping back; `autonumber`; notes `right of`, `left of` and `over` one participant or `over` 2; and the blocks `loop`, `opt`, `alt` with `else`, `par` with `and`, `critical` with `option` and `break`, each closed by `end` and framed with its kind and text. Keywords may be in any letter case. Activation marks (`+` and `-` before the receiver, `activate` and `deactivate`) and `rect` blocks are read but draw nothing, since the output has no bars or colour. `box`, `create`, `destroy`, `title`, links, `autonumber` with a start or step, half arrowheads, other participant names and any other syntax are refused with the line number. A diagram is refused over 64 participants, 256 drawn statements, or 512 columns by 256 rows.
+
+```text
+$ printf 'sequenceDiagram\n  Alice->>Bob: Hi\n  Bob-->>Alice: Hello\n' | apollinaire diagram -
++-------+  +-----+
+| Alice |  | Bob |
++---+---+  +--+--+
+    |   Hi    |
+    |-------->|
+    |  Hello  |
+    |<........|
++---+---+  +--+--+
+| Alice |  | Bob |
++-------+  +-----+
+```
+
+The browser editor's Tables, trees and diagrams panel draws the same output from typed or pasted text and keeps it as an art stamp to place.
 
 `play` requires a terminal and refuses redirected stdout. It uses ANSI clear/cursor commands solely to update terminal text. It does not put those codes in the project or any text export. It plays the requested number of cycles; the project's loop setting controls the browser and standalone player. Unsupported media and malformed input fail visibly.
 
