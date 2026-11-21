@@ -148,7 +148,7 @@ For a terminal interface built with ratatui, [apollinaire-ratatui](apollinaire-r
 
 ## Use it in Neovim or Emacs
 
-The Neovim plugin (Neovim 0.10 or later) and the Emacs package (Emacs 29.1 or later) in [`editors/`](editors/) run the `apollinaire` CLI, so they offer the commands of the version installed. With the repository cloned into your home folder (see [Development](#development)), add its folder to your configuration:
+The Neovim plugin (Neovim 0.10 or later) and the Emacs package (Emacs 29.1 or later) in [`editors/`](editors/) run the `apollinaire` CLI, so they offer the commands of the version installed. CI tests both with Neovim 0.10.4 on Linux, macOS and Windows, with Emacs 29.1, 29.2 and 29.3 on Linux, and with Homebrew's and Chocolatey's current Emacs on macOS and Windows. With the repository cloned into your home folder (see [Development](#development)), add its folder to your configuration:
 
 ```lua
 -- init.lua

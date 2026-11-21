@@ -6,6 +6,10 @@
 # Usage: editors/test.sh <apollinaire binary>
 set -euo pipefail
 APOLLINAIRE=$(realpath "$1")
+# Native Windows editors need a Windows path, not Git Bash's /c/... form.
+if command -v cygpath > /dev/null; then
+  APOLLINAIRE=$(cygpath -m "$APOLLINAIRE")
+fi
 export APOLLINAIRE
 cd "$(dirname "$0")"
 nvim --version | head -n 1
