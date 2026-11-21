@@ -507,6 +507,10 @@ fn tools_return_what_their_commands_print() {
             printed(&["diagram", "-"], b"graph LR\nA --> B"),
         ),
         (
+            call(21, "diagram", json!({"text": "sequenceDiagram\nA->>B: hi"})),
+            printed(&["diagram", "-"], b"sequenceDiagram\nA->>B: hi"),
+        ),
+        (
             call(
                 19,
                 "transform",

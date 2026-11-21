@@ -371,9 +371,11 @@ enum Command {
         /// Text with one node per line, or `-` for stdin. Deeper indentation makes a child.
         input: PathBuf,
     },
-    /// Lay out a Mermaid flowchart as boxes and arrows: the subset docs/CLI.md lists.
+    /// Lay out a Mermaid flowchart or sequence diagram as boxes and arrows: the subset docs/CLI.md
+    /// lists.
     Diagram {
-        /// A Mermaid `flowchart` or `graph`, or `-` for stdin; one Markdown code block is read.
+        /// A Mermaid `flowchart`, `graph` or `sequenceDiagram`, or `-` for stdin; one Markdown code
+        /// block is read.
         input: PathBuf,
     },
     /// Convert images, animated GIFs or video files to text, from files or https:// URLs.
@@ -763,7 +765,7 @@ fn run(args: Args) -> Result<()> {
             rules.into(),
         )?),
         Command::Tree { input } => Animation::still(diagram::tree(&read_text(&input)?)?),
-        Command::Diagram { input } => Animation::still(diagram::flowchart(&read_text(&input)?)?),
+        Command::Diagram { input } => Animation::still(diagram::mermaid(&read_text(&input)?)?),
         Command::Image {
             inputs,
             output_dir,
