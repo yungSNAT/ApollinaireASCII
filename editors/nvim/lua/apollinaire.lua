@@ -10,9 +10,14 @@ local function notify(message, level)
   vim.notify(message, level or vim.log.levels.ERROR, { title = "apollinaire" })
 end
 
+-- Windows paths use \ as a separator, so there it is kept as written outside quotes unless it
+-- escapes a space, a tab or a quote.
+local windows = vim.fn.has("win32") == 1
+
 -- Split a command line into arguments as a POSIX shell would, expanding nothing: single
 -- quotes keep text as written, double quotes keep it apart from \" and \\, and a backslash
--- outside quotes keeps the character after it.
+-- outside quotes keeps the character after it; on Windows it does so only before a space, a
+-- tab or a quote, and is otherwise kept itself.
 function M.split(line)
   local args, word, quote, i = {}, nil, nil, 1
   while i <= #line do
@@ -37,7 +42,7 @@ function M.split(line)
       word = word or ""
       if c == "'" or c == '"' then
         quote = c
-      elseif c == "\\" then
+      elseif c == "\\" and (not windows or line:sub(i + 1, i + 1):match("[%s'\"]")) then
         word, i = word .. line:sub(i + 1, i + 1), i + 1
       else
         word = word .. c

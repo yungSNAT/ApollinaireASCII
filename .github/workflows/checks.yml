@@ -127,13 +127,13 @@ jobs:
 
   # The React, Ink, OpenTUI and Bubble Tea exports of 2 projects, run in Node, Bun and Go at
   # the versions pinned in tests/code_exports, and the Python, Ruby and C# programs under the
-  # runner's Python 3 and Ruby and .NET 10. On Windows it runs the Python, Ruby and C# programs
-  # in a pseudo console, where Ctrl+C is a console event rather than a signal.
+  # runner's Python 3 and Ruby and .NET 10. On Windows, x64 and Arm, it runs the Python, Ruby
+  # and C# programs in a pseudo console, where Ctrl+C is a console event rather than a signal.
   code-exports:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, windows-11-arm]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     defaults:
@@ -170,16 +170,31 @@ jobs:
       - if: matrix.os == 'ubuntu-latest'
         run: bash tests/code_exports/run.sh target/debug/apollinaire
       - name: Python, Ruby and C# programs in a Windows pseudo console
-        if: matrix.os == 'windows-latest'
+        if: runner.os == 'Windows'
         run: |
           python --version && ruby --version && dotnet --version
           cargo test --locked --test conpty -- --ignored exported_programs --nocapture
 
-  # The Neovim plugin and Emacs package in editors/, run headless against this build: Neovim
-  # 0.10.4, the oldest the plugin supports, and Ubuntu 24.04's Emacs 29.3.
+  # The Neovim plugin and Emacs package in editors/, run headless against this build with
+  # Neovim 0.10.4, the oldest the plugin supports: on Linux with Ubuntu 24.04's Emacs 29.3 and
+  # with Emacs 29.1 and 29.2, the oldest the package supports, and on macOS and Windows with
+  # Homebrew's and Chocolatey's current Emacs.
   editors:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, emacs: apt, nvim: nvim-linux-x86_64.tar.gz, sha256: 95aaa8e89473f5421114f2787c13ae0ec6e11ebbd1a13a1bd6fcf63420f8073f }
+          - { os: ubuntu-24.04, emacs: "29.1", nvim: nvim-linux-x86_64.tar.gz, sha256: 95aaa8e89473f5421114f2787c13ae0ec6e11ebbd1a13a1bd6fcf63420f8073f }
+          - { os: ubuntu-24.04, emacs: "29.2", nvim: nvim-linux-x86_64.tar.gz, sha256: 95aaa8e89473f5421114f2787c13ae0ec6e11ebbd1a13a1bd6fcf63420f8073f }
+          - { os: macos-latest, emacs: brew, nvim: nvim-macos-arm64.tar.gz, sha256: 3d7b07ec9b491d2a3d55167bc1db1cfa96773a1a37e74ea384cb15ab0189223b }
+          - { os: windows-latest, emacs: choco, nvim: nvim-win64.zip, sha256: dceeb8301f64e244e3e2dffaedbb153bd01c0c6ecb5024a90e3172dc8e65555c }
+    name: editors (${{ matrix.os }}, Emacs ${{ matrix.emacs }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -188,15 +203,38 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/master' }}
-      - name: Install Neovim 0.10.4 and Emacs
+      - name: Install Neovim 0.10.4
+        env:
+          NVIM_ASSET: ${{ matrix.nvim }}
+          NVIM_SHA256: ${{ matrix.sha256 }}
         run: |
-          curl --proto '=https' --tlsv1.2 -fsSLo "$RUNNER_TEMP/nvim.tar.gz" https://github.com/neovim/neovim/releases/download/v0.10.4/nvim-linux-x86_64.tar.gz
-          echo "95aaa8e89473f5421114f2787c13ae0ec6e11ebbd1a13a1bd6fcf63420f8073f  $RUNNER_TEMP/nvim.tar.gz" | sha256sum -c -
-          tar -xzf "$RUNNER_TEMP/nvim.tar.gz" -C "$RUNNER_TEMP"
-          echo "$RUNNER_TEMP/nvim-linux-x86_64/bin" >> "$GITHUB_PATH"
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends emacs-nox
+          curl --proto '=https' --tlsv1.2 -fsSLo "$RUNNER_TEMP/$NVIM_ASSET" "https://github.com/neovim/neovim/releases/download/v0.10.4/$NVIM_ASSET"
+          sum="sha256sum"
+          command -v sha256sum > /dev/null || sum="shasum -a 256"
+          echo "$NVIM_SHA256  $RUNNER_TEMP/$NVIM_ASSET" | $sum -c -
+          cd "$RUNNER_TEMP"
+          case "$NVIM_ASSET" in
+            *.zip) unzip -q "$NVIM_ASSET" && echo "$RUNNER_TEMP/nvim-win64/bin" >> "$GITHUB_PATH" ;;
+            *) tar -xzf "$NVIM_ASSET" && echo "$RUNNER_TEMP/${NVIM_ASSET%.tar.gz}/bin" >> "$GITHUB_PATH" ;;
+          esac
+      - name: Install Ubuntu's Emacs
+        if: matrix.emacs == 'apt'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends emacs-nox
+      - name: Install Emacs ${{ matrix.emacs }}
+        if: startsWith(matrix.emacs, '29.')
+        uses: purcell/setup-emacs@bdc64dc730ae1fcba200bfd52cb1b4cf6159cbe5 # v8.0
+        with:
+          version: ${{ matrix.emacs }}
+      - name: Install Homebrew's Emacs
+        if: matrix.emacs == 'brew'
+        run: brew install emacs
+      - name: Install Chocolatey's Emacs
+        if: matrix.emacs == 'choco'
+        run: |
+          choco install emacs --no-progress -y
+          echo "C:/ProgramData/chocolatey/bin" >> "$GITHUB_PATH"
       - run: cargo build --locked --bin apollinaire
-      - run: bash editors/test.sh target/debug/apollinaire
+      - run: bash editors/test.sh "target/debug/apollinaire${{ runner.os == 'Windows' && '.exe' || '' }}"
 
   # Formula/ makes this repository a Homebrew tap, as the README says: check it is the latest
   # release's formula, install the release it names and run the formula's test.
