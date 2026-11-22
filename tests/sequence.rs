@@ -427,6 +427,8 @@ fn entities_are_text_and_as_reads_in_any_case() {
         ]
         .join("\n")
     );
+    // A code Mermaid does not decode, such as a hexadecimal one, stays as written.
+    assert!(drawn("sequenceDiagram\n  A->>B: #x3B; #55296;").contains("| #x3B; #55296; |"));
     for entity in ["#9829;", "#heart;"] {
         assert_eq!(
             refused(&format!("sequenceDiagram\n  A->>B: {entity}")),

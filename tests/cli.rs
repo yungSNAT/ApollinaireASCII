@@ -1611,6 +1611,14 @@ fn diagram_lays_out_a_mermaid_flowchart_from_a_file_or_stdin() {
         &cli_stdin(&["diagram", "-"], b"graph TD\nsubgraph one\n"),
         "Line 2: subgraph is not supported",
     );
+    // Mermaid's entity codes print as their characters.
+    let coded = cli_stdin(&["diagram", "-"], b"graph LR\n  A[a#59;b] -->|#quot;| B\n");
+    assert_eq!(
+        text(&coded.stdout),
+        "+-----+     +---+\n| a;b +-\"->| B |\n+-----+     +---+\n",
+        "{}",
+        text(&coded.stderr)
+    );
     let sequence = cli_stdin(&["diagram", "-"], b"sequenceDiagram\n  A->>B: hi\n");
     assert_eq!(
         text(&sequence.stdout),
