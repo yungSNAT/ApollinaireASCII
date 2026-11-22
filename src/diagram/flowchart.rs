@@ -64,6 +64,8 @@ struct Chart {
 /// - Links: `-->`, `---`, `<-->`, dotted `-.->` and `-.-`, thick `==>` and `===`, drawn alike;
 ///   each extra `-`, `.` or `=` asks for one more rank. Text on a link, written
 ///   `-->|text|` or `-- text -->`, takes a rank of its own between its ends.
+/// - Entity codes in text: `#59;` for `;`, `#quot;` for `"`, and any decimal code or HTML name
+///   for a printable ASCII character; a hexadecimal code such as `#x3B;` stays as written.
 /// - Chains (`A --> B --> C`) and groups (`A & B --> C`, linking every pair).
 /// - `classDef`, `class`, `style` and `linkStyle` statements and `:::class` suffixes are
 ///   skipped: the output has no colour.
@@ -360,7 +362,7 @@ fn text(c: &mut Cursor, closes: &[&str], column: usize) -> Result<String> {
     if found.contains('\t') {
         return Err(c.error("text holds a tab"));
     }
-    Ok(found)
+    super::decode(c.number, &found)
 }
 
 /// A link at the cursor: its text, arrowheads at its end and start, and length in ranks.
@@ -437,6 +439,7 @@ fn link(c: &mut Cursor) -> Result<(Option<String>, bool, bool, usize)> {
     if tail && !head {
         return Err(start_only(c));
     }
+    let text = text.map(|t| super::decode(c.number, &t)).transpose()?;
     Ok((text, head, tail, length))
 }
 

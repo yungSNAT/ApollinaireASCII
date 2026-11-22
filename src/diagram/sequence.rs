@@ -72,9 +72,10 @@ struct Diagram {
 ///   its own lifeline. `+` or `-` before the receiver, and `activate`
 ///   and `deactivate` statements, are read but draw no activation bar.
 /// - `autonumber` numbers the messages after it from 1.
-/// - Text may hold the entities `#59;` (any decimal code for a printable ASCII character),
-///   `#quot;`, `#amp;`, `#lt;`, `#gt;`, `#semi;`, `#colon;`, `#num;`, `#apos;` and `#nbsp;`
-///   (a space); a `;` inside one does not end the statement.
+/// - Text may hold entity codes: `#59;` (any decimal code for a printable ASCII character)
+///   and HTML names such as `#quot;`, `#amp;` or `#nbsp;` (a space), as in
+///   [`flowchart`](super::flowchart); a `;` inside one does not end the statement, and a
+///   hexadecimal code such as `#x3B;` stays as written.
 /// - Notes: `Note right of A: text`, `Note left of A: text`, `Note over A: text` and
 ///   `Note over A,B: text`.
 /// - Blocks `loop`, `opt`, `alt` with `else`, `par` with `and`, `critical` with `option`
