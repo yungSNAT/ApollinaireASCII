@@ -716,10 +716,16 @@ fn flowchart_text_reads_mermaid_entity_codes() {
     ] {
         assert_eq!(
             chart(&format!("graph TD\nA[\"{kept}\"] --> B")),
-            chart(&format!("graph TD\nA[\"{}\"] --> B", kept.replace('#', "#35;"))),
+            chart(&format!(
+                "graph TD\nA[\"{}\"] --> B",
+                kept.replace('#', "#35;")
+            )),
             "{kept}"
         );
-        assert!(chart(&format!("graph TD\nA[{kept}] --> B")).contains(kept), "{kept}");
+        assert!(
+            chart(&format!("graph TD\nA[{kept}] --> B")).contains(kept),
+            "{kept}"
+        );
     }
     // A code for a character outside printable ASCII, or an unknown name, is refused.
     for code in ["#9829;", "#infin;", "#0;", "#127;", "#heart;"] {

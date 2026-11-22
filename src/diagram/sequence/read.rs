@@ -4,8 +4,8 @@
 //! Reading Mermaid sequence diagram text into participants and drawn events.
 
 use super::{Diagram, Event, MAX_EVENTS, MAX_PARTICIPANTS, Place};
-use crate::diagram::{decode, entity_length};
 use crate::Result;
+use crate::diagram::{decode, entity_length};
 use std::{borrow::Cow, collections::HashMap};
 
 /// Message arrows, longest first so a shorter one never matches the start of a longer one.
