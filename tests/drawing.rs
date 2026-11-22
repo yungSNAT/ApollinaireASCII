@@ -687,7 +687,7 @@ fn flowchart_text_reads_mermaid_entity_codes() {
     // inside a code ends no statement.
     assert_eq!(
         chart("graph LR\nA[a#59;b] -->|#quot;q#quot;| B[#35;1]; B -- #lt;#62; --> C"),
-        "+-----+       +----+      +---+\n| a;b +-\"q\"->| #1 +-<>->| C |\n+-----+       +----+      +---+"
+        "+-----+     +----+    +---+\n| a;b +-\"q\">| #1 +-<>>| C |\n+-----+     +----+    +---+"
     );
     // Every HTML name for a printable ASCII character, and decimal codes with leading zeros.
     let names = "#excl;#num;#dollar;#percnt;#amp;#AMP;#apos;#lpar;#rpar;#ast;#midast;#plus;\

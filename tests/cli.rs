@@ -1615,7 +1615,7 @@ fn diagram_lays_out_a_mermaid_flowchart_from_a_file_or_stdin() {
     let coded = cli_stdin(&["diagram", "-"], b"graph LR\n  A[a#59;b] -->|#quot;| B\n");
     assert_eq!(
         text(&coded.stdout),
-        "+-----+     +---+\n| a;b +-\"->| B |\n+-----+     +---+\n",
+        "+-----+   +---+\n| a;b +-\">| B |\n+-----+   +---+\n",
         "{}",
         text(&coded.stderr)
     );
