@@ -682,6 +682,68 @@ fn flowcharts_read_every_shape_and_link_form_alike() {
 }
 
 #[test]
+fn flowchart_text_reads_mermaid_entity_codes() {
+    // Node and link text decode decimal codes and HTML names for printable ASCII; a `;`
+    // inside a code ends no statement.
+    assert_eq!(
+        chart("graph LR\nA[a#59;b] -->|#quot;q#quot;| B[#35;1]; B -- #lt;#62; --> C"),
+        "+-----+     +----+    +---+\n| a;b +-\"q\">| #1 +-<>>| C |\n+-----+     +----+    +---+"
+    );
+    // Every HTML name for a printable ASCII character, and decimal codes with leading zeros.
+    let names = "#excl;#num;#dollar;#percnt;#amp;#AMP;#apos;#lpar;#rpar;#ast;#midast;#plus;\
+        #comma;#period;#sol;#colon;#semi;#lt;#LT;#equals;#gt;#GT;#quest;#commat;#lsqb;\
+        #lbrack;#bsol;#rsqb;#rbrack;#Hat;#lowbar;#UnderBar;#grave;#DiacriticalGrave;#lcub;\
+        #lbrace;#verbar;#vert;#VerticalLine;#rcub;#rbrace;#nbsp;#NonBreakingSpace;#065;#0126;";
+    assert_eq!(
+        chart(&format!("graph TD\nA[\"{names}\"] --> B")),
+        chart("graph TD\nA[\"!#$%&&'()**+,./:;<<=>>?@[[\\]]^__``{{|||}}  A~\"] --> B")
+    );
+    assert_eq!(
+        chart("graph TD\nA[#quot;#QUOT;] --> B"),
+        chart("graph TD\nA[xy] --> B").replace("xy", "\"\"")
+    );
+    // A code Mermaid does not decode stays as written: hexadecimal, past the last Unicode
+    // character or a surrogate, or a `#` that starts no code.
+    for kept in [
+        "#x3B;",
+        "#X3b;",
+        "#1114112;",
+        "#55296;",
+        "#99999999999;",
+        "#;",
+        "# 59;",
+        "C#",
+    ] {
+        assert_eq!(
+            chart(&format!("graph TD\nA[\"{kept}\"] --> B")),
+            chart(&format!(
+                "graph TD\nA[\"{}\"] --> B",
+                kept.replace('#', "#35;")
+            )),
+            "{kept}"
+        );
+        assert!(
+            chart(&format!("graph TD\nA[{kept}] --> B")).contains(kept),
+            "{kept}"
+        );
+    }
+    // A code for a character outside printable ASCII, or an unknown name, is refused.
+    for code in ["#9829;", "#infin;", "#0;", "#127;", "#heart;"] {
+        for source in [
+            format!("graph TD\nA[{code}] --> B"),
+            format!("graph TD\nA -->|{code}| B"),
+            format!("graph TD\nA -- {code} --> B"),
+        ] {
+            assert_eq!(
+                flowchart(&source).unwrap_err(),
+                format!("Line 2: {code} is not an entity for a printable ASCII character"),
+                "{source}"
+            );
+        }
+    }
+}
+
+#[test]
 fn flowcharts_refuse_what_they_cannot_draw_with_its_line() {
     for (source, error) in [
         ("", "A flowchart starts with flowchart or graph"),

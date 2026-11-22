@@ -65,6 +65,105 @@ pub fn mermaid(source: &str) -> Result<crate::Frame> {
     }
 }
 
+/// The HTML character names for printable ASCII characters, which Mermaid text may write as
+/// `#name;`; the no-break space is drawn as a plain space.
+const ENTITIES: &[(&str, char)] = &[
+    ("excl", '!'),
+    ("quot", '"'),
+    ("QUOT", '"'),
+    ("num", '#'),
+    ("dollar", '$'),
+    ("percnt", '%'),
+    ("amp", '&'),
+    ("AMP", '&'),
+    ("apos", '\''),
+    ("lpar", '('),
+    ("rpar", ')'),
+    ("ast", '*'),
+    ("midast", '*'),
+    ("plus", '+'),
+    ("comma", ','),
+    ("period", '.'),
+    ("sol", '/'),
+    ("colon", ':'),
+    ("semi", ';'),
+    ("lt", '<'),
+    ("LT", '<'),
+    ("equals", '='),
+    ("gt", '>'),
+    ("GT", '>'),
+    ("quest", '?'),
+    ("commat", '@'),
+    ("lsqb", '['),
+    ("lbrack", '['),
+    ("bsol", '\\'),
+    ("rsqb", ']'),
+    ("rbrack", ']'),
+    ("Hat", '^'),
+    ("lowbar", '_'),
+    ("UnderBar", '_'),
+    ("grave", '`'),
+    ("DiacriticalGrave", '`'),
+    ("lcub", '{'),
+    ("lbrace", '{'),
+    ("verbar", '|'),
+    ("vert", '|'),
+    ("VerticalLine", '|'),
+    ("rcub", '}'),
+    ("rbrace", '}'),
+    ("nbsp", ' '),
+    ("NonBreakingSpace", ' '),
+];
+
+/// The length of the entity code such as `#59;` or `#quot;` at the start of `text`, if one is.
+fn entity_length(text: &str) -> Option<usize> {
+    let name = text[1..]
+        .bytes()
+        .take_while(u8::is_ascii_alphanumeric)
+        .count();
+    (name > 0 && text.as_bytes().get(1 + name) == Some(&b';')).then_some(name + 2)
+}
+
+/// Text with each of Mermaid's entity codes written as its character: `#59;` (decimal) as `;`,
+/// `#quot;` (an HTML name) as `"`. A hexadecimal code such as `#x3B;` (a form Mermaid's
+/// documentation does not give), a number that is no Unicode character and a `#` starting no
+/// code are kept as written. A code for a character outside printable ASCII, or a name this
+/// does not know, is refused: the drawing is ASCII, one column a character.
+fn decode(number: usize, text: &str) -> Result<String> {
+    let mut decoded = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find('#') {
+        decoded.push_str(&rest[..at]);
+        rest = &rest[at..];
+        let length = entity_length(rest).unwrap_or(1);
+        let code = &rest[..length];
+        let name = code.get(1..length - 1).unwrap_or("");
+        let hexadecimal = name.len() > 1
+            && name.starts_with(['x', 'X'])
+            && name[1..].bytes().all(|b| b.is_ascii_hexdigit());
+        let character = if name.is_empty() || hexadecimal {
+            None
+        } else if name.bytes().all(|b| b.is_ascii_digit()) {
+            name.parse::<u32>().ok().and_then(char::from_u32)
+        } else {
+            let known = ENTITIES.iter().find(|e| e.0 == name);
+            Some(known.map_or(char::REPLACEMENT_CHARACTER, |e| e.1))
+        };
+        match character {
+            None => decoded.push_str(code),
+            Some(character @ ' '..='~') => decoded.push(character),
+            Some(_) => {
+                return Err(format!(
+                    "Line {number}: {code} is not an entity for a printable ASCII character"
+                ));
+            }
+        }
+        rest = &rest[length..];
+    }
+    decoded.push_str(rest);
+    Ok(decoded)
+}
+
 /// Whether a trimmed line is a Markdown code fence that may hold Mermaid text: ```` ``` ```` or
 /// `~~~`, untagged or tagged `mermaid`.
 fn fence(line: &str) -> bool {

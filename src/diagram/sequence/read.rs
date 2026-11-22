@@ -5,6 +5,7 @@
 
 use super::{Diagram, Event, MAX_EVENTS, MAX_PARTICIPANTS, Place};
 use crate::Result;
+use crate::diagram::{decode, entity_length};
 use std::{borrow::Cow, collections::HashMap};
 
 /// Message arrows, longest first so a shorter one never matches the start of a longer one.
@@ -33,29 +34,6 @@ pub(super) struct Reader {
     number: Option<usize>,
 }
 
-/// Named entities Mermaid text may use, as the ASCII character each stands for; `nbsp` is a
-/// plain space.
-const ENTITIES: &[(&str, char)] = &[
-    ("quot", '"'),
-    ("amp", '&'),
-    ("lt", '<'),
-    ("gt", '>'),
-    ("semi", ';'),
-    ("colon", ':'),
-    ("num", '#'),
-    ("apos", '\''),
-    ("nbsp", ' '),
-];
-
-/// The length of the entity such as `#59;` or `#quot;` at the start of `text`, if one is.
-fn entity_length(text: &str) -> Option<usize> {
-    let name = text[1..]
-        .bytes()
-        .take_while(u8::is_ascii_alphanumeric)
-        .count();
-    (name > 0 && text.as_bytes().get(1 + name) == Some(&b';')).then_some(name + 2)
-}
-
 /// The statements in a line, split at each `;` outside an entity.
 fn statements(line: &str) -> Vec<&str> {
     let (mut parts, mut start, mut at) = (Vec::new(), 0, 0);
@@ -69,38 +47,6 @@ fn statements(line: &str) -> Vec<&str> {
     }
     parts.push(&line[start..]);
     parts
-}
-
-/// Text with each entity written as its character: `#59;` as `;`, `#quot;` as `"`. An entity
-/// for a character outside printable ASCII, or a name this does not know, is refused.
-fn decode(number: usize, text: &str) -> Result<String> {
-    let mut decoded = String::with_capacity(text.len());
-    let mut rest = text;
-    while let Some(at) = rest.find('#') {
-        decoded.push_str(&rest[..at]);
-        rest = &rest[at..];
-        let Some(length) = entity_length(rest) else {
-            decoded.push('#');
-            rest = &rest[1..];
-            continue;
-        };
-        let name = &rest[1..length - 1];
-        let character = match name.parse::<u32>() {
-            Ok(code) => char::from_u32(code),
-            Err(_) => ENTITIES.iter().find(|e| e.0 == name).map(|e| e.1),
-        };
-        match character {
-            Some(character @ ' '..='~') => decoded.push(character),
-            _ => {
-                return Err(format!(
-                    "Line {number}: #{name}; is not an entity for a printable ASCII character"
-                ));
-            }
-        }
-        rest = &rest[length..];
-    }
-    decoded.push_str(rest);
-    Ok(decoded)
 }
 
 /// `text` without its first word when that word is `prefix` in any letter case.

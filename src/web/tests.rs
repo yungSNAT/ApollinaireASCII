@@ -393,7 +393,7 @@ fn tables_and_trees_become_stamps_placed_by_keyboard() {
         "flowchart",
         "|",
         "graph LR
-  A --> B",
+  A[#65;] --> B",
     );
     assert!(
         status().starts_with("Diagram saved as a stamp"),
