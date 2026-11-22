@@ -1611,6 +1611,17 @@ fn diagram_lays_out_a_mermaid_flowchart_from_a_file_or_stdin() {
         &cli_stdin(&["diagram", "-"], b"graph TD\nsubgraph one\n"),
         "Line 2: subgraph is not supported",
     );
+    let sequence = cli_stdin(&["diagram", "-"], b"sequenceDiagram\n  A->>B: hi\n");
+    assert_eq!(
+        text(&sequence.stdout),
+        "+---+  +---+\n| A |  | B |\n+-+-+  +-+-+\n  |  hi  |  \n  |----->|  \n+-+-+  +-+-+\n| A |  | B |\n+---+  +---+\n",
+        "{}",
+        text(&sequence.stderr)
+    );
+    refused(
+        &cli_stdin(&["diagram", "-"], b"classDiagram\n"),
+        "Line 1: a Mermaid diagram starts with flowchart, graph or sequenceDiagram",
+    );
 }
 
 #[test]

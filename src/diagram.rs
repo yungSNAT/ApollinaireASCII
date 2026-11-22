@@ -23,7 +23,117 @@
 use crate::{Canvas, Result, canvas::bounds, printable};
 
 mod flowchart;
+mod sequence;
 pub use flowchart::flowchart;
+pub use sequence::sequence;
+
+/// Lay out Mermaid text as a [`flowchart`] or a [`sequence`] diagram, chosen by its first
+/// statement: `flowchart` or `graph`, or `sequenceDiagram`.
+///
+/// ```
+/// use apollinaire_ascii::diagram::mermaid;
+/// let chart = mermaid("sequenceDiagram\n  A->>B: hi")?;
+/// assert_eq!(
+///     chart.text(),
+///     "+---+  +---+\n| A |  | B |\n+-+-+  +-+-+\n  |  hi  |  \n  |----->|  \n+-+-+  +-+-+\n| A |  | B |\n+---+  +---+"
+/// );
+/// # Ok::<(), String>(())
+/// ```
+pub fn mermaid(source: &str) -> Result<crate::Frame> {
+    const KINDS: &str = "a Mermaid diagram starts with flowchart, graph or sequenceDiagram";
+    // A bad byte or a code fence that is unclosed, tagged otherwise or followed by text is
+    // reported before the diagram type.
+    mermaid_lines(source, |_, _| Ok(()))?;
+    let first = source
+        .split('\n')
+        .enumerate()
+        .map(|(index, line)| (index + 1, line.trim()))
+        .find(|(_, line)| !line.is_empty() && !line.starts_with("%%") && !fence(line));
+    let Some((number, line)) = first else {
+        return Err(format!("The text is empty: {KINDS}"));
+    };
+    match line.split([' ', '\t', ';']).next() {
+        Some("sequenceDiagram") => sequence(source),
+        // Another diagram type is named as such; anything else gets the flowchart's own error.
+        Some(word)
+            if word.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+                && !matches!(word, "flowchart" | "graph") =>
+        {
+            Err(format!("Line {number}: {KINDS}"))
+        }
+        _ => flowchart(source),
+    }
+}
+
+/// Whether a trimmed line is a Markdown code fence that may hold Mermaid text: ```` ``` ```` or
+/// `~~~`, untagged or tagged `mermaid`.
+fn fence(line: &str) -> bool {
+    ["```", "~~~"].into_iter().any(|mark| {
+        line.starts_with(mark)
+            && matches!(line.trim_start_matches(&mark[..1]).trim(), "" | "mermaid")
+    })
+}
+
+/// Each line of Mermaid text with its number, inside one optional outer Markdown code fence
+/// (```` ``` ```` or `~~~`, untagged or `mermaid`) that opens on the first line with text.
+/// A byte outside printable ASCII, other than a tab, is refused with its line and column.
+/// Lines are read one at a time, so no copy of a long input is made.
+fn mermaid_lines(source: &str, mut statement: impl FnMut(usize, &str) -> Result<()>) -> Result<()> {
+    let mut lines = source.split('\n').enumerate().map(|(index, line)| {
+        let line = line.strip_suffix('\r').unwrap_or(line);
+        match line
+            .bytes()
+            .enumerate()
+            .find(|(_, b)| *b != b'\t' && !(32..=126).contains(b))
+        {
+            Some((column, byte)) => Err(format!(
+                "Line {}: byte {} is 0x{byte:02x}, not printable ASCII",
+                index + 1,
+                column + 1
+            )),
+            None => Ok((index + 1, line)),
+        }
+    });
+    // The first line with text may open one outer Markdown code fence.
+    let mut opened = None;
+    for line in lines.by_ref() {
+        let (number, text) = line?;
+        let first = text.trim();
+        if first.is_empty() {
+            continue;
+        }
+        match ["```", "~~~"].into_iter().find(|f| first.starts_with(f)) {
+            Some(mark) if fence(first) => opened = Some((mark, number)),
+            Some(_) => return Err(format!("Line {number}: only a mermaid code block is read")),
+            None => statement(number, text)?,
+        }
+        break;
+    }
+    let Some((mark, opened)) = opened else {
+        for line in lines {
+            let (number, text) = line?;
+            statement(number, text)?;
+        }
+        return Ok(());
+    };
+    for line in lines.by_ref() {
+        let (number, text) = line?;
+        let trimmed = text.trim();
+        if trimmed.starts_with(mark) && trimmed.bytes().all(|b| b == mark.as_bytes()[0]) {
+            for line in lines {
+                let (number, text) = line?;
+                if !text.trim().is_empty() {
+                    return Err(format!("Line {number}: text after the code block"));
+                }
+            }
+            return Ok(());
+        }
+        statement(number, text)?;
+    }
+    Err(format!(
+        "The code block opened on line {opened} is not closed"
+    ))
+}
 
 fn join(existing: u8, stroke: u8) -> u8 {
     match (existing, stroke) {

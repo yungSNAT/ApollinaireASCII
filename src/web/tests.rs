@@ -396,7 +396,7 @@ fn tables_and_trees_become_stamps_placed_by_keyboard() {
   A --> B",
     );
     assert!(
-        status().starts_with("Flowchart saved as a stamp"),
+        status().starts_with("Diagram saved as a stamp"),
         "{}",
         status()
     );
@@ -408,6 +408,29 @@ fn tables_and_trees_become_stamps_placed_by_keyboard() {
         "+---+ +---+       ",
     ];
     assert_eq!(art(), rows(&[&chart[..], &[blank_row; 4]].concat()));
+    // The same choice reads a Mermaid sequence diagram.
+    blank(12, 8);
+    make("flowchart", "|", "sequenceDiagram\n  A->>B: hi");
+    assert!(
+        status().starts_with("Diagram saved as a stamp"),
+        "{}",
+        status()
+    );
+    cursor_to((0, 0));
+    keys(&[" ", "Enter"]);
+    assert_eq!(
+        art(),
+        rows(&[
+            "+---+  +---+",
+            "| A |  | B |",
+            "+-+-+  +-+-+",
+            "  |  hi  |  ",
+            "  |----->|  ",
+            "+-+-+  +-+-+",
+            "| A |  | B |",
+            "+---+  +---+",
+        ])
+    );
     while !element::<Element>("delete-stamp").has_attribute("disabled") {
         click("delete-stamp");
     }

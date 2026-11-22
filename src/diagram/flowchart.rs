@@ -158,64 +158,9 @@ struct Parser {
 }
 
 fn parse(source: &str) -> Result<Chart> {
-    // Lines are read one at a time, so no copy of a long input is made.
-    let mut lines = source.split('\n').enumerate().map(|(index, line)| {
-        let line = line.strip_suffix('\r').unwrap_or(line);
-        match line
-            .bytes()
-            .enumerate()
-            .find(|(_, b)| *b != b'\t' && !(32..=126).contains(b))
-        {
-            Some((column, byte)) => Err(format!(
-                "Line {}: byte {} is 0x{byte:02x}, not printable ASCII",
-                index + 1,
-                column + 1
-            )),
-            None => Ok((index + 1, line)),
-        }
-    });
     let mut reader = Reader::default();
-    // The first line with text may open one outer Markdown code fence.
-    let mut fence = None;
-    for line in lines.by_ref() {
-        let (number, text) = line?;
-        let first = text.trim();
-        if first.is_empty() {
-            continue;
-        }
-        match ["```", "~~~"].into_iter().find(|f| first.starts_with(f)) {
-            Some(mark) if matches!(first.trim_start_matches(&mark[..1]).trim(), "" | "mermaid") => {
-                fence = Some((mark, number));
-            }
-            Some(_) => return Err(format!("Line {number}: only a mermaid code block is read")),
-            None => reader.statement(number, text)?,
-        }
-        break;
-    }
-    let Some((mark, opened)) = fence else {
-        for line in lines {
-            let (number, text) = line?;
-            reader.statement(number, text)?;
-        }
-        return reader.finish();
-    };
-    for line in lines.by_ref() {
-        let (number, text) = line?;
-        let trimmed = text.trim();
-        if trimmed.starts_with(mark) && trimmed.bytes().all(|b| b == mark.as_bytes()[0]) {
-            for line in lines {
-                let (number, text) = line?;
-                if !text.trim().is_empty() {
-                    return Err(format!("Line {number}: text after the code block"));
-                }
-            }
-            return reader.finish();
-        }
-        reader.statement(number, text)?;
-    }
-    Err(format!(
-        "The code block opened on line {opened} is not closed"
-    ))
+    super::mermaid_lines(source, |number, text| reader.statement(number, text))?;
+    reader.finish()
 }
 
 /// Statements in order: the header, then the nodes and links.
