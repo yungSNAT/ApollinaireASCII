@@ -1,28 +1,17 @@
 # Validation and limits
 
-Local validation on 1 November 2026 used Rust 1.99.1, Windows MSVC, Linux x86_64 and `wasm32-unknown-unknown`.
+Hosted CI ([`checks.yml`](../.github/workflows/checks.yml)) runs formatting, Clippy with warnings denied and the tests on Linux and Windows on every push and pull request, holds line coverage at 100% and builds the WebAssembly editor and runs its tests in headless Chrome; its run logs are the record of those checks. This page keeps what CI does not repeat: one-off runs, reference comparisons, checks by hand and measured limits. Unless a check says otherwise, it used Rust 1.99.1.
 
 ## Checks completed
 
 | Check | Result |
 | --- | --- |
-| Linux `cargo build --locked`, `cargo test --locked`, Clippy across all native targets with warnings denied and formatting | Passed |
-| Windows release build, native tests, Clippy across all native targets with warnings denied and formatting | Passed |
-| Native tests | 20 contract tests, 10 drawing tests, 8 video and camera sampling tests, 5 lettering tests, 6 CLI integration tests, 5 CLI download tests and 2 documentation examples passed |
-| Library example | Compiled and ran successfully |
-| WebAssembly release build and Clippy with warnings denied | Passed with the `web` feature and default features disabled |
-| wasm-bindgen | Generated browser bindings using pinned CLI version 0.2.130 |
-| Editor tests in a headless browser | 16 `wasm-bindgen-test` cases passed in Chromium 156 headless shell on Windows; each of 9 deliberate defects (typing runs committed per key, a selectable onion layer, onion skin during playback, no diagram junctions, pointer cells off by one, no stroke preview, a swallowed stamp error, CRLF kept on import, unapplied edits ignored) failed at least one case |
-| GitHub workflow syntax | Passed actionlint |
-| Aikido source scan | Zero issues across 15 files; zero skipped paths |
+| Deliberate editor defects, 1 November 2026 | Each of 9 (typing runs committed per key, a selectable onion layer, onion skin during playback, no diagram junctions, pointer cells off by one, no stroke preview, a swallowed stamp error, CRLF kept on import, unapplied edits ignored) failed at least one `wasm-bindgen-test` case in Chromium 156 headless shell on Windows |
+| Aikido source scan, 1 November 2026 | Zero issues across 15 files; zero skipped paths |
 | Aikido dependency scan | Reachable weezl alert fixed; 5 remaining transitive alerts at that scan, 4 of them since removed with `figlet-rs`; see [dependency notes](DEPENDENCIES.md). Rescanned with the HTTPS client crates on 1 November 2026, no new alerts |
 | GIF decoder fuzzing | 1,027,670 executions, no crash, timeout or out-of-memory failure: cargo-fuzz 0.13.2 with libFuzzer and AddressSanitizer on Windows MSVC, 6 workers for 15 minutes each, inputs up to 4 KB, from 15 seeds (11 real GIFs, 4 hand-built) to a 3,799-input corpus |
 
-On 3 November 2026, the local recovery and frame-range additions passed 72 native tests and 2 doctests, build, native and WASM Clippy with warnings denied, formatting and all 25 browser tests on Linux with Rust 1.99.1. New cases cover atomic range ordering/timing and limits, exact history view restoration, playback restart, recovery opt-in and pause during writes, grouped typing, competing claims, stale discards, bounded records and pointer release during restore/discard. Existing drawing and stamp tests also pass.
-
-Later on 3 November, 2 browser cases were added: a tab using recovery stops it when it regains focus or becomes visible after another tab's discard or cleared storage, and a conflict reaches the main status whilst the recovery panel is closed. Each failed on the code before its fix. With the fixes, the same native checks, WASM Clippy, formatting, WASM build and all 27 browser tests passed on Linux with Rust 1.99.1.
-
-On 4 November, a browser case was added for a saved record that is not text: Discard now removes it, whilst a stale view of it still cannot replace a newer saved project or an emptied slot. It failed on the code before the fix. With the fix, the same checks and all 28 browser tests passed on Linux with Rust 1.99.1.
+The recovery and frame-range work of 3 and 4 November 2026 added cases for atomic range ordering, timing and limits, exact history view restoration, playback restart, recovery opt-in and pause during writes, grouped typing, competing claims, stale discards, bounded records, pointer release during restore and discard, a tab that regains focus or becomes visible after another tab's discard or cleared storage, a conflict reaching the main status whilst the recovery panel is closed, and a saved record that is not text (Discard removes it; a stale view of it still cannot replace a newer saved project or an emptied slot). The last 3 each failed on the code before its fix.
 
 A separate localhost Chromium check exercised real tabs and reloads, identical artwork with different recovery revisions, invalid-record discard, injected quota/open failures and transaction abort after request success. It also checked saving on tab hiding and recovery remaining off after reload. At 360, 768 and 1,280 pixels, the new controls were at least 44 pixels high, the document did not overflow horizontally and artwork remained ASCII in a PRE element. Screen-reader announcements, real touch hardware, Firefox/Safari and maximum-size responsiveness were not tested.
 
