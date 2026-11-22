@@ -1465,3 +1465,61 @@ fn every_argument_has_help() {
         ]
     );
 }
+
+#[cfg(test)]
+#[test]
+fn choices_keep_their_values_help_and_defaults() {
+    fn walk(command: &clap::Command, path: &str, lines: &mut Vec<String>) {
+        for arg in command.get_arguments() {
+            let values = arg.get_possible_values();
+            if values.is_empty() || !arg.get_action().takes_values() {
+                continue;
+            }
+            let values: Vec<_> = values
+                .iter()
+                .map(|value| match value.get_help() {
+                    Some(help) => format!("{}={help}", value.get_name()),
+                    None => value.get_name().to_owned(),
+                })
+                .collect();
+            let defaults: Vec<_> = arg
+                .get_default_values()
+                .iter()
+                .map(|value| value.to_string_lossy())
+                .collect();
+            lines.push(format!(
+                "{path} {} [{}] {}",
+                arg.get_id(),
+                defaults.join(","),
+                values.join(" | ")
+            ));
+        }
+        for sub in command.get_subcommands() {
+            walk(sub, &format!("{path} {}", sub.get_name()), lines);
+        }
+    }
+    let mut lines = Vec::new();
+    walk(&Args::command(), "apollinaire", &mut lines);
+    let border = "plain=+-| | rounded=.-'| | dotted=.: | heavy=#=";
+    assert_eq!(
+        lines,
+        [
+            "apollinaire format [] text | json | html | cast | react=A React component (.js) | ink=An Ink component (.js) | opentui=An OpenTUI function (.js) | bubbletea=A Bubble Tea v2 program (.go) | python=A Python 3 program (.py) | ruby=A Ruby program (.rb) | csharp=A C# program for `dotnet run` (.cs)",
+            &format!("apollinaire art border [] {border}"),
+            "apollinaire text align [left] left | center | right",
+            "apollinaire text horizontal [default] default | full | fitted | smush",
+            "apollinaire text vertical [default] default | full | fitted | smush",
+            &format!("apollinaire say style [plain] {border}"),
+            "apollinaire table rules [header] header | every | none",
+            "apollinaire model spin [y] y=Upright, like a turntable | x=Head over heels | xy=Both at once",
+            "apollinaire model light [top-left] top-left | top | front | left | right",
+            "apollinaire generate maze algorithm [depth-first] depth-first=Depth-first search: long, winding passages | prim=Randomised Prim: many short dead ends | wilson=Wilson's loop-erased random walks: every maze equally likely | sidewinder=Row by row, with an open top row",
+            "apollinaire generate maze style [hash] hash=# walls | lines=+, - and | walls",
+            "apollinaire generate sky phase [full] full | waxing=Lit on the right | waning=Lit on the left | random=Each moon full, waxing or waning by the seed",
+            "apollinaire effect effect [] reveal | typewriter | decrypt | scatter | wipe-left | wipe-right | wipe-up | wipe-down | rain | wave | burn",
+            "apollinaire transform operation [] horizontal | vertical | border | crop | rotate",
+            &format!("apollinaire transform style [] {border}"),
+            "apollinaire completions shell [] bash | elvish | fish | powershell | zsh",
+        ]
+    );
+}
