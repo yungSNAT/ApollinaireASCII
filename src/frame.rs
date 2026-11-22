@@ -209,15 +209,20 @@ impl Frame {
 /// Border styles for [`Frame::border_with`], all in printable ASCII. Later releases may add
 /// styles, so a `match` outside this crate needs a wildcard arm.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
 #[non_exhaustive]
 pub enum BorderStyle {
     /// `+` corners, `-` across and `|` sides.
     #[default]
+    #[cfg_attr(feature = "cli", value(help = "+-|"))]
     Plain,
     /// `.` top corners, `'` bottom corners, `-` across and `|` sides.
+    #[cfg_attr(feature = "cli", value(help = ".-'|"))]
     Rounded,
     /// `.` top corners and across, `:` sides and bottom corners.
+    #[cfg_attr(feature = "cli", value(help = ".:"))]
     Dotted,
     /// `#` corners and sides, `=` across.
+    #[cfg_attr(feature = "cli", value(help = "#="))]
     Heavy,
 }

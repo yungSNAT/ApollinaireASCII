@@ -18,6 +18,7 @@ use std::collections::VecDeque;
 
 /// How a maze's passages are carved. Each gives a perfect maze: one path between any 2 cells.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
 pub enum Algorithm {
     /// Depth-first search: long, winding passages.
     #[default]
@@ -25,18 +26,26 @@ pub enum Algorithm {
     /// Randomised Prim: many short dead ends.
     Prim,
     /// Wilson's loop-erased random walks: every perfect maze equally likely.
+    #[cfg_attr(
+        feature = "cli",
+        value(help = "Wilson's loop-erased random walks: every maze equally likely")
+    )]
     Wilson,
     /// Sidewinder: row by row, with an open top row.
+    #[cfg_attr(feature = "cli", value(help = "Row by row, with an open top row"))]
     Sidewinder,
 }
 
 /// The characters a maze's walls are drawn with.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
 pub enum MazeStyle {
     /// `#` for every wall.
     #[default]
+    #[cfg_attr(feature = "cli", value(help = "# walls"))]
     Hash,
     /// `+` at corners, `-` and `|` between them.
+    #[cfg_attr(feature = "cli", value(help = "+, - and | walls"))]
     Lines,
 }
 
@@ -221,6 +230,7 @@ pub fn maze(width: usize, height: usize, seed: u32, options: &MazeOptions) -> Re
 
 /// How the moons in a sky are lit.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
 pub enum Phase {
     #[default]
     Full,

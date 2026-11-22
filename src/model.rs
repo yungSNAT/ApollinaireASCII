@@ -223,6 +223,7 @@ fn finite(value: f32) -> Result<f32> {
 
 /// The axis the model turns about.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
 pub enum Spin {
     /// Upright, like a turntable.
     #[default]
@@ -235,6 +236,7 @@ pub enum Spin {
 
 /// Where the light comes from, as seen from the front.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
 pub enum Light {
     #[default]
     TopLeft,

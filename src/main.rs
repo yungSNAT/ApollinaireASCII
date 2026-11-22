@@ -9,7 +9,11 @@ use apollinaire_ascii::{
     MAX_MEDIA_BYTES, RenderOptions, Result, SceneOptions, TimedFrame, animation, ansi, art, boxes,
     bubble,
     diagram::{self, TableRules},
-    effects, export, generator, lettering, model, rexpaint,
+    effects, export,
+    generator::{self, Algorithm, MazeStyle, Phase},
+    lettering,
+    model::{self, Light, Spin},
+    rexpaint,
 };
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use std::{
@@ -77,141 +81,12 @@ enum Layout {
     Fitted,
     Smush,
 }
-#[derive(Clone, Copy, ValueEnum)]
-enum Border {
-    /// +-|
-    Plain,
-    /// .-'|
-    Rounded,
-    /// .:
-    Dotted,
-    /// #=
-    Heavy,
-}
-impl From<Border> for BorderStyle {
-    fn from(border: Border) -> Self {
-        match border {
-            Border::Plain => Self::Plain,
-            Border::Rounded => Self::Rounded,
-            Border::Dotted => Self::Dotted,
-            Border::Heavy => Self::Heavy,
-        }
-    }
-}
-#[derive(Clone, Copy, ValueEnum)]
-enum Rules {
-    Header,
-    Every,
-    None,
-}
-impl From<Rules> for TableRules {
-    fn from(rules: Rules) -> Self {
-        match rules {
-            Rules::Header => Self::Header,
-            Rules::Every => Self::Every,
-            Rules::None => Self::None,
-        }
-    }
-}
 /// `tab` or one printable ASCII character.
 fn separator(value: &str) -> Result<u8> {
     match value.as_bytes() {
         b"tab" | b"\t" => Ok(b'\t'),
         [byte @ 32..=126] => Ok(*byte),
         _ => Err("Use tab or one printable ASCII character".into()),
-    }
-}
-#[derive(Clone, Copy, ValueEnum)]
-enum Spin {
-    /// Upright, like a turntable.
-    Y,
-    /// Head over heels.
-    X,
-    /// Both at once.
-    Xy,
-}
-impl From<Spin> for model::Spin {
-    fn from(spin: Spin) -> Self {
-        match spin {
-            Spin::Y => Self::Y,
-            Spin::X => Self::X,
-            Spin::Xy => Self::XY,
-        }
-    }
-}
-#[derive(Clone, Copy, ValueEnum)]
-enum Light {
-    TopLeft,
-    Top,
-    Front,
-    Left,
-    Right,
-}
-impl From<Light> for model::Light {
-    fn from(light: Light) -> Self {
-        match light {
-            Light::TopLeft => Self::TopLeft,
-            Light::Top => Self::Top,
-            Light::Front => Self::Front,
-            Light::Left => Self::Left,
-            Light::Right => Self::Right,
-        }
-    }
-}
-#[derive(Clone, Copy, ValueEnum)]
-enum Algorithm {
-    /// Depth-first search: long, winding passages.
-    DepthFirst,
-    /// Randomised Prim: many short dead ends.
-    Prim,
-    /// Wilson's loop-erased random walks: every maze equally likely.
-    Wilson,
-    /// Row by row, with an open top row.
-    Sidewinder,
-}
-impl From<Algorithm> for generator::Algorithm {
-    fn from(algorithm: Algorithm) -> Self {
-        match algorithm {
-            Algorithm::DepthFirst => Self::DepthFirst,
-            Algorithm::Prim => Self::Prim,
-            Algorithm::Wilson => Self::Wilson,
-            Algorithm::Sidewinder => Self::Sidewinder,
-        }
-    }
-}
-#[derive(Clone, Copy, ValueEnum)]
-enum MazeStyle {
-    /// # walls.
-    Hash,
-    /// +, - and | walls.
-    Lines,
-}
-impl From<MazeStyle> for generator::MazeStyle {
-    fn from(style: MazeStyle) -> Self {
-        match style {
-            MazeStyle::Hash => Self::Hash,
-            MazeStyle::Lines => Self::Lines,
-        }
-    }
-}
-#[derive(Clone, Copy, ValueEnum)]
-enum Phase {
-    Full,
-    /// Lit on the right.
-    Waxing,
-    /// Lit on the left.
-    Waning,
-    /// Each moon full, waxing or waning by the seed.
-    Random,
-}
-impl From<Phase> for generator::Phase {
-    fn from(phase: Phase) -> Self {
-        match phase {
-            Phase::Full => Self::Full,
-            Phase::Waxing => Self::Waxing,
-            Phase::Waning => Self::Waning,
-            Phase::Random => Self::Random,
-        }
     }
 }
 /// The size and seed the maze and sky generators share; a pattern takes its own size and no seed.
@@ -307,7 +182,7 @@ enum Command {
             require_equals = true,
             default_missing_value = "plain"
         )]
-        border: Option<Border>,
+        border: Option<BorderStyle>,
     },
     /// ASCII block letters, including punctuation and multiline text.
     Text {
@@ -345,7 +220,7 @@ enum Command {
         width: usize,
         /// Border style of the bubble.
         #[arg(long, value_enum, default_value = "plain")]
-        style: Border,
+        style: BorderStyle,
         /// Catalogue piece to draw below the bubble; `apollinaire list` names them.
         #[arg(long, conflicts_with = "art_file")]
         art: Option<String>,
@@ -364,7 +239,7 @@ enum Command {
         separator: u8,
         /// Rules inside the border: under the first row, between every row or none.
         #[arg(long, value_enum, default_value = "header")]
-        rules: Rules,
+        rules: TableRules,
     },
     /// Draw an outline indented with spaces as a tree, as `tree --charset=ascii` does.
     Tree {
@@ -573,7 +448,7 @@ enum Command {
         height: Option<usize>,
         /// Border style for the `border` operation; plain `+-|` by default.
         #[arg(long, value_enum)]
-        style: Option<Border>,
+        style: Option<BorderStyle>,
         /// Border: draw a box design instead of a style, by name; `apollinaire list` names them.
         #[arg(long, conflicts_with = "style")]
         design: Option<String>,
@@ -678,7 +553,7 @@ fn run(args: Args) -> Result<()> {
         Command::Art { name, border } => {
             let frame = art::template(&name)?;
             Animation::still(match border {
-                Some(style) => frame.border_with(style.into())?,
+                Some(style) => frame.border_with(style)?,
                 None => frame,
             })
         }
@@ -749,19 +624,15 @@ fn run(args: Args) -> Result<()> {
                 None => read_text(Path::new("-"))?,
             };
             Animation::still(match cow {
-                Some(cow) => bubble::cowsay(&message, width, style.into(), &cow)?,
-                None => bubble::say(&message, width, style.into(), speaker.as_ref())?,
+                Some(cow) => bubble::cowsay(&message, width, style, &cow)?,
+                None => bubble::say(&message, width, style, speaker.as_ref())?,
             })
         }
         Command::Table {
             input,
             separator,
             rules,
-        } => Animation::still(diagram::table(
-            &read_text(&input)?,
-            separator,
-            rules.into(),
-        )?),
+        } => Animation::still(diagram::table(&read_text(&input)?, separator, rules)?),
         Command::Tree { input } => Animation::still(diagram::tree(&read_text(&input)?)?),
         Command::Diagram { input } => Animation::still(diagram::flowchart(&read_text(&input)?)?),
         Command::Image {
@@ -906,8 +777,8 @@ fn run(args: Args) -> Result<()> {
                     height,
                     frames,
                     fps,
-                    spin: spin.into(),
-                    light: light.into(),
+                    spin,
+                    light,
                     ramp,
                 },
             )?
@@ -923,8 +794,8 @@ fn run(args: Args) -> Result<()> {
                 size.height,
                 size.seed,
                 &generator::MazeOptions {
-                    algorithm: algorithm.into(),
-                    style: style.into(),
+                    algorithm,
+                    style,
                     solution,
                 },
             )?,
@@ -943,7 +814,7 @@ fn run(args: Args) -> Result<()> {
                     stars,
                     big_stars,
                     moons,
-                    phase: phase.into(),
+                    phase,
                     asteroids,
                 },
             )?,
@@ -1018,9 +889,7 @@ fn run(args: Args) -> Result<()> {
                     Transform::Vertical => entry.frame.flip_vertical(),
                     Transform::Border => match &design {
                         Some(design) => design.draw(&entry.frame)?,
-                        None => entry
-                            .frame
-                            .border_with(style.unwrap_or(Border::Plain).into())?,
+                        None => entry.frame.border_with(style.unwrap_or_default())?,
                     },
                     Transform::Crop => entry.frame.crop(
                         x,
