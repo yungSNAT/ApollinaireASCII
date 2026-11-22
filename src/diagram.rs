@@ -246,12 +246,16 @@ impl Canvas {
 
 /// Where [`table`] draws rules inside its border.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
 pub enum TableRules {
     /// A rule under the first row, when there is more than one row.
+    #[cfg_attr(feature = "cli", value(help = None::<&str>))]
     Header,
     /// A rule between every pair of rows.
+    #[cfg_attr(feature = "cli", value(help = None::<&str>))]
     Every,
     /// No rules between rows.
+    #[cfg_attr(feature = "cli", value(help = None::<&str>))]
     None,
 }
 
