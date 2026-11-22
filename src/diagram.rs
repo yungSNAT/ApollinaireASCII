@@ -125,10 +125,10 @@ fn entity_length(text: &str) -> Option<usize> {
 }
 
 /// Text with each of Mermaid's entity codes written as its character: `#59;` (decimal) as `;`,
-/// `#quot;` (an HTML name) as `"`. Mermaid decodes no other form, so a hexadecimal code such
-/// as `#x3B;`, a number that is no Unicode character, or a `#` starting no code stays as
-/// written. A code for a character outside printable ASCII, or a name this does not know, is
-/// refused: the drawing is ASCII, one column a character.
+/// `#quot;` (an HTML name) as `"`. A hexadecimal code such as `#x3B;` (a form Mermaid's
+/// documentation does not give), a number that is no Unicode character and a `#` starting no
+/// code are kept as written. A code for a character outside printable ASCII, or a name this
+/// does not know, is refused: the drawing is ASCII, one column a character.
 fn decode(number: usize, text: &str) -> Result<String> {
     let mut decoded = String::with_capacity(text.len());
     let mut rest = text;
