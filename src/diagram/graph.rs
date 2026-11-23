@@ -17,6 +17,25 @@ use render::{RenderInput, render_canvas, route};
 
 pub(super) const MAX_NODES: usize = 1024;
 pub(super) const MAX_LINKS: usize = 4096;
+/// Aggregate limit on box compartment entries (attributes, members, stereotypes, descriptions)
+/// across one diagram so small inputs cannot allocate unbounded strings before layout runs.
+pub(super) const MAX_COMPARTMENT_ENTRIES: usize = 4096;
+
+/// Increment an aggregate compartment counter or fail once [`MAX_COMPARTMENT_ENTRIES`] is reached.
+pub(super) fn count_entry(
+    count: &mut usize,
+    number: usize,
+    kind: &str,
+    entries: &str,
+) -> Result<()> {
+    if *count == MAX_COMPARTMENT_ENTRIES {
+        return Err(format!(
+            "Line {number}: {kind} has at most {MAX_COMPARTMENT_ENTRIES} {entries}"
+        ));
+    }
+    *count += 1;
+    Ok(())
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Flow {

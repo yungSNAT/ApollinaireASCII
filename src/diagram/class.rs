@@ -5,7 +5,8 @@
 //! relationships; see [`class_diagram`].
 
 use super::graph::{
-    BoxNode, Edge, EndMark, Flow, Graph, MAX_LINKS, MAX_NODES, layout_fitted, parse_direction,
+    BoxNode, Edge, EndMark, Flow, Graph, MAX_LINKS, MAX_NODES, count_entry, layout_fitted,
+    parse_direction,
 };
 use super::{decode, split_statements};
 use crate::{Frame, MAX_INPUT_BYTES, Result};
@@ -213,6 +214,7 @@ struct Reader {
     ids: HashMap<String, usize>,
     classes: Vec<ClassEntry>,
     links: Vec<Edge>,
+    entries: usize,
     /// Currently open `class Name {` block: (class id, opening line number).
     open_block: Option<(usize, usize)>,
 }
@@ -286,6 +288,7 @@ impl Reader {
     }
 
     fn add_member(&mut self, number: usize, class_id: usize, raw: &str) -> Result<()> {
+        count_entry(&mut self.entries, number, "a class diagram", "members")?;
         let member = decode(number, raw.trim())?;
         if member.starts_with("<<") && member.ends_with(">>") {
             self.classes[class_id].stereotypes.push(member);
@@ -325,11 +328,9 @@ impl Reader {
         if stmt.starts_with("<<")
             && let Some(end) = stmt.find(">>")
         {
-            let stereo = decode(number, &stmt[..end + 2])?;
             let class_name = stmt[end + 2..].trim();
             let id = self.class_id(number, class_name)?;
-            self.classes[id].stereotypes.push(stereo);
-            return Ok(());
+            return self.add_member(number, id, &stmt[..end + 2]);
         }
         if self.try_relation(number, stmt)? {
             return Ok(());
@@ -392,6 +393,7 @@ impl Reader {
         };
         let edge_text = compose_edge_label(op.tag, card_left, card_right, &label);
         if from == to {
+            count_entry(&mut self.entries, number, "a class diagram", "members")?;
             let mut node = BoxNode {
                 sections: Vec::new(),
                 self_loop: self.classes[from].self_loop.take(),

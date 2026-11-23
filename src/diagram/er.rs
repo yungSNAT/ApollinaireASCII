@@ -5,7 +5,7 @@
 //! connectors; see [`er_diagram`].
 
 use super::graph::{
-    BoxNode, Edge, Flow, Graph, MAX_LINKS, MAX_NODES, layout_fitted, parse_direction,
+    BoxNode, Edge, Flow, Graph, MAX_LINKS, MAX_NODES, count_entry, layout_fitted, parse_direction,
 };
 use super::{decode, split_statements};
 use crate::{Frame, MAX_INPUT_BYTES, Result};
@@ -56,6 +56,7 @@ struct Reader {
     ids: HashMap<String, usize>,
     nodes: Vec<BoxNode>,
     links: Vec<Edge>,
+    entries: usize,
     /// Currently open `ENTITY {` block: (entity id, opening line number).
     open_block: Option<(usize, usize)>,
 }
@@ -141,6 +142,7 @@ impl Reader {
     }
 
     fn add_attr(&mut self, number: usize, entity_id: usize, raw: &str) -> Result<()> {
+        count_entry(&mut self.entries, number, "an ER diagram", "attributes")?;
         let attr = decode(number, raw.trim())?;
         if self.nodes[entity_id].sections.len() == 1 {
             self.nodes[entity_id].sections.push(vec![attr]);
@@ -227,6 +229,7 @@ impl Reader {
             format!("{} {label}", parts[1])
         };
         if from == to {
+            count_entry(&mut self.entries, number, "an ER diagram", "attributes")?;
             self.nodes[from].add_self_loop(&edge_text);
             return Ok(true);
         }

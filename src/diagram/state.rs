@@ -5,7 +5,8 @@
 //! transitions; see [`state_diagram`].
 
 use super::graph::{
-    BoxNode, Edge, EndMark, Flow, Graph, MAX_LINKS, MAX_NODES, layout_fitted, parse_direction,
+    BoxNode, Edge, EndMark, Flow, Graph, MAX_LINKS, MAX_NODES, count_entry, layout_fitted,
+    parse_direction,
 };
 use super::{decode, split_statements};
 use crate::{Frame, MAX_INPUT_BYTES, Result};
@@ -54,6 +55,7 @@ struct Reader {
     ids: HashMap<String, usize>,
     nodes: Vec<BoxNode>,
     links: Vec<Edge>,
+    entries: usize,
 }
 
 fn valid_id(name: &str) -> bool {
@@ -150,6 +152,7 @@ impl Reader {
             let desc = decode(number, desc.trim())?;
             let id = self.node(number, name, name)?;
             if !desc.is_empty() {
+                count_entry(&mut self.entries, number, "a state diagram", "descriptions")?;
                 if self.nodes[id].sections.len() == 1 {
                     self.nodes[id].sections.push(vec![desc]);
                 } else {
@@ -210,6 +213,7 @@ impl Reader {
         let from = self.endpoint(number, left, true)?;
         let to = self.endpoint(number, target, false)?;
         if from == to {
+            count_entry(&mut self.entries, number, "a state diagram", "descriptions")?;
             self.nodes[from].add_self_loop(&label);
             return Ok(());
         }

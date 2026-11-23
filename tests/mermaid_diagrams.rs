@@ -157,6 +157,16 @@ fn state_diagram_refuses_invalid_syntax_and_limits() {
             .unwrap_err()
             .contains("4096 transitions")
     );
+
+    // Aggregate compartment limit across multiple states (S1).
+    let many_descs: String = (0..4097)
+        .map(|i| format!("  S{} : d{i}\n", i % 4))
+        .collect();
+    assert!(
+        state_diagram(&format!("stateDiagram-v2\n{many_descs}"))
+            .unwrap_err()
+            .contains("4096 descriptions")
+    );
 }
 
 #[test]
@@ -290,6 +300,24 @@ fn class_diagram_refuses_invalid_syntax_and_limits() {
             .unwrap_err()
             .contains("4096 relationships")
     );
+
+    // Aggregate compartment limit across members and inline stereotypes (S1).
+    let many_members: String = (0..4097)
+        .map(|i| format!("  C{} : +m{i}\n", i % 4))
+        .collect();
+    assert!(
+        class_diagram(&format!("classDiagram\n{many_members}"))
+            .unwrap_err()
+            .contains("4096 members")
+    );
+    let many_stereos: String = (0..4097)
+        .map(|i| format!("  <<tag{i}>> C{}\n", i % 4))
+        .collect();
+    assert!(
+        class_diagram(&format!("classDiagram\n{many_stereos}"))
+            .unwrap_err()
+            .contains("4096 members")
+    );
 }
 
 #[test]
@@ -405,6 +433,19 @@ fn er_diagram_refuses_invalid_syntax_and_limits() {
         er_diagram(&format!("erDiagram\n{many_links}"))
             .unwrap_err()
             .contains("4096 relationships")
+    );
+
+    // Aggregate compartment limit across multiple entities (S1).
+    let many_attrs: String = (0..4)
+        .map(|e| {
+            let attrs: String = (0..1025).map(|i| format!("    int f{i}\n")).collect();
+            format!("  E{e} {{\n{attrs}  }}\n")
+        })
+        .collect();
+    assert!(
+        er_diagram(&format!("erDiagram\n{many_attrs}"))
+            .unwrap_err()
+            .contains("4096 attributes")
     );
 }
 
