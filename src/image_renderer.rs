@@ -258,7 +258,79 @@ pub fn decode_media_as(bytes: &[u8], options: &RenderOptions, glyphs: Glyphs) ->
     }
 }
 
+fn gif_delay_ms(delay_cs: u16) -> Result<u32> {
+    let delay = if delay_cs == 0 {
+        100
+    } else {
+        u32::from(delay_cs) * 10
+    };
+    if !(10..=60_000).contains(&delay) {
+        return Err("GIF frame delay is outside 10..=60000 ms".into());
+    }
+    Ok(delay)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn render_gif_batch(
+    batch: &mut Vec<(image::RgbaImage, u32)>,
+    frames: &mut Vec<TimedFrame>,
+    options: &RenderOptions,
+    glyphs: Glyphs,
+) -> Result<()> {
+    use rayon::prelude::*;
+    let rendered: Vec<TimedFrame> = batch
+        .par_drain(..)
+        .map(|(screen, duration_ms)| {
+            let frame = render_image_as(&DynamicImage::ImageRgba8(screen), options, glyphs)?;
+            Ok(TimedFrame { frame, duration_ms })
+        })
+        .collect::<Result<_>>()?;
+    frames.extend(rendered);
+    Ok(())
+}
+
+/// Maximum cloned RGBA bytes buffered across one parallel GIF rendering batch.
+#[cfg(not(target_arch = "wasm32"))]
+const MAX_GIF_BATCH_BYTES: usize = 32 * 1024 * 1024;
+#[cfg(not(target_arch = "wasm32"))]
+const MAX_GIF_BATCH_FRAMES: usize = 16;
+
+#[cfg(not(target_arch = "wasm32"))]
+fn gif_batch_limit(frame_bytes: usize) -> usize {
+    (MAX_GIF_BATCH_BYTES / frame_bytes.max(1)).clamp(1, MAX_GIF_BATCH_FRAMES)
+}
+
 /// Render the inspected frame count without exceeding the preflight budget.
+#[cfg(not(target_arch = "wasm32"))]
+fn decode_gif_frames(
+    bytes: &[u8],
+    options: &RenderOptions,
+    glyphs: Glyphs,
+    count: usize,
+) -> Result<Animation> {
+    let mut frames = Vec::with_capacity(count);
+    let mut batch: Vec<(image::RgbaImage, u32)> = Vec::new();
+    crate::gif::for_each_frame(bytes, |screen, delay_cs| {
+        if frames.len() + batch.len() >= count {
+            return Err("GIF frame count changed during decoding".into());
+        }
+        let delay = gif_delay_ms(delay_cs)?;
+        let batch_limit = gif_batch_limit(screen.as_raw().len());
+        batch.push((screen.clone(), delay));
+        if batch.len() >= batch_limit {
+            render_gif_batch(&mut batch, &mut frames, options, glyphs)?;
+        }
+        Ok(screen)
+    })?;
+    render_gif_batch(&mut batch, &mut frames, options, glyphs)?;
+    if frames.len() != count {
+        return Err("GIF frame count does not match its container".into());
+    }
+    Animation::new(frames, true)
+}
+
+/// Render the inspected frame count without exceeding the preflight budget.
+#[cfg(target_arch = "wasm32")]
 fn decode_gif_frames(
     bytes: &[u8],
     options: &RenderOptions,
@@ -270,14 +342,7 @@ fn decode_gif_frames(
         if frames.len() >= count {
             return Err("GIF frame count changed during decoding".into());
         }
-        let delay = if delay_cs == 0 {
-            100
-        } else {
-            u32::from(delay_cs) * 10
-        };
-        if !(10..=60_000).contains(&delay) {
-            return Err("GIF frame delay is outside 10..=60000 ms".into());
-        }
+        let delay = gif_delay_ms(delay_cs)?;
         let screen = DynamicImage::ImageRgba8(screen);
         let frame = render_image_as(&screen, options, glyphs)?;
         frames.push(TimedFrame {
@@ -390,4 +455,35 @@ fn gif_decoder_rejects_a_frame_count_that_disagrees_with_preflight() {
         decode_gif_frames(&bytes, &options, Glyphs::Ramp, 3).unwrap_err(),
         "GIF frame count does not match its container"
     );
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[test]
+fn gif_batch_limit_scales_down_for_large_frames() {
+    assert_eq!(gif_batch_limit(320 * 180 * 4), 16);
+    assert_eq!(gif_batch_limit(8 * 1024 * 1024), 4);
+    assert_eq!(gif_batch_limit(4000 * 4000 * 4), 1);
+}
+
+#[cfg(test)]
+#[test]
+fn multi_batch_gif_preserves_frame_order_and_delays() {
+    use crate::gif::common::{GifFrame, gif};
+
+    let frames: Vec<GifFrame> = (0..17u8)
+        .map(|i| GifFrame::full(2, 1, vec![i % 2, (i + 1) % 2], u16::from(i) + 1))
+        .collect();
+    let bytes = gif(2, 1, Some(&[[0, 0, 0], [255, 255, 255]]), &frames);
+    let options = RenderOptions {
+        width: 2,
+        height: Some(1),
+        ..RenderOptions::default()
+    };
+    let anim = decode_media(&bytes, &options).unwrap();
+    assert_eq!(anim.frames().len(), 17);
+    for (i, tf) in anim.frames().iter().enumerate() {
+        assert_eq!(tf.duration_ms, (i as u32 + 1) * 10);
+        let expected = if i % 2 == 0 { " @" } else { "@ " };
+        assert_eq!(tf.frame.text(), expected);
+    }
 }
