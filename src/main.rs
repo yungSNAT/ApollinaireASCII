@@ -16,6 +16,7 @@ use apollinaire_ascii::{
     rexpaint,
 };
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
+use rayon::prelude::*;
 use std::{
     fs::File,
     io::{self, IsTerminal, Read, Write},
@@ -313,6 +314,9 @@ enum Command {
         /// Video: seconds from the start of the video to stop at; the video's end by default.
         #[arg(long)]
         end: Option<f64>,
+        /// Video: hardware decode acceleration for ffmpeg; none by default.
+        #[arg(long, value_enum)]
+        hwaccel: Option<ffmpeg::HwAccel>,
     },
     /// Deterministic procedural ASCII scenes, exported as timed JSON.
     Animate {
@@ -655,6 +659,7 @@ fn run(args: Args) -> Result<()> {
             fps,
             start,
             end,
+            hwaccel,
         } => {
             let video = |input: &Path| {
                 ffmpeg::is_video(input) && !input.to_str().is_some_and(fetch::is_url)
@@ -664,10 +669,14 @@ fn run(args: Args) -> Result<()> {
             {
                 return Err("--fps, --start and --end need a video input".into());
             }
+            if hwaccel.is_some() && !inputs.iter().any(|input| video(input)) {
+                return Err("--hwaccel needs a video input".into());
+            }
             let sampling = ffmpeg::Sampling {
                 fps: fps.unwrap_or(10),
                 start_ms: start.unwrap_or(0.0) * 1000.0,
                 end_ms: end.map(|seconds| seconds * 1000.0),
+                hwaccel: hwaccel.unwrap_or_default(),
             };
             let glyphs = if shapes { Glyphs::Shapes } else { Glyphs::Ramp };
             let ramp = apollinaire_ascii::image_renderer::RAMPS
@@ -1053,7 +1062,7 @@ fn batch(
     inputs: &[PathBuf],
     dir: &Path,
     args: &Export,
-    convert: impl Fn(&Path) -> Result<Animation>,
+    convert: impl Fn(&Path) -> Result<Animation> + Sync,
 ) -> Result<()> {
     if args.output.is_some() {
         return Err("Use either --output or --output-dir".into());
@@ -1074,9 +1083,11 @@ fn batch(
         names.push(name);
     }
     std::fs::create_dir_all(dir).map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
-    let mut failed = 0;
-    for (input, stem) in inputs.iter().zip(&names) {
-        let result = convert(input).and_then(|project| {
+    let results: Vec<Result<PathBuf>> = inputs
+        .par_iter()
+        .zip(names.par_iter())
+        .map(|(input, stem)| {
+            let project = convert(input)?;
             let (format, content) = export(&project, args, None)?;
             let extension = match format {
                 Format::Text => "txt",
@@ -1092,7 +1103,10 @@ fn batch(
             let path = dir.join(format!("{stem}.{extension}"));
             create_new(&path, &content)?;
             Ok(path)
-        });
+        })
+        .collect();
+    let mut failed = 0;
+    for (input, result) in inputs.iter().zip(results) {
         match result {
             Ok(path) => {
                 emit(format!("{} -> {}\n", input.display(), path.display()).as_bytes())?;
@@ -1382,6 +1396,7 @@ fn choices_keep_their_values_help_and_defaults() {
             "apollinaire text vertical [default] default | full | fitted | smush",
             &format!("apollinaire say style [plain] {border}"),
             "apollinaire table rules [header] header | every | none",
+            "apollinaire image hwaccel [] none=Decode frames in software | auto=Ask ffmpeg to pick an available hardware decoder, falling back to software if it fails",
             "apollinaire model spin [y] y=Upright, like a turntable | x=Head over heels | xy=Both at once",
             "apollinaire model light [top-left] top-left | top | front | left | right",
             "apollinaire generate maze algorithm [depth-first] depth-first=Depth-first search: long, winding passages | prim=Randomised Prim: many short dead ends | wilson=Wilson's loop-erased random walks: every maze equally likely | sidewinder=Row by row, with an open top row",

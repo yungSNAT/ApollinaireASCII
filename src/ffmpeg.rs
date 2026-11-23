@@ -17,6 +17,7 @@ use apollinaire_ascii::{
     Animation, Glyphs, RenderOptions, Result, TimedFrame,
     video::{check_capture, frame_durations, render_rgba_as, sample_size, sample_times},
 };
+use rayon::prelude::*;
 use std::{
     ffi::OsString,
     fmt::Display,
@@ -45,11 +46,22 @@ const STALL_LIMIT: Duration = Duration::from_secs(60);
 /// QuickTime options that keep a file from naming other files to read.
 const NO_REFERENCES: [&str; 4] = ["-enable_drefs", "0", "-use_absolute_path", "0"];
 
+/// Hardware decode acceleration passed to ffmpeg (`-hwaccel`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum)]
+pub enum HwAccel {
+    /// Decode frames in software.
+    #[default]
+    None,
+    /// Ask ffmpeg to pick an available hardware decoder, falling back to software if it fails.
+    Auto,
+}
+
 /// The editor's video options.
 pub struct Sampling {
     pub fps: u32,
     pub start_ms: f64,
     pub end_ms: Option<f64>,
+    pub hwaccel: HwAccel,
 }
 
 pub fn is_video(path: &Path) -> bool {
@@ -102,6 +114,55 @@ pub fn convert(
     let rows = options.output_height(pixels_wide, pixels_high);
     check_capture(options.width, rows, times.len())?;
 
+    let frames = with_hwaccel_fallback(sampling.hwaccel, |hwaccel| {
+        decode_video_frames(
+            &input,
+            &shown,
+            demuxer,
+            sampling,
+            (pixels_wide, pixels_high),
+            &times,
+            end_ms,
+            options,
+            glyphs,
+            hwaccel,
+        )
+    })?;
+    let durations = frame_durations(&times[..frames.len()], end_ms)?;
+    Animation::new(
+        frames
+            .into_iter()
+            .zip(durations)
+            .map(|(frame, duration_ms)| TimedFrame { frame, duration_ms })
+            .collect(),
+        true,
+    )
+}
+
+/// Run `decode` with `-hwaccel auto` when requested, falling back to software decode if it fails.
+fn with_hwaccel_fallback<T>(
+    hwaccel: HwAccel,
+    mut decode: impl FnMut(Option<&str>) -> Result<T>,
+) -> Result<T> {
+    match hwaccel {
+        HwAccel::Auto => decode(Some("auto")).or_else(|_| decode(None)),
+        HwAccel::None => decode(None),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn decode_video_frames(
+    input: &OsString,
+    shown: &dyn Display,
+    demuxer: &str,
+    sampling: &Sampling,
+    (pixels_wide, pixels_high): (u32, u32),
+    times: &[f64],
+    end_ms: f64,
+    options: &RenderOptions,
+    glyphs: Glyphs,
+    hwaccel: Option<&str>,
+) -> Result<Vec<apollinaire_ascii::Frame>> {
     let seconds = |ms: f64| format!("{:.3}", ms / 1000.0);
     let mut decode = Command::new("ffmpeg");
     decode
@@ -117,9 +178,12 @@ pub fn convert(
     if demuxer == "mov" {
         decode.args(NO_REFERENCES);
     }
+    if let Some(mode) = hwaccel {
+        decode.args(["-hwaccel", mode]);
+    }
     decode
         .args(["-ss", &seconds(sampling.start_ms), "-i"])
-        .arg(&input)
+        .arg(input)
         // The first video track, the one ffprobe measured, not the one ffmpeg would pick.
         .args([
             "-map",
@@ -136,35 +200,21 @@ pub fn convert(
         .args(["-frames:v", &times.len().to_string()])
         .args(["-f", "rawvideo", "-pix_fmt", "rgba", "pipe:1"]);
     let mut run = Run::start(&mut decode, STALL_LIMIT)?;
-    let frames = read_frames(
-        &mut run,
-        (pixels_wide, pixels_high),
-        &times,
-        options,
-        glyphs,
-    );
-    let (status, errors) = run.finish("ffmpeg", &shown)?;
+    let frames = read_frames(&mut run, (pixels_wide, pixels_high), times, options, glyphs);
+    let (status, errors) = run.finish("ffmpeg", shown)?;
     let frames = frames?;
     if !status.success() {
-        return Err(failed("ffmpeg", &shown, &errors));
+        return Err(failed("ffmpeg", shown, &errors));
     }
     // A clean exit before every sample means the video's frames end before its duration: keep
     // what there is, and let the last frame last to the end.
     if frames.is_empty() {
         return Err(format!("ffmpeg decoded no frames from {shown}"));
     }
-    let durations = frame_durations(&times[..frames.len()], end_ms)?;
-    Animation::new(
-        frames
-            .into_iter()
-            .zip(durations)
-            .map(|(frame, duration_ms)| TimedFrame { frame, duration_ms })
-            .collect(),
-        true,
-    )
+    Ok(frames)
 }
 
-/// Each whole frame ffmpeg writes, rendered as it arrives, up to one per sample time.
+/// Each whole frame ffmpeg writes, rendered in bounded parallel batches, up to one per sample time.
 fn read_frames(
     run: &mut Run,
     (width, height): (u32, u32),
@@ -172,12 +222,33 @@ fn read_frames(
     options: &RenderOptions,
     glyphs: Glyphs,
 ) -> Result<Vec<apollinaire_ascii::Frame>> {
+    const BATCH: usize = 16;
+    let frame_bytes = width as usize * height as usize * 4;
     let mut frames = Vec::with_capacity(times.len());
-    let mut pixels = vec![0; width as usize * height as usize * 4];
-    while frames.len() < times.len() && run.stdout.read_exact(&mut pixels).is_ok() {
-        run.progress.fetch_add(1, Ordering::Relaxed);
-        let frame = render_rgba_as(width, height, pixels.clone(), options, glyphs)?;
-        frames.push(frame);
+    let mut batch: Vec<Vec<u8>> = Vec::with_capacity(BATCH.min(times.len()));
+    while frames.len() < times.len() {
+        batch.clear();
+        let remaining = (times.len() - frames.len()).min(BATCH);
+        for _ in 0..remaining {
+            let mut pixels = vec![0; frame_bytes];
+            if run.stdout.read_exact(&mut pixels).is_err() {
+                break;
+            }
+            run.progress.fetch_add(1, Ordering::Relaxed);
+            batch.push(pixels);
+        }
+        if batch.is_empty() {
+            break;
+        }
+        let rendered: Vec<apollinaire_ascii::Frame> = batch
+            .par_drain(..)
+            .map(|pixels| render_rgba_as(width, height, pixels, options, glyphs))
+            .collect::<Result<_>>()?;
+        let got = rendered.len();
+        frames.extend(rendered);
+        if got < remaining {
+            break;
+        }
     }
     Ok(frames)
 }
@@ -297,7 +368,7 @@ fn missing(error: std::io::Error) -> String {
     )
 }
 
-fn failed(program: &str, shown: &impl std::fmt::Display, errors: &[u8]) -> String {
+fn failed(program: &str, shown: &(impl std::fmt::Display + ?Sized), errors: &[u8]) -> String {
     let errors = String::from_utf8_lossy(errors);
     let detail: Vec<&str> = errors
         .lines()
@@ -311,6 +382,37 @@ fn failed(program: &str, shown: &impl std::fmt::Display, errors: &[u8]) -> Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hwaccel_auto_falls_back_to_software_when_hardware_decode_fails() {
+        let mut seen = Vec::new();
+        let ok = with_hwaccel_fallback(HwAccel::Auto, |mode| {
+            seen.push(mode.map(str::to_owned));
+            Ok(42)
+        });
+        assert_eq!(ok, Ok(42));
+        assert_eq!(seen, [Some("auto".into())]);
+
+        let mut seen = Vec::new();
+        let recovered = with_hwaccel_fallback(HwAccel::Auto, |mode| {
+            seen.push(mode.map(str::to_owned));
+            if mode.is_some() {
+                Err("no device".into())
+            } else {
+                Ok(7)
+            }
+        });
+        assert_eq!(recovered, Ok(7));
+        assert_eq!(seen, [Some("auto".into()), None]);
+
+        let mut seen = Vec::new();
+        let software = with_hwaccel_fallback(HwAccel::None, |mode| {
+            seen.push(mode.map(str::to_owned));
+            Ok(9)
+        });
+        assert_eq!(software, Ok(9));
+        assert_eq!(seen, [None]);
+    }
 
     #[test]
     fn only_the_video_demuxers_are_named_to_ffmpeg() {
