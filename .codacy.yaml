@@ -1,0 +1,15 @@
+# Opengrep does not scan test code (tests/ folders and tests.rs modules at any
+# depth), where its temporary-folder rules flag fixtures; shipped code and xtask are
+# still scanned. Lizard's file-size check skips lockfiles, which Cargo and npm
+# generate.
+engines:
+  opengrep:
+    exclude_paths:
+      - "tests/**"
+      - "**/tests/**"
+      - "**/tests.rs"
+  lizard:
+    exclude_paths:
+      - "Cargo.lock"
+      - "**/Cargo.lock"
+      - "**/package-lock.json"
