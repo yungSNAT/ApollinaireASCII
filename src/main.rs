@@ -1056,6 +1056,18 @@ fn create_new(path: &Path, content: &str) -> Result<()> {
     file.write_all(content.as_bytes())
         .map_err(|e| format!("Write failed: {e}"))
 }
+/// Inputs that already parallelise frames internally or exceed 8 MiB on disk run one at a time
+/// in `--output-dir` batches so peak memory stays bounded and nested parallelism is avoided.
+fn is_heavy_batch_input(input: &Path) -> bool {
+    const HEAVY_FILE_BYTES: u64 = 8 * 1024 * 1024;
+    ffmpeg::is_video(input)
+        || input
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("gif"))
+        || std::fs::metadata(input).is_ok_and(|m| m.len() > HEAVY_FILE_BYTES)
+}
+
 /// Convert each input to a new file in `dir`. A failed input is reported and skipped;
 /// existing files are never replaced.
 fn batch(
@@ -1083,30 +1095,39 @@ fn batch(
         names.push(name);
     }
     std::fs::create_dir_all(dir).map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
-    let results: Vec<Result<PathBuf>> = inputs
-        .par_iter()
-        .zip(names.par_iter())
-        .map(|(input, stem)| {
-            let project = convert(input)?;
-            let (format, content) = export(&project, args, None)?;
-            let extension = match format {
-                Format::Text => "txt",
-                Format::Json => "json",
-                Format::Html => "html",
-                Format::Cast => "cast",
-                Format::React | Format::Ink | Format::Opentui => "js",
-                Format::Bubbletea => "go",
-                Format::Python => "py",
-                Format::Ruby => "rb",
-                Format::Csharp => "cs",
-            };
-            let path = dir.join(format!("{stem}.{extension}"));
-            create_new(&path, &content)?;
-            Ok(path)
-        })
+    let convert_one = |input: &Path, stem: &str| -> Result<PathBuf> {
+        let project = convert(input)?;
+        let (format, content) = export(&project, args, None)?;
+        let extension = match format {
+            Format::Text => "txt",
+            Format::Json => "json",
+            Format::Html => "html",
+            Format::Cast => "cast",
+            Format::React | Format::Ink | Format::Opentui => "js",
+            Format::Bubbletea => "go",
+            Format::Python => "py",
+            Format::Ruby => "rb",
+            Format::Csharp => "cs",
+        };
+        let path = dir.join(format!("{stem}.{extension}"));
+        create_new(&path, &content)?;
+        Ok(path)
+    };
+    let (heavy, light): (Vec<usize>, Vec<usize>) =
+        (0..inputs.len()).partition(|&i| is_heavy_batch_input(&inputs[i]));
+    let mut results: Vec<Option<Result<PathBuf>>> = (0..inputs.len()).map(|_| None).collect();
+    let light_out: Vec<(usize, Result<PathBuf>)> = light
+        .into_par_iter()
+        .map(|i| (i, convert_one(&inputs[i], &names[i])))
         .collect();
+    for (i, result) in light_out {
+        results[i] = Some(result);
+    }
+    for i in heavy {
+        results[i] = Some(convert_one(&inputs[i], &names[i]));
+    }
     let mut failed = 0;
-    for (input, result) in inputs.iter().zip(results) {
+    for (input, result) in inputs.iter().zip(results.into_iter().flatten()) {
         match result {
             Ok(path) => {
                 emit(format!("{} -> {}\n", input.display(), path.display()).as_bytes())?;

@@ -289,6 +289,17 @@ fn render_gif_batch(
     Ok(())
 }
 
+/// Maximum cloned RGBA bytes buffered across one parallel GIF rendering batch.
+#[cfg(not(target_arch = "wasm32"))]
+const MAX_GIF_BATCH_BYTES: usize = 32 * 1024 * 1024;
+#[cfg(not(target_arch = "wasm32"))]
+const MAX_GIF_BATCH_FRAMES: usize = 16;
+
+#[cfg(not(target_arch = "wasm32"))]
+fn gif_batch_limit(frame_bytes: usize) -> usize {
+    (MAX_GIF_BATCH_BYTES / frame_bytes.max(1)).clamp(1, MAX_GIF_BATCH_FRAMES)
+}
+
 /// Render the inspected frame count without exceeding the preflight budget.
 #[cfg(not(target_arch = "wasm32"))]
 fn decode_gif_frames(
@@ -297,16 +308,16 @@ fn decode_gif_frames(
     glyphs: Glyphs,
     count: usize,
 ) -> Result<Animation> {
-    const BATCH: usize = 16;
     let mut frames = Vec::with_capacity(count);
-    let mut batch: Vec<(image::RgbaImage, u32)> = Vec::with_capacity(BATCH.min(count));
+    let mut batch: Vec<(image::RgbaImage, u32)> = Vec::new();
     crate::gif::for_each_frame(bytes, |screen, delay_cs| {
         if frames.len() + batch.len() >= count {
             return Err("GIF frame count changed during decoding".into());
         }
         let delay = gif_delay_ms(delay_cs)?;
+        let batch_limit = gif_batch_limit(screen.as_raw().len());
         batch.push((screen.clone(), delay));
-        if batch.len() == BATCH {
+        if batch.len() >= batch_limit {
             render_gif_batch(&mut batch, &mut frames, options, glyphs)?;
         }
         Ok(screen)
@@ -444,6 +455,14 @@ fn gif_decoder_rejects_a_frame_count_that_disagrees_with_preflight() {
         decode_gif_frames(&bytes, &options, Glyphs::Ramp, 3).unwrap_err(),
         "GIF frame count does not match its container"
     );
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[test]
+fn gif_batch_limit_scales_down_for_large_frames() {
+    assert_eq!(gif_batch_limit(320 * 180 * 4), 16);
+    assert_eq!(gif_batch_limit(8 * 1024 * 1024), 4);
+    assert_eq!(gif_batch_limit(4000 * 4000 * 4), 1);
 }
 
 #[cfg(test)]

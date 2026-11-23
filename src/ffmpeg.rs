@@ -214,6 +214,29 @@ fn decode_video_frames(
     Ok(frames)
 }
 
+/// Maximum raw RGBA bytes buffered across one parallel video rendering batch.
+const MAX_VIDEO_BATCH_BYTES: usize = 32 * 1024 * 1024;
+const MAX_VIDEO_BATCH_FRAMES: usize = 16;
+
+fn video_batch_limit(frame_bytes: usize) -> usize {
+    (MAX_VIDEO_BATCH_BYTES / frame_bytes.max(1)).clamp(1, MAX_VIDEO_BATCH_FRAMES)
+}
+
+fn render_video_batch(
+    batch: &mut Vec<Vec<u8>>,
+    progress: &AtomicU64,
+    render: impl Fn(Vec<u8>) -> Result<apollinaire_ascii::Frame> + Sync,
+) -> Result<Vec<apollinaire_ascii::Frame>> {
+    batch
+        .par_drain(..)
+        .map(|pixels| {
+            let frame = render(pixels);
+            progress.fetch_add(1, Ordering::Relaxed);
+            frame
+        })
+        .collect()
+}
+
 /// Each whole frame ffmpeg writes, rendered in bounded parallel batches, up to one per sample time.
 fn read_frames(
     run: &mut Run,
@@ -222,13 +245,13 @@ fn read_frames(
     options: &RenderOptions,
     glyphs: Glyphs,
 ) -> Result<Vec<apollinaire_ascii::Frame>> {
-    const BATCH: usize = 16;
     let frame_bytes = width as usize * height as usize * 4;
+    let batch_limit = video_batch_limit(frame_bytes);
     let mut frames = Vec::with_capacity(times.len());
-    let mut batch: Vec<Vec<u8>> = Vec::with_capacity(BATCH.min(times.len()));
+    let mut batch: Vec<Vec<u8>> = Vec::with_capacity(batch_limit.min(times.len()));
     while frames.len() < times.len() {
         batch.clear();
-        let remaining = (times.len() - frames.len()).min(BATCH);
+        let remaining = (times.len() - frames.len()).min(batch_limit);
         for _ in 0..remaining {
             let mut pixels = vec![0; frame_bytes];
             if run.stdout.read_exact(&mut pixels).is_err() {
@@ -240,10 +263,9 @@ fn read_frames(
         if batch.is_empty() {
             break;
         }
-        let rendered: Vec<apollinaire_ascii::Frame> = batch
-            .par_drain(..)
-            .map(|pixels| render_rgba_as(width, height, pixels, options, glyphs))
-            .collect::<Result<_>>()?;
+        let rendered = render_video_batch(&mut batch, &run.progress, |pixels| {
+            render_rgba_as(width, height, pixels, options, glyphs)
+        })?;
         let got = rendered.len();
         frames.extend(rendered);
         if got < remaining {
@@ -439,6 +461,35 @@ mod tests {
         );
         assert!(started.elapsed() < Duration::from_secs(10));
         assert!(!Path::new(&format!("/proc/{}", pid.trim())).exists());
+    }
+
+    #[test]
+    fn video_batch_limit_scales_down_for_large_frames() {
+        assert_eq!(video_batch_limit(640 * 360 * 4), 16);
+        assert_eq!(video_batch_limit(4 * 1024 * 1024), 8);
+        assert_eq!(video_batch_limit(4000 * 4000 * 4), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn watchdog_survives_batch_longer_than_limit_when_frames_progress() {
+        let mut child = Command::new("sh");
+        child.args(["-c", "sleep 0.35"]);
+        let run = Run::start(&mut child, Duration::from_millis(150)).unwrap();
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .unwrap();
+        let mut batch = vec![vec![0u8; 4]; 5];
+        let frames = pool.install(|| {
+            render_video_batch(&mut batch, &run.progress, |_| {
+                thread::sleep(Duration::from_millis(60));
+                apollinaire_ascii::Frame::from_text("x")
+            })
+        });
+        assert_eq!(frames.unwrap().len(), 5);
+        let (status, errors) = run.finish("ffmpeg", &"clip.mp4").unwrap();
+        assert!(status.success() && errors.is_empty());
     }
 
     #[cfg(unix)]

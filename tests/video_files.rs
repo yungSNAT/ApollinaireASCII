@@ -62,6 +62,7 @@ mod with_ffmpeg {
 
     fn scratch(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("apollinaire-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
@@ -229,7 +230,7 @@ mod with_ffmpeg {
             "--hwaccel",
             "none",
         ]));
-        assert_eq!(auto.frames().len(), none.frames().len());
+        assert_eq!(auto.frames(), none.frames());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
