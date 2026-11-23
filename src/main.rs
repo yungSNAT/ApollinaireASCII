@@ -1056,16 +1056,27 @@ fn create_new(path: &Path, content: &str) -> Result<()> {
     file.write_all(content.as_bytes())
         .map_err(|e| format!("Write failed: {e}"))
 }
-/// Inputs that already parallelise frames internally or exceed 8 MiB on disk run one at a time
-/// in `--output-dir` batches so peak memory stays bounded and nested parallelism is avoided.
+/// Classify inputs for `--output-dir` batching by format magic and decoded dimensions so only
+/// confirmed small still images (<= 8 MiB decoded RGBA) run in parallel. Videos, GIFs (regardless
+/// of extension), URLs, large still images (even tightly compressed) and unrecognised headers run
+/// one at a time, bounding peak decoded memory and avoiding nested parallelism.
 fn is_heavy_batch_input(input: &Path) -> bool {
-    const HEAVY_FILE_BYTES: u64 = 8 * 1024 * 1024;
-    ffmpeg::is_video(input)
-        || input
-            .extension()
-            .and_then(|e| e.to_str())
-            .is_some_and(|e| e.eq_ignore_ascii_case("gif"))
-        || std::fs::metadata(input).is_ok_and(|m| m.len() > HEAVY_FILE_BYTES)
+    const HEAVY_DECODED_BYTES: u64 = 8 * 1024 * 1024;
+    if ffmpeg::is_video(input) || fetch::is_url(&input.to_string_lossy()) {
+        return true;
+    }
+    let mut magic = [0u8; 6];
+    if std::fs::File::open(input)
+        .and_then(|mut f| std::io::Read::read_exact(&mut f, &mut magic))
+        .is_ok_and(|()| &magic == b"GIF89a" || &magic == b"GIF87a")
+    {
+        return true;
+    }
+    image::ImageReader::open(input)
+        .ok()
+        .and_then(|r| r.with_guessed_format().ok())
+        .and_then(|r| r.into_dimensions().ok())
+        .is_none_or(|(w, h)| u64::from(w) * u64::from(h) * 4 > HEAVY_DECODED_BYTES)
 }
 
 /// Convert each input to a new file in `dir`. A failed input is reported and skipped;
@@ -1429,4 +1440,34 @@ fn choices_keep_their_values_help_and_defaults() {
             "apollinaire completions shell [] bash | elvish | fish | powershell | zsh",
         ]
     );
+}
+
+#[cfg(test)]
+#[test]
+fn heavy_batch_input_checks_decoded_dimensions_and_gif_magic() {
+    let dir = std::env::current_exe()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join(format!("apollinaire-heavy-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let small = dir.join("small.png");
+    image::RgbaImage::new(16, 16).save(&small).unwrap();
+    assert!(!is_heavy_batch_input(&small));
+
+    let large = dir.join("large-solid.png");
+    image::RgbaImage::new(2048, 2048).save(&large).unwrap();
+    assert!(std::fs::metadata(&large).unwrap().len() < 100_000);
+    assert!(is_heavy_batch_input(&large));
+
+    let disguised_gif = dir.join("disguised.png");
+    std::fs::write(&disguised_gif, b"GIF89a\x01\x00\x01\x00").unwrap();
+    assert!(is_heavy_batch_input(&disguised_gif));
+
+    assert!(is_heavy_batch_input(Path::new("clip.mp4")));
+    assert!(is_heavy_batch_input(Path::new("https://example.com/a.png")));
+
+    let _ = std::fs::remove_dir_all(&dir);
 }
