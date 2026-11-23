@@ -79,7 +79,7 @@ function pump(buffer, preview)
           preview.cache[text] = { lines = lines }
         else
           local message = vim.trim(result.stderr):match("^[^\n]*")
-          preview.cache[text] = { error = message ~= "" and message or "exit code " .. result.code }
+          preview.cache[text] = { error = message ~= "" and message or "apollinaire diagram: exit code " .. result.code }
         end
         if previews[buffer] == preview then
           draw(buffer, preview)
@@ -114,7 +114,7 @@ function draw(buffer, preview)
     if result and not (cursor and cursor >= block.first and cursor <= block.last) then
       local lines = {}
       if result.error then
-        lines = { { { "apollinaire: " .. result.error, "ErrorMsg" } } }
+        lines = { { { result.error, "ErrorMsg" } } }
       else
         for _, line in ipairs(result.lines) do
           table.insert(lines, { { line, "ApollinairePreview" } })

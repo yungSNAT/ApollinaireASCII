@@ -177,6 +177,10 @@ function cases.completes_the_command_name()
 end
 
 local preview = require("apollinaire.preview")
+
+local function text(list)
+  return table.concat(list, "\n") .. "\n"
+end
 local flowchart = { "flowchart LR", "  Lumbridge --> Varrock" }
 local sequence = { "sequenceDiagram", "  Bob->>Hans: Ahoy" }
 
@@ -277,7 +281,7 @@ function cases.preview_renders_an_edited_block_again()
   buffer(concat({ "# Map" }, fenced("```mermaid", flowchart, "```")))
   vim.cmd("ApollinairePreview")
   settle()
-  vim.api.nvim_buf_set_lines(0, 2, 3, true, { "  Lumbridge --> Draynor" })
+  vim.api.nvim_buf_set_lines(0, 3, 4, true, { "  Lumbridge --> Draynor" })
   vim.api.nvim_win_set_cursor(0, { 1, 0 })
   vim.api.nvim_exec_autocmds("InsertLeave", { buffer = 0 })
   settle()
@@ -289,7 +293,7 @@ function cases.preview_rerenders_after_a_normal_mode_change()
   buffer(concat({ "# Map" }, fenced("```mermaid", flowchart, "```")))
   vim.cmd("ApollinairePreview")
   settle()
-  vim.api.nvim_buf_set_lines(0, 2, 3, true, { "  Lumbridge --> Draynor" })
+  vim.api.nvim_buf_set_lines(0, 3, 4, true, { "  Lumbridge --> Draynor" })
   vim.api.nvim_win_set_cursor(0, { 1, 0 })
   vim.api.nvim_exec_autocmds("TextChanged", { buffer = 0 })
   local want = cli({ "diagram", "-" }, text({ "flowchart LR", "  Lumbridge --> Draynor" }))
