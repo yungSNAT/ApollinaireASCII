@@ -28,13 +28,22 @@ case "$name $1" in
 esac
 "#;
 
-const TOOLS: [&str; 10] = ["nvim", "emacs", "npm", "node", "python3", "ruby", "dotnet", "bun", "go", "gofmt"];
+const TOOLS: [&str; 10] = [
+    "nvim", "emacs", "npm", "node", "python3", "ruby", "dotnet", "bun", "go", "gofmt",
+];
 
 /// A repository with the files the suites read, stubs for their tools and a temporary folder.
 fn fake_root(name: &str) -> PathBuf {
     let root = std::env::temp_dir().join(format!("xtask-suites-{name}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&root);
-    for dir in ["editors/emacs", "editors/nvim", "tests/code_exports/go", "bin", "stubs", "tmp"] {
+    for dir in [
+        "editors/emacs",
+        "editors/nvim",
+        "tests/code_exports/go",
+        "bin",
+        "stubs",
+        "tmp",
+    ] {
         fs::create_dir_all(root.join(dir)).unwrap();
     }
     for file in [
@@ -60,7 +69,11 @@ fn fake_root(name: &str) -> PathBuf {
 fn suite(name: &str, command: &str, gofmt_complains: bool) -> (Option<i32>, String, String) {
     let root = fake_root(name);
     let trace = root.join("trace.txt");
-    let path = format!("{}:{}", root.join("stubs").display(), std::env::var("PATH").unwrap());
+    let path = format!(
+        "{}:{}",
+        root.join("stubs").display(),
+        std::env::var("PATH").unwrap()
+    );
     let out = Command::new(env!("CARGO_BIN_EXE_xtask"))
         .args([command, "bin/apollinaire"])
         .current_dir(&root)
@@ -75,22 +88,37 @@ fn suite(name: &str, command: &str, gofmt_complains: bool) -> (Option<i32>, Stri
         .output()
         .unwrap();
     let traced = fs::read_to_string(&trace).unwrap_or_default();
-    assert!(!root.join("tests/code_exports/go/main.go").exists() || gofmt_complains, "main.go left");
+    assert!(
+        !root.join("tests/code_exports/go/main.go").exists() || gofmt_complains,
+        "main.go left"
+    );
     fs::remove_dir_all(&root).unwrap();
-    (out.status.code(), String::from_utf8(out.stdout).unwrap(), traced)
+    (
+        out.status.code(),
+        String::from_utf8(out.stdout).unwrap(),
+        traced,
+    )
 }
 
 fn golden(name: &str) -> String {
-    fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden/suites").join(name)).unwrap()
+    fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/golden/suites")
+            .join(name),
+    )
+    .unwrap()
 }
 
 #[test]
 fn editors_runs_what_the_shell_script_ran() {
     let (code, stdout, trace) = suite("editors", "editors", false);
     assert_eq!(code, Some(0));
-    assert_eq!(stdout, "nvim 9.9
+    assert_eq!(
+        stdout,
+        "nvim 9.9
 emacs 9.9
-");
+"
+    );
     assert_eq!(trace, golden("editors.trace"));
 }
 
@@ -120,6 +148,9 @@ fn a_missing_binary_runs_nothing() {
         .unwrap();
     fs::remove_dir_all(&root).unwrap();
     assert_eq!(out.status.code(), Some(1));
-    assert_eq!(String::from_utf8(out.stderr).unwrap(), "bin/absent: no such file
-");
+    assert_eq!(
+        String::from_utf8(out.stderr).unwrap(),
+        "bin/absent: no such file
+"
+    );
 }

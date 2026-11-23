@@ -30,7 +30,11 @@ fn exec(
         .output()
         .map_err(|error| format!("Cannot run {program}: {error}"))?;
     if !out.status.success() {
-        return Err(format!("{program} {} failed: {}", args.join(" "), out.status));
+        return Err(format!(
+            "{program} {} failed: {}",
+            args.join(" "),
+            out.status
+        ));
     }
     Ok(out.stdout)
 }
@@ -42,7 +46,13 @@ fn run(dir: &Path, env: &[(&str, &str)], program: &str, args: &[&str]) -> Result
 /// Print the first line `<program> --version` writes, as `| head -n 1` does.
 fn first_line(dir: &Path, env: &[(&str, &str)], program: &str) -> Result<(), String> {
     let out = exec(dir, env, program, &["--version"], Stdio::piped())?;
-    println!("{}", String::from_utf8_lossy(&out).lines().next().unwrap_or_default());
+    println!(
+        "{}",
+        String::from_utf8_lossy(&out)
+            .lines()
+            .next()
+            .unwrap_or_default()
+    );
     Ok(())
 }
 
@@ -54,7 +64,11 @@ fn binary(path: &str) -> Result<String, String> {
     }
     let absolute = std::path::absolute(path).map_err(|error| format!("{path}: {error}"))?;
     let absolute = text(&absolute);
-    Ok(if cfg!(windows) { absolute.replace('\\', "/") } else { absolute })
+    Ok(if cfg!(windows) {
+        absolute.replace('\\', "/")
+    } else {
+        absolute
+    })
 }
 
 fn text(path: &Path) -> String {
@@ -67,7 +81,11 @@ fn fail(path: &Path) -> impl Fn(io::Error) -> String + '_ {
 
 /// Remove a file or folder that may not exist.
 fn remove(path: &Path) -> Result<(), String> {
-    let removed = if path.is_dir() { fs::remove_dir_all(path) } else { fs::remove_file(path) };
+    let removed = if path.is_dir() {
+        fs::remove_dir_all(path)
+    } else {
+        fs::remove_file(path)
+    };
     match removed {
         Err(error) if error.kind() != io::ErrorKind::NotFound => Err(fail(path)(error)),
         _ => Ok(()),
@@ -102,7 +120,20 @@ pub fn editors(bin: &str) -> Result<(), String> {
     let env = [("APOLLINAIRE", bin.as_str())];
     let dir = Path::new("editors");
     first_line(dir, &env, "nvim")?;
-    run(dir, &env, "nvim", &["--headless", "-u", "NONE", "-i", "NONE", "-l", "nvim/test.lua"])?;
+    run(
+        dir,
+        &env,
+        "nvim",
+        &[
+            "--headless",
+            "-u",
+            "NONE",
+            "-i",
+            "NONE",
+            "-l",
+            "nvim/test.lua",
+        ],
+    )?;
     first_line(dir, &env, "emacs")?;
     let out = TempDir::new("apollinaire-emacs")?;
     let mut files = Vec::new();
@@ -118,11 +149,28 @@ pub fn editors(bin: &str) -> Result<(), String> {
     files.sort();
     let folder = text(&out.0);
     let mut args = vec!["--batch", "-Q", "-L", &folder];
-    args.extend(["--eval", "(setq byte-compile-error-on-warn t)", "-f", "batch-byte-compile"]);
+    args.extend([
+        "--eval",
+        "(setq byte-compile-error-on-warn t)",
+        "-f",
+        "batch-byte-compile",
+    ]);
     args.extend(files.iter().map(String::as_str));
     run(dir, &env, "emacs", &args)?;
-    let tests = ["-L", "emacs", "-l", "apollinaire-tests", "-f", "ert-run-tests-batch-and-exit"];
-    run(dir, &env, "emacs", &[&["--batch", "-Q"][..], &tests].concat())
+    let tests = [
+        "-L",
+        "emacs",
+        "-l",
+        "apollinaire-tests",
+        "-f",
+        "ert-run-tests-batch-and-exit",
+    ];
+    run(
+        dir,
+        &env,
+        "emacs",
+        &[&["--batch", "-Q"][..], &tests].concat(),
+    )
 }
 
 pub fn code_exports(bin: &str) -> Result<(), String> {
@@ -136,23 +184,53 @@ pub fn code_exports(bin: &str) -> Result<(), String> {
         let json = format!("{project}.json");
         for format in ["react", "ink", "opentui"] {
             let out = format!("out/{project}-{format}.js");
-            run(dir, &[], &bin, &["import", &json, "--format", format, "--output", &out])?;
+            run(
+                dir,
+                &[],
+                &bin,
+                &["import", &json, "--format", format, "--output", &out],
+            )?;
         }
         for extension in ["go", "py", "rb", "cs"] {
             let out = format!("out/{project}.{extension}");
             run(dir, &[], &bin, &["import", &json, "--output", &out])?;
         }
     }
-    run(dir, &[], npm(), &["ci", "--ignore-scripts", "--no-audit", "--no-fund"])?;
-    run(dir, &[], "node", &["--test", "--test-timeout=60000", "react.test.mjs", "ink.test.mjs"])?;
+    run(
+        dir,
+        &[],
+        npm(),
+        &["ci", "--ignore-scripts", "--no-audit", "--no-fund"],
+    )?;
+    run(
+        dir,
+        &[],
+        "node",
+        &[
+            "--test",
+            "--test-timeout=60000",
+            "react.test.mjs",
+            "ink.test.mjs",
+        ],
+    )?;
     // Set for every later step, as the shell script exported them.
     let env = [("DOTNET_NOLOGO", "1"), ("DOTNET_CLI_TELEMETRY_OPTOUT", "1")];
     for program in ["python3", "ruby", "dotnet"] {
         run(dir, &env, program, &["--version"])?;
     }
-    let programs = ["--test", "--test-timeout=120000", "--test-concurrency=1", "programs.test.mjs"];
+    let programs = [
+        "--test",
+        "--test-timeout=120000",
+        "--test-concurrency=1",
+        "programs.test.mjs",
+    ];
     run(dir, &env, "node", &programs)?;
-    run(dir, &env, "bun", &["test", "--timeout", "60000", "./opentui.test.js"])?;
+    run(
+        dir,
+        &env,
+        "bun",
+        &["test", "--timeout", "60000", "./opentui.test.js"],
+    )?;
     for project in ["once", "loop"] {
         let source = dir.join(format!("out/{project}.go"));
         fs::copy(&source, go.join("main.go")).map_err(fail(&source))?;
