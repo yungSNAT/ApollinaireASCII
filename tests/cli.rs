@@ -1627,8 +1627,67 @@ fn diagram_lays_out_a_mermaid_flowchart_from_a_file_or_stdin() {
         text(&sequence.stderr)
     );
     refused(
-        &cli_stdin(&["diagram", "-"], b"classDiagram\n"),
-        "Line 1: a Mermaid diagram starts with flowchart, graph or sequenceDiagram",
+        &cli_stdin(&["diagram", "-"], b"pie\n"),
+        "Line 1: a Mermaid diagram starts with flowchart, graph, sequenceDiagram, stateDiagram-v2, classDiagram or erDiagram",
+    );
+    let state = cli_stdin(&["diagram", "-"], b"stateDiagram-v2\n  [*] --> Ready\n");
+    assert!(
+        text(&state.stdout).contains("| (*) |"),
+        "{}",
+        text(&state.stderr)
+    );
+    let class = cli_stdin(&["diagram", "-"], b"classDiagram\n  Animal <|-- Dog\n");
+    assert!(
+        text(&class.stdout).contains("Animal"),
+        "{}",
+        text(&class.stderr)
+    );
+    let er = cli_stdin(
+        &["diagram", "-"],
+        b"erDiagram\n  USER ||--o{ ORDER : places\n",
+    );
+    assert!(
+        text(&er.stdout).contains("||--o{ places"),
+        "{}",
+        text(&er.stderr)
+    );
+    let narrow = cli_stdin(
+        &["diagram", "--max-width", "20", "-"],
+        b"graph LR\n  A[Start] --> B[Middle] --> C[Finish]\n",
+    );
+    assert!(narrow.status.success(), "{}", text(&narrow.stderr));
+    assert!(text(&narrow.stdout).lines().all(|line| line.len() <= 20));
+    let md_in = "# Title\n\n```mermaid\ngraph LR\n  A --> B\n```\n\nFooter.\n";
+    let md_out = cli_stdin(&["diagram", "--markdown", "-"], md_in.as_bytes());
+    assert!(md_out.status.success(), "{}", text(&md_out.stderr));
+    let md_text = text(&md_out.stdout);
+    assert!(md_text.starts_with("# Title\n\n```text\n"), "{md_text}");
+    assert!(md_text.ends_with("```\n\nFooter.\n"), "{md_text}");
+    let md_file = dir.join("doc.md");
+    let md_dest = dir.join("out.md");
+    std::fs::write(&md_file, md_in).unwrap();
+    let md_written = cli(&[
+        "diagram",
+        "--markdown",
+        md_file.to_str().unwrap(),
+        "--output",
+        md_dest.to_str().unwrap(),
+    ]);
+    assert!(md_written.status.success(), "{}", text(&md_written.stderr));
+    assert_eq!(std::fs::read_to_string(&md_dest).unwrap(), md_text);
+    refused(
+        &cli_stdin(
+            &["diagram", "--markdown", "--format", "json", "-"],
+            md_in.as_bytes(),
+        ),
+        "--markdown outputs Markdown text and does not take --format or --frame",
+    );
+    refused(
+        &cli_stdin(
+            &["diagram", "--markdown", "--frame", "0", "-"],
+            md_in.as_bytes(),
+        ),
+        "--markdown outputs Markdown text and does not take --format or --frame",
     );
 }
 
