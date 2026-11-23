@@ -68,9 +68,9 @@ local function kill(preview)
 end
 
 -- Start renders from the queue until max_jobs run, skipping text no block holds any longer.
--- A program that cannot start is reported once and empties the queue.
+-- A program that cannot start is reported once and stops renders until a bang.
 function pump(buffer, preview)
-  while preview.running < M.max_jobs and #preview.queue > 0 do
+  while not preview.broken and preview.running < M.max_jobs and #preview.queue > 0 do
     local text = table.remove(preview.queue, 1)
     if not preview.wanted[text] then
       preview.queued[text] = nil
@@ -112,7 +112,7 @@ function pump(buffer, preview)
         end)
       end)
       if not ok then
-        preview.queue, preview.queued = {}, {}
+        preview.queue, preview.queued, preview.broken = {}, {}, true
         local message = command[1] .. " cannot run, so there is no preview: set vim.g.apollinaire_program"
         vim.notify(message, vim.log.levels.ERROR, { title = "apollinaire" })
         return
@@ -227,7 +227,12 @@ function M.start(buffer)
     group = preview.group,
     pattern = { "*:[iR]*", "[iR]*:*" },
     callback = function()
-      if vim.api.nvim_get_current_buf() == buffer then
+      local inserting = function(mode)
+        return mode:find("^[iR]") ~= nil
+      end
+      -- Only a move into or out of Insert or Replace mode, not one within it.
+      local moved = inserting(vim.v.event.old_mode) ~= inserting(vim.v.event.new_mode)
+      if moved and vim.api.nvim_get_current_buf() == buffer then
         scan(buffer, preview)
       end
     end,
@@ -250,6 +255,7 @@ function M.command(opts)
     if preview then
       kill(preview)
       preview.cache, preview.queue, preview.queued, preview.running = {}, {}, {}, 0
+      preview.broken = false
       scan(buffer, preview)
     else
       M.start(buffer)

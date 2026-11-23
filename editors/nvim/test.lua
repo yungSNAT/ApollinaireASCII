@@ -390,6 +390,25 @@ function cases.preview_catches_up_with_a_change_no_textchanged_reported()
   vim.cmd("ApollinairePreview")
 end
 
+function cases.preview_follows_an_edit_saved_before_its_scan()
+  buffer(concat({ "# Map" }, fenced("```mermaid", flowchart, "```")))
+  local file = vim.fn.tempname()
+  vim.api.nvim_buf_set_name(0, file)
+  vim.cmd("ApollinairePreview")
+  settle()
+  vim.api.nvim_buf_set_lines(0, 3, 4, true, { "  Lumbridge --> Draynor" })
+  -- Writing raises the changedtick and fires no TextChanged.
+  vim.cmd("silent write")
+  vim.api.nvim_win_set_cursor(0, { 1, 0 })
+  vim.api.nvim_exec_autocmds("CursorMoved", { buffer = 0 })
+  local want = cli({ "diagram", "-" }, text({ "flowchart LR", "  Lumbridge --> Draynor" }))
+  assert(vim.wait(20000, function()
+    return vim.deep_equal(previews()[5], want)
+  end, 20), "no preview after the write")
+  vim.cmd("ApollinairePreview")
+  os.remove(file)
+end
+
 function cases.preview_rerenders_after_a_normal_mode_change()
   buffer(concat({ "# Map" }, fenced("```mermaid", flowchart, "```")))
   vim.cmd("ApollinairePreview")
@@ -439,6 +458,13 @@ function cases.preview_reports_a_missing_program()
   same(previews(), {}, "previews")
   same(#notes, 1, "notifications")
   assert(notes[1].message:find("apollinaire-not-installed cannot run", 1, true), notes[1].message)
+  vim.api.nvim_buf_set_lines(0, 3, 4, true, { "  Lumbridge --> Draynor" })
+  rescan()
+  same(#notes, 1, "notifications after a rescan")
+  vim.g.apollinaire_program = bin
+  vim.cmd("ApollinairePreview!")
+  settle()
+  same(previews()[5], cli({ "diagram", "-" }, text({ "flowchart LR", "  Lumbridge --> Draynor" })), "after a bang")
   vim.cmd("ApollinairePreview")
 end
 
