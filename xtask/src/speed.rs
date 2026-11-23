@@ -155,6 +155,7 @@ pub fn run(apo: &str, aic: &str, chafa: &str, work: Option<&Path>) -> Result<(),
         Some(work) => run_in(work, &apo, &aic, &chafa),
         None => {
             let work =
+                // nosemgrep: rust.lang.security.temp-dir.temp-dir -- create_dir fails on an existing path; the benchmark's scratch folder guards nothing
                 std::env::temp_dir().join(format!("conversion-speed-{}", std::process::id()));
             fs::create_dir(&work).map_err(|error| format!("{}: {error}", work.display()))?;
             let result = run_in(&work, &apo, &aic, &chafa);

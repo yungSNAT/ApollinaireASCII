@@ -263,6 +263,7 @@ mod tests {
 
     #[test]
     fn writes_the_files_and_reports_an_unreadable_sums_file() {
+        // nosemgrep: rust.lang.security.temp-dir.temp-dir -- a test fixture folder; no security decision rests on it
         let dir = std::env::temp_dir().join(format!("xtask-manifests-{}", std::process::id()));
         let sums = dir.join("SHA256SUMS.txt");
         fs::create_dir_all(&dir).unwrap();
