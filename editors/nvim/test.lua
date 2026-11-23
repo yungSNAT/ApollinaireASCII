@@ -176,6 +176,313 @@ function cases.completes_the_command_name()
   same(vim.fn.getcompletion("Apollinaire art ", "cmdline"), {}, "later arguments")
 end
 
+local preview = require("apollinaire.preview")
+
+local function text(list)
+  return table.concat(list, "\n") .. "\n"
+end
+local flowchart = { "flowchart LR", "  Lumbridge --> Varrock" }
+local sequence = { "sequenceDiagram", "  Bob->>Hans: Ahoy" }
+
+-- The text of each preview in the current buffer, by the 1-based line it sits under.
+local function previews()
+  local shown = {}
+  for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(0, preview.namespace, 0, -1, { details = true })) do
+    local text = {}
+    for _, chunks in ipairs(mark[4].virt_lines) do
+      table.insert(text, chunks[1][1])
+    end
+    shown[mark[2] + 1] = text
+  end
+  return shown
+end
+
+-- Run the scan an edit schedules, and wait for it.
+local function rescan()
+  local buffer = vim.api.nvim_get_current_buf()
+  local state = preview.state(buffer)
+  vim.api.nvim_exec_autocmds("TextChanged", { buffer = buffer })
+  assert(vim.wait(5000, function()
+    return state.scanned == vim.api.nvim_buf_get_changedtick(buffer)
+  end, 10), "no scan after the edit")
+end
+
+local function keys(text)
+  return vim.api.nvim_replace_termcodes(text, true, false, true)
+end
+
+-- Wait until no render runs in the current buffer.
+local function settle()
+  local state = preview.state(vim.api.nvim_get_current_buf())
+  assert(vim.wait(20000, function()
+    return state.running == 0 and #state.queue == 0
+  end, 20), "renders did not finish")
+end
+
+local function fenced(open, body, close)
+  return concat({ open }, body, { close })
+end
+
+local function many()
+  local body = { "# Many" }
+  for n = 1, 12 do
+    body = concat(body, fenced("```mermaid", { "flowchart LR", "  Lumbridge --> Varrock" .. n }, "```"))
+  end
+  return body
+end
+
+function cases.preview_finds_commonmark_fences()
+  local found = preview.blocks(concat(
+    { "# Notes" },
+    fenced("```mermaid", flowchart, "```"),
+    fenced("~~~~ mermaid title", sequence, "~~~~~ \t"),
+    fenced("   ```mermaid", { "graph TD" }, "````"),
+    fenced("```lua", { "```mermaid", "flowchart LR" }, "```"),
+    fenced("    ```mermaid", { "graph TD" }, "    ```"),
+    fenced("```mermaidx", { "graph TD" }, "```"),
+    fenced("~~~mermaid", { "graph TD", "```" }, "~~~"),
+    fenced("```mermaid", {}, "```"),
+    { "``` mermaid `x`", "graph TD", "```" },
+    fenced("```mermaid", { "graph TD" }, "``` x"),
+    { "unclosed" }
+  ))
+  same(vim.tbl_map(function(block)
+    return { block.first, block.last, block.text }
+  end, found), {
+    { 2, 5, "flowchart LR\n  Lumbridge --> Varrock\n" },
+    { 6, 9, "sequenceDiagram\n  Bob->>Hans: Ahoy\n" },
+    { 10, 12, "graph TD\n" },
+    { 23, 26, "graph TD\n```\n" },
+    { 27, 28, "" },
+  }, "blocks")
+end
+
+function cases.preview_draws_what_diagram_prints_below_each_block()
+  buffer(concat({ "# Map" }, fenced("```mermaid", flowchart, "```"), { "" }, fenced("~~~mermaid", sequence, "~~~")))
+  vim.api.nvim_win_set_cursor(0, { 1, 0 })
+  vim.cmd("ApollinairePreview")
+  settle()
+  same(previews(), { [5] = cli({ "diagram", "-" }, text(flowchart)), [10] = cli({ "diagram", "-" }, text(sequence)) }, "previews")
+  vim.cmd("ApollinairePreview")
+  same(previews(), {}, "toggled off")
+  assert(preview.state(vim.api.nvim_get_current_buf()) == nil, "state left after toggling off")
+end
+
+function cases.preview_hides_the_block_holding_the_cursor_and_in_insert_mode()
+  buffer(concat({ "# Map" }, fenced("```mermaid", flowchart, "```"), { "" }, fenced("```mermaid", sequence, "```")))
+  vim.api.nvim_win_set_cursor(0, { 3, 0 })
+  vim.cmd("ApollinairePreview")
+  settle()
+  same(vim.tbl_keys(previews()), { 10 }, "cursor in the first block")
+  vim.api.nvim_win_set_cursor(0, { 6, 0 })
+  vim.api.nvim_exec_autocmds("CursorMoved", { buffer = 0 })
+  same(vim.tbl_count(previews()), 2, "cursor between blocks")
+  -- <F2> records the previews from inside Insert mode; Ctrl-C leaves it without InsertLeave.
+  local seen
+  vim.o.showmode = false
+  vim.keymap.set("i", "<F2>", function()
+    seen = previews()
+  end, { buffer = 0 })
+  vim.api.nvim_feedkeys(keys("i<F2><C-c>"), "xt", false)
+  same(seen, {}, "Insert mode")
+  same(vim.api.nvim_get_mode().mode, "n", "mode after Ctrl-C")
+  same(vim.tbl_count(previews()), 2, "after Insert mode")
+  vim.cmd("ApollinairePreview")
+end
+
+function cases.preview_waits_for_the_scan_after_lines_are_deleted()
+  buffer(concat({ "# Map" }, fenced("```mermaid", flowchart, "```")))
+  vim.api.nvim_win_set_cursor(0, { 1, 0 })
+  vim.cmd("ApollinairePreview")
+  settle()
+  assert(previews()[5], "no preview")
+  -- The block's opening fence goes, and with it the line the preview was drawn under.
+  vim.cmd("normal! 2dd")
+  vim.api.nvim_exec_autocmds("CursorMoved", { buffer = 0 })
+  rescan()
+  same(previews(), {}, "no block left")
+  vim.cmd("ApollinairePreview")
+end
+
+function cases.preview_moves_with_its_block_until_the_scan()
+  buffer(concat({ "# Map" }, fenced("```mermaid", flowchart, "```"), { "Varrock" }))
+  vim.api.nvim_win_set_cursor(0, { 1, 0 })
+  vim.cmd("ApollinairePreview")
+  settle()
+  local want = cli({ "diagram", "-" }, text(flowchart))
+  vim.cmd("normal! dd")
+  vim.api.nvim_exec_autocmds("CursorMoved", { buffer = 0 })
+  same(previews(), { [4] = want }, "before the scan")
+  vim.api.nvim_win_set_cursor(0, { 5, 0 })
+  rescan()
+  same(previews(), { [4] = want }, "after the scan")
+  vim.cmd("ApollinairePreview")
+end
+
+function cases.preview_stops_its_renders_when_the_buffer_goes()
+  buffer(many())
+  vim.api.nvim_win_set_cursor(0, { 1, 0 })
+  vim.cmd("ApollinairePreview")
+  local buffer_number = vim.api.nvim_get_current_buf()
+  local state = preview.state(buffer_number)
+  assert(state.running > 0, "no render running")
+  vim.cmd("bwipeout!")
+  assert(preview.state(buffer_number) == nil, "state left")
+  same(next(state.jobs), nil, "renders left")
+  vim.wait(300)
+end
+
+function cases.preview_bang_draws_every_block_again_whilst_renders_run()
+  buffer(many())
+  vim.api.nvim_win_set_cursor(0, { 1, 0 })
+  vim.cmd("ApollinairePreview")
+  local state = preview.state(vim.api.nvim_get_current_buf())
+  assert(state.running > 0, "no render running")
+  vim.cmd("ApollinairePreview!")
+  settle()
+  vim.wait(300)
+  same(state.running, 0, "running")
+  local shown = previews()
+  same(vim.tbl_count(shown), 12, "previews")
+  same(shown[5], cli({ "diagram", "-" }, text({ "flowchart LR", "  Lumbridge --> Varrock1" })), "first block")
+  same(shown[49], cli({ "diagram", "-" }, text({ "flowchart LR", "  Lumbridge --> Varrock12" })), "last block")
+  vim.cmd("ApollinairePreview")
+end
+
+function cases.preview_keeps_a_rendered_block_through_edits_elsewhere()
+  buffer(concat({ "# Map" }, fenced("```mermaid", flowchart, "```")))
+  vim.cmd("ApollinairePreview")
+  settle()
+  local state = preview.state(vim.api.nvim_get_current_buf())
+  local rendered = state.started
+  vim.api.nvim_buf_set_lines(0, 0, 1, true, { "# Misthalin", "" })
+  vim.api.nvim_win_set_cursor(0, { 1, 0 })
+  rescan()
+  same(previews()[6], cli({ "diagram", "-" }, text(flowchart)), "moved preview, drawn at once")
+  same(state.running + #state.queue, 0, "no render for an unchanged block")
+  same(state.started, rendered, "renders started")
+  vim.cmd("ApollinairePreview")
+end
+
+function cases.preview_renders_an_edited_block_again()
+  buffer(concat({ "# Map" }, fenced("```mermaid", flowchart, "```")))
+  vim.cmd("ApollinairePreview")
+  settle()
+  vim.api.nvim_buf_set_lines(0, 3, 4, true, { "  Lumbridge --> Draynor" })
+  vim.api.nvim_win_set_cursor(0, { 1, 0 })
+  rescan()
+  settle()
+  same(previews()[5], cli({ "diagram", "-" }, text({ "flowchart LR", "  Lumbridge --> Draynor" })), "edited preview")
+  vim.cmd("ApollinairePreview")
+end
+
+function cases.preview_catches_up_with_a_change_no_textchanged_reported()
+  buffer(concat({ "# Map" }, fenced("```mermaid", flowchart, "```")))
+  vim.cmd("ApollinairePreview")
+  settle()
+  vim.api.nvim_buf_set_lines(0, 3, 4, true, { "  Lumbridge --> Draynor" })
+  vim.api.nvim_win_set_cursor(0, { 1, 0 })
+  vim.api.nvim_exec_autocmds("CursorMoved", { buffer = 0 })
+  local want = cli({ "diagram", "-" }, text({ "flowchart LR", "  Lumbridge --> Draynor" }))
+  assert(vim.wait(20000, function()
+    return vim.deep_equal(previews()[5], want)
+  end, 20), "no preview of the changed block")
+  vim.cmd("ApollinairePreview")
+end
+
+function cases.preview_follows_an_edit_saved_before_its_scan()
+  buffer(concat({ "# Map" }, fenced("```mermaid", flowchart, "```")))
+  local file = vim.fn.tempname()
+  vim.api.nvim_buf_set_name(0, file)
+  vim.cmd("ApollinairePreview")
+  settle()
+  vim.api.nvim_buf_set_lines(0, 3, 4, true, { "  Lumbridge --> Draynor" })
+  -- Writing raises the changedtick and fires no TextChanged.
+  vim.cmd("silent write")
+  vim.api.nvim_win_set_cursor(0, { 1, 0 })
+  vim.api.nvim_exec_autocmds("CursorMoved", { buffer = 0 })
+  local want = cli({ "diagram", "-" }, text({ "flowchart LR", "  Lumbridge --> Draynor" }))
+  assert(vim.wait(20000, function()
+    return vim.deep_equal(previews()[5], want)
+  end, 20), "no preview after the write")
+  vim.cmd("ApollinairePreview")
+  os.remove(file)
+end
+
+function cases.preview_rerenders_after_a_normal_mode_change()
+  buffer(concat({ "# Map" }, fenced("```mermaid", flowchart, "```")))
+  vim.cmd("ApollinairePreview")
+  settle()
+  vim.api.nvim_buf_set_lines(0, 3, 4, true, { "  Lumbridge --> Draynor" })
+  vim.api.nvim_win_set_cursor(0, { 1, 0 })
+  vim.api.nvim_exec_autocmds("TextChanged", { buffer = 0 })
+  local want = cli({ "diagram", "-" }, text({ "flowchart LR", "  Lumbridge --> Draynor" }))
+  assert(vim.wait(20000, function()
+    return vim.deep_equal(previews()[5], want)
+  end, 20), "no preview of the changed block")
+  vim.cmd("ApollinairePreview")
+end
+
+function cases.preview_bounds_the_renders_running_at_once()
+  local body = { "# Many" }
+  for n = 1, 12 do
+    body = concat(body, fenced("```mermaid", { "flowchart LR", "  Lumbridge --> Varrock" .. n }, "```"))
+  end
+  buffer(body)
+  vim.api.nvim_win_set_cursor(0, { 1, 0 })
+  vim.cmd("ApollinairePreview")
+  settle()
+  same(vim.tbl_count(previews()), 12, "previews")
+  local state = preview.state(vim.api.nvim_get_current_buf())
+  assert(state.peak <= preview.max_jobs, "peak " .. state.peak .. " above " .. preview.max_jobs)
+  vim.cmd("ApollinairePreview")
+end
+
+function cases.preview_shows_why_a_block_failed()
+  buffer(concat({ "# Pie" }, fenced("```mermaid", { "pie", '  "Gold" : 3' }, "```")))
+  vim.api.nvim_win_set_cursor(0, { 1, 0 })
+  vim.cmd("ApollinairePreview")
+  settle()
+  local shown = previews()[5]
+  -- The CLI counts from the block's first line, the preview from the buffer's.
+  assert(shown and #shown == 1 and vim.startswith(shown[1], "apollinaire: Line 3: "), vim.inspect(shown))
+  vim.cmd("ApollinairePreview")
+end
+
+function cases.preview_reports_a_missing_program()
+  buffer(concat({ "# Map" }, fenced("```mermaid", flowchart, "```")))
+  vim.g.apollinaire_program = "apollinaire-not-installed"
+  vim.api.nvim_win_set_cursor(0, { 1, 0 })
+  vim.cmd("ApollinairePreview")
+  settle()
+  same(previews(), {}, "previews")
+  same(#notes, 1, "notifications")
+  assert(notes[1].message:find("apollinaire-not-installed cannot run", 1, true), notes[1].message)
+  vim.api.nvim_buf_set_lines(0, 3, 4, true, { "  Lumbridge --> Draynor" })
+  rescan()
+  same(#notes, 1, "notifications after a rescan")
+  vim.g.apollinaire_program = bin
+  vim.cmd("ApollinairePreview!")
+  settle()
+  same(previews()[5], cli({ "diagram", "-" }, text({ "flowchart LR", "  Lumbridge --> Draynor" })), "after a bang")
+  vim.cmd("ApollinairePreview")
+end
+
+function cases.preview_starts_in_markdown_buffers_when_asked()
+  vim.g.apollinaire_preview = true
+  buffer(concat({ "# Map" }, fenced("```mermaid", flowchart, "```")))
+  vim.api.nvim_win_set_cursor(0, { 1, 0 })
+  vim.bo.filetype = "markdown"
+  assert(preview.state(vim.api.nvim_get_current_buf()), "not started")
+  settle()
+  same(previews()[5], cli({ "diagram", "-" }, text(flowchart)), "preview")
+  vim.cmd("ApollinairePreview")
+  vim.g.apollinaire_preview = nil
+  buffer({ "# Plain" })
+  vim.bo.filetype = "markdown"
+  assert(not preview.state(vim.api.nvim_get_current_buf()), "started without vim.g.apollinaire_preview")
+end
+
 local names = vim.tbl_keys(cases)
 table.sort(names)
 local failed = 0
