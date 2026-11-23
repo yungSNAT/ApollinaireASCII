@@ -159,11 +159,11 @@ const TOOLS: &[Tool] = &[
         name: "diagram",
         command: &["diagram"],
         description: None,
-        args: &[],
+        args: &[("max_width", Integer), ("markdown", Boolean)],
         require: &[],
         content: Some(Content {
             name: "text",
-            description: "A Mermaid flowchart, graph or sequence diagram, optionally in one Markdown code block.",
+            description: "A Mermaid flowchart, graph, sequence, state, class or ER diagram (optionally in one Markdown code block), or a Markdown document when markdown is true.",
             base64: false,
             required: true,
             replaces: "input",

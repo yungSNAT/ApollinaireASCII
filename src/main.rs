@@ -247,12 +247,18 @@ enum Command {
         /// Text with one node per line, or `-` for stdin. Deeper indentation makes a child.
         input: PathBuf,
     },
-    /// Lay out a Mermaid flowchart or sequence diagram as boxes and arrows: the subset docs/CLI.md
-    /// lists.
+    /// Lay out a Mermaid flowchart, sequence, state, class or ER diagram as ASCII: the subset
+    /// docs/CLI.md lists.
     Diagram {
-        /// A Mermaid `flowchart`, `graph` or `sequenceDiagram`, or `-` for stdin; one Markdown code
-        /// block is read.
+        /// A Mermaid diagram (`flowchart`, `graph`, `sequenceDiagram`, `stateDiagram-v2`,
+        /// `classDiagram` or `erDiagram`), a Markdown document with `--markdown`, or `-` for stdin.
         input: PathBuf,
+        /// Fit the diagram within this many columns (1 to 512) by reflowing or wrapping text.
+        #[arg(long)]
+        max_width: Option<usize>,
+        /// Read Markdown and replace fenced `mermaid` code blocks in-place with ASCII code blocks.
+        #[arg(long)]
+        markdown: bool,
     },
     /// Convert images, animated GIFs or video files to text, from files or https:// URLs.
     Image {
@@ -640,7 +646,30 @@ fn run(args: Args) -> Result<()> {
             rules,
         } => Animation::still(diagram::table(&read_text(&input)?, separator, rules)?),
         Command::Tree { input } => Animation::still(diagram::tree(&read_text(&input)?)?),
-        Command::Diagram { input } => Animation::still(diagram::mermaid(&read_text(&input)?)?),
+        Command::Diagram {
+            input,
+            max_width,
+            markdown,
+        } => {
+            let source = read_text(&input)?;
+            if markdown {
+                if args.export.format.is_some() || args.export.frame.is_some() {
+                    return Err(
+                        "--markdown outputs Markdown text and does not take --format or --frame"
+                            .into(),
+                    );
+                }
+                let content = diagram::render_markdown(&source, max_width)?;
+                return match &args.export.output {
+                    Some(path) => create_new(path, &content),
+                    None => emit(content.as_bytes()),
+                };
+            }
+            Animation::still(match max_width {
+                Some(width) => diagram::mermaid_with_max_width(&source, width)?,
+                None => diagram::mermaid(&source)?,
+            })
+        }
         Command::Image {
             inputs,
             output_dir,

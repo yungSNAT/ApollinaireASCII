@@ -156,11 +156,11 @@
           <label for="outline-text">Table rows, tree outline or Mermaid diagram</label>
           <textarea id="outline-text" rows="5" wrap="off" spellcheck="false" autocomplete="off"></textarea>
           <div class="tool-options">
-            <div><label for="outline-kind">Draw as</label><select id="outline-kind"><option value="header">Table, header row ruled</option><option value="every">Table, every row ruled</option><option value="none">Table, no inner rules</option><option value="tree">Tree from indented lines</option><option value="flowchart">Flowchart or sequence diagram from Mermaid</option></select></div>
+            <div><label for="outline-kind">Draw as</label><select id="outline-kind"><option value="header">Table, header row ruled</option><option value="every">Table, every row ruled</option><option value="none">Table, no inner rules</option><option value="tree">Tree from indented lines</option><option value="flowchart">Mermaid diagram (flowchart, sequence, state, class or ER)</option></select></div>
             <div><label for="outline-separator">Table cell separator</label><select id="outline-separator"><option value="|">Vertical bar |</option><option value=",">Comma ,</option><option value="tab">Tab (pasted from a spreadsheet)</option></select></div>
           </div>
           <div class="actions"><button id="outline-stamp" type="button">Make stamp</button></div>
-          <p class="hint">A table takes one row per line, split into cells at the separator; quotes are not special. A tree takes one item per line, indented with spaces under its parent. A diagram takes Mermaid <code>flowchart</code> or <code>graph</code> text, such as <code>graph LR; A --&gt; B</code>, or <code>sequenceDiagram</code> text, such as <code>sequenceDiagram; A-&gt;&gt;B: hi</code>. Make stamp saves the drawing as an art stamp and chooses Stamp art, ready to place.</p>
+          <p class="hint">A table takes one row per line, split into cells at the separator; quotes are not special. A tree takes one item per line, indented with spaces under its parent. A diagram takes Mermaid <code>flowchart</code>, <code>graph</code>, <code>sequenceDiagram</code>, <code>stateDiagram-v2</code>, <code>classDiagram</code> or <code>erDiagram</code> text. Make stamp saves the drawing as an art stamp and chooses Stamp art, ready to place.</p>
         </details>
         <details id="layers-panel">
           <summary>Layers</summary>
