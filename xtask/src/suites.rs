@@ -27,6 +27,7 @@ fn exec(
         .current_dir(dir)
         .envs(env.iter().copied())
         .stdout(stdout)
+        .stderr(Stdio::inherit())
         .output()
         .map_err(|error| format!("Cannot run {program}: {error}"))?;
     if !out.status.success() {
@@ -234,7 +235,15 @@ pub fn code_exports(bin: &str) -> Result<(), String> {
     for project in ["once", "loop"] {
         let source = dir.join(format!("out/{project}.go"));
         fs::copy(&source, go.join("main.go")).map_err(fail(&source))?;
-        if !exec(&go, &env, "gofmt", &["-l", "."], Stdio::piped())?.is_empty() {
+        // As `[[ -n "$(gofmt -l .)" ]]` did, only the listing counts, not gofmt's exit status.
+        let listing = Command::new("gofmt")
+            .args(["-l", "."])
+            .current_dir(&go)
+            .envs(env.iter().copied())
+            .stderr(Stdio::inherit())
+            .output()
+            .map_err(|error| format!("Cannot run gofmt: {error}"))?;
+        if !listing.stdout.is_empty() {
             run(&go, &env, "gofmt", &["-d", "."])?;
             return Err("gofmt: the Go export is not formatted".into());
         }
