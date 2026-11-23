@@ -192,7 +192,10 @@ Description: Static art, block lettering and animation as real ASCII text
 #[cfg(all(test, unix))]
 mod tests {
     use super::unix::{control, installed_kib};
-    use std::{fs, path::Path, process::Command};
+    use std::{fs, path::Path, process::Command, sync::Mutex};
+
+    /// `build` stages in one folder per process, so tests that call it take turns.
+    static BUILD: Mutex<()> = Mutex::new(());
 
     fn write(path: &Path, text: &str) {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -254,6 +257,7 @@ mod tests {
 
     #[test]
     fn a_staging_folder_already_there_is_refused_and_kept() {
+        let _build = BUILD.lock().unwrap_or_else(|e| e.into_inner());
         // nosemgrep: rust.lang.security.temp-dir.temp-dir -- the path build stages in, planted by the test
         let planted = std::env::temp_dir().join(format!("apollinaire-deb-{}", std::process::id()));
         write(&planted.join("keep"), "not the build's");
@@ -266,9 +270,23 @@ mod tests {
         fs::remove_dir_all(&planted).unwrap();
     }
 
+    #[test]
+    fn a_failed_build_removes_the_folder_it_created() {
+        let _build = BUILD.lock().unwrap_or_else(|e| e.into_inner());
+        // nosemgrep: rust.lang.security.temp-dir.temp-dir -- the path build stages in, read by the test
+        let staging = std::env::temp_dir().join(format!("apollinaire-deb-{}", std::process::id()));
+        // nosemgrep: rust.lang.security.temp-dir.temp-dir -- a test fixture folder; no security decision rests on it
+        let empty = std::env::temp_dir().join(format!("xtask-empty-{}", std::process::id()));
+        fs::create_dir_all(&empty).unwrap();
+        assert!(super::build(&empty, "0.0.0", "amd64", &empty.join("x.deb")).is_err());
+        assert!(!staging.exists());
+        fs::remove_dir_all(&empty).unwrap();
+    }
+
     /// Needs dpkg-deb, as the release workflow's Linux runners have.
     #[test]
     fn builds_the_package_deb_sh_built() {
+        let _build = BUILD.lock().unwrap_or_else(|e| e.into_inner());
         // nosemgrep: rust.lang.security.temp-dir.temp-dir -- a test fixture folder; no security decision rests on it
         let dir = std::env::temp_dir().join(format!("xtask-deb-{}", std::process::id()));
         release(&dir.join("release"));

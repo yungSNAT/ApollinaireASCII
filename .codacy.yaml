@@ -1,6 +1,6 @@
-# Opengrep's temporary-folder rules are about production code, so it does not scan
-# tests (tests/ folders and tests.rs modules at any depth); shipped code and xtask
-# are still scanned. Lizard's file-size check skips lockfiles, which Cargo and npm
+# Opengrep does not scan test code (tests/ folders and tests.rs modules at any
+# depth), where its temporary-folder rules flag fixtures; shipped code and xtask are
+# still scanned. Lizard's file-size check skips lockfiles, which Cargo and npm
 # generate.
 engines:
   opengrep:
