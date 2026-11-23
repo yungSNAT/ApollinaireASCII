@@ -1057,11 +1057,14 @@ fn create_new(path: &Path, content: &str) -> Result<()> {
         .map_err(|e| format!("Write failed: {e}"))
 }
 /// Classify inputs for `--output-dir` batching by format magic and decoded dimensions so only
-/// confirmed small still images (<= 8 MiB decoded RGBA) run in parallel. Videos, GIFs (regardless
-/// of extension), URLs, large still images (even tightly compressed) and unrecognised headers run
-/// one at a time, bounding peak decoded memory and avoiding nested parallelism.
+/// confirmed small still images (<= 8 MiB worst-case decoded pixel storage) run in parallel.
+/// Videos, GIFs (regardless of extension), URLs, large still images (even tightly compressed or
+/// 16-bit) and unrecognised headers run one at a time, bounding peak decoded memory and avoiding
+/// nested parallelism.
 fn is_heavy_batch_input(input: &Path) -> bool {
     const HEAVY_DECODED_BYTES: u64 = 8 * 1024 * 1024;
+    // Worst-case pixel size across enabled decoders (PNG RGBA16 = 8 B/px; JPEG/WebP/BMP/PNM <= 6).
+    const MAX_BYTES_PER_PIXEL: u64 = 8;
     if ffmpeg::is_video(input) || fetch::is_url(&input.to_string_lossy()) {
         return true;
     }
@@ -1076,7 +1079,12 @@ fn is_heavy_batch_input(input: &Path) -> bool {
         .ok()
         .and_then(|r| r.with_guessed_format().ok())
         .and_then(|r| r.into_dimensions().ok())
-        .is_none_or(|(w, h)| u64::from(w) * u64::from(h) * 4 > HEAVY_DECODED_BYTES)
+        .is_none_or(|(w, h)| {
+            u64::from(w)
+                .saturating_mul(u64::from(h))
+                .saturating_mul(MAX_BYTES_PER_PIXEL)
+                > HEAVY_DECODED_BYTES
+        })
 }
 
 /// Convert each input to a new file in `dir`. A failed input is reported and skipped;
@@ -1445,22 +1453,29 @@ fn choices_keep_their_values_help_and_defaults() {
 #[cfg(test)]
 #[test]
 fn heavy_batch_input_checks_decoded_dimensions_and_gif_magic() {
-    let dir = std::env::current_exe()
-        .unwrap()
-        .parent()
-        .unwrap()
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("target")
+        .join("test-tmp")
         .join(format!("apollinaire-heavy-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
 
     let small = dir.join("small.png");
-    image::RgbaImage::new(16, 16).save(&small).unwrap();
+    image::RgbaImage::new(1280, 720).save(&small).unwrap();
     assert!(!is_heavy_batch_input(&small));
 
-    let large = dir.join("large-solid.png");
-    image::RgbaImage::new(2048, 2048).save(&large).unwrap();
-    assert!(std::fs::metadata(&large).unwrap().len() < 100_000);
-    assert!(is_heavy_batch_input(&large));
+    // A 1300x1300 16-bit RGBA PNG decodes to ~12.9 MiB (> 8 MiB) even when tightly compressed.
+    let large_16bit = dir.join("large-16bit.png");
+    image::ImageBuffer::<image::Rgba<u16>, Vec<u16>>::new(1300, 1300)
+        .save(&large_16bit)
+        .unwrap();
+    assert!(std::fs::metadata(&large_16bit).unwrap().len() < 100_000);
+    assert!(is_heavy_batch_input(&large_16bit));
+
+    // Crafted PNM header whose u32 dimensions would overflow unchecked u64 multiplication.
+    let overflow_pnm = dir.join("overflow.ppm");
+    std::fs::write(&overflow_pnm, b"P6\n2147483648 2147483648\n255\n").unwrap();
+    assert!(is_heavy_batch_input(&overflow_pnm));
 
     let disguised_gif = dir.join("disguised.png");
     std::fs::write(&disguised_gif, b"GIF89a\x01\x00\x01\x00").unwrap();
