@@ -18,3 +18,20 @@ end, {
   range = "%",
   desc = "List the problems apollinaire check finds in the quickfix list",
 })
+
+vim.api.nvim_create_user_command("ApollinairePreview", function(opts)
+  require("apollinaire.preview").command(opts)
+end, {
+  bang = true,
+  desc = "Toggle the preview of fenced mermaid blocks; with ! render them again",
+})
+
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = "markdown",
+  group = vim.api.nvim_create_augroup("apollinaire_preview", { clear = true }),
+  callback = function(args)
+    if vim.g.apollinaire_preview then
+      require("apollinaire.preview").start(args.buf)
+    end
+  end,
+})
