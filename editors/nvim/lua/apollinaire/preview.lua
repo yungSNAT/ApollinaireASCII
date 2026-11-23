@@ -49,7 +49,8 @@ function M.blocks(lines)
         open = nil
       end
     elseif mark and not (mark == "`" and rest:find("`", 1, true)) then
-      open = { mark = mark, length = length, first = number, mermaid = rest:match("^%s*(%S+)") == "mermaid" }
+      local mermaid = rest:match("^%s*(%S+)") == "mermaid"
+      open = { mark = mark, length = length, first = number, mermaid = mermaid }
     end
   end
   return blocks
@@ -167,7 +168,8 @@ function M.start(buffer)
   preview.group = vim.api.nvim_create_augroup("apollinaire_preview_" .. buffer, { clear = true })
   previews[buffer] = preview
   local function on(events, callback)
-    vim.api.nvim_create_autocmd(events, { group = preview.group, buffer = buffer, callback = callback })
+    local opts = { group = preview.group, buffer = buffer, callback = callback }
+    vim.api.nvim_create_autocmd(events, opts)
   end
   on("TextChanged", function()
     preview.tick = preview.tick + 1
