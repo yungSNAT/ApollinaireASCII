@@ -23,6 +23,7 @@ line="$name [${here:-/}] $* APOLLINAIRE=${APOLLINAIRE-unset} DOTNET_NOLOGO=${DOT
 printf '%s\n' "$line" | sed -E "s#$ROOT/##g; s#tmp/[^/ ]+#tmp/X#g" >> "$TRACE"
 case "$name $1" in
   "nvim --version" | "emacs --version") printf '%s 9.9\nsecond line\n' "$name" ;;
+  "nvim --headless") if [ -n "${STUB_STDERR:-}" ]; then echo "nvim says $STUB_STDERR" >&2; exit 3; fi ;;
   "gofmt -l") if [ -n "${STUB_GOFMT:-}" ]; then echo main.go; fi ;;
   "apollinaire import") : > "${@: -1}" ;;
 esac
@@ -153,4 +154,28 @@ fn a_missing_binary_runs_nothing() {
         "bin/absent: no such file
 "
     );
+}
+
+#[test]
+fn a_failing_tool_s_stderr_reaches_the_terminal() {
+    let root = fake_root("stderr");
+    let path = format!(
+        "{}:{}",
+        root.join("stubs").display(),
+        std::env::var("PATH").unwrap()
+    );
+    let out = Command::new(env!("CARGO_BIN_EXE_xtask"))
+        .args(["editors", "bin/apollinaire"])
+        .current_dir(&root)
+        .env("PATH", path)
+        .env("ROOT", &root)
+        .env("TMPDIR", root.join("tmp"))
+        .env("TRACE", root.join("trace.txt"))
+        .env("STUB_STDERR", "Lumbridge")
+        .output()
+        .unwrap();
+    fs::remove_dir_all(&root).unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    assert!(stderr.starts_with("nvim says Lumbridge\n"), "{stderr}");
 }
