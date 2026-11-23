@@ -112,10 +112,12 @@ mod unix {
     }
 
     pub fn build(src: &Path, version: &str, arch: &str, out: &Path) -> Result<(), String> {
-        let staging =
-            Staging(std::env::temp_dir().join(format!("apollinaire-deb-{}", std::process::id())));
+        // nosemgrep: rust.lang.security.temp-dir.temp-dir -- create_dir fails on an existing path, so a planted folder or link stops the build
+        let root = std::env::temp_dir().join(format!("apollinaire-deb-{}", std::process::id()));
+        fs::create_dir(&root).map_err(io(&root))?;
+        // Only a folder this run created is removed when the build ends.
+        let staging = Staging(root);
         let root = &staging.0;
-        fs::create_dir(root).map_err(io(root))?;
         let usr = root.join("usr");
         let share = usr.join("share");
         install(
@@ -239,6 +241,7 @@ mod tests {
 
     #[test]
     fn installed_size_matches_du() {
+        // nosemgrep: rust.lang.security.temp-dir.temp-dir -- a test fixture folder; no security decision rests on it
         let dir = std::env::temp_dir().join(format!("xtask-du-{}", std::process::id()));
         release(&dir);
         write(&dir.join("big"), &"x".repeat(70_000));
@@ -249,9 +252,24 @@ mod tests {
         fs::remove_dir_all(&dir).unwrap();
     }
 
+    #[test]
+    fn a_staging_folder_already_there_is_refused_and_kept() {
+        // nosemgrep: rust.lang.security.temp-dir.temp-dir -- the path build stages in, planted by the test
+        let planted = std::env::temp_dir().join(format!("apollinaire-deb-{}", std::process::id()));
+        write(&planted.join("keep"), "not the build's");
+        let error = super::build(&planted, "0.0.0", "amd64", &planted.join("x.deb")).unwrap_err();
+        assert!(error.contains("apollinaire-deb-"), "{error}");
+        assert_eq!(
+            fs::read_to_string(planted.join("keep")).unwrap(),
+            "not the build's"
+        );
+        fs::remove_dir_all(&planted).unwrap();
+    }
+
     /// Needs dpkg-deb, as the release workflow's Linux runners have.
     #[test]
     fn builds_the_package_deb_sh_built() {
+        // nosemgrep: rust.lang.security.temp-dir.temp-dir -- a test fixture folder; no security decision rests on it
         let dir = std::env::temp_dir().join(format!("xtask-deb-{}", std::process::id()));
         release(&dir.join("release"));
         let deb = dir.join("apollinaire.deb");

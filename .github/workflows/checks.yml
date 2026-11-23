@@ -323,6 +323,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       pages: write
+      # nosemgrep: codacy.yaml.security.hard-coded-tokens -- a GitHub permission scope for the Pages deployment, not a token
       id-token: write
     environment:
       name: github-pages
