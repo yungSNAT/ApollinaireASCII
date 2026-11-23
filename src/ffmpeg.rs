@@ -114,19 +114,19 @@ pub fn convert(
     let rows = options.output_height(pixels_wide, pixels_high);
     check_capture(options.width, rows, times.len())?;
 
+    let spec = DecodeSpec {
+        input: &input,
+        shown: &shown,
+        demuxer,
+        sampling,
+        pixels: (pixels_wide, pixels_high),
+        times: &times,
+        end_ms,
+        options,
+        glyphs,
+    };
     let frames = with_hwaccel_fallback(sampling.hwaccel, |hwaccel| {
-        decode_video_frames(
-            &input,
-            &shown,
-            demuxer,
-            sampling,
-            (pixels_wide, pixels_high),
-            &times,
-            end_ms,
-            options,
-            glyphs,
-            hwaccel,
-        )
+        decode_video_frames(&spec, hwaccel)
     })?;
     let durations = frame_durations(&times[..frames.len()], end_ms)?;
     Animation::new(
@@ -150,19 +150,23 @@ fn with_hwaccel_fallback<T>(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn decode_video_frames(
-    input: &OsString,
-    shown: &dyn Display,
-    demuxer: &str,
-    sampling: &Sampling,
-    (pixels_wide, pixels_high): (u32, u32),
-    times: &[f64],
+struct DecodeSpec<'a> {
+    input: &'a OsString,
+    shown: &'a dyn Display,
+    demuxer: &'a str,
+    sampling: &'a Sampling,
+    pixels: (u32, u32),
+    times: &'a [f64],
     end_ms: f64,
-    options: &RenderOptions,
+    options: &'a RenderOptions,
     glyphs: Glyphs,
+}
+
+fn decode_video_frames(
+    spec: &DecodeSpec<'_>,
     hwaccel: Option<&str>,
 ) -> Result<Vec<apollinaire_ascii::Frame>> {
+    let (pixels_wide, pixels_high) = spec.pixels;
     let seconds = |ms: f64| format!("{:.3}", ms / 1000.0);
     let mut decode = Command::new("ffmpeg");
     decode
@@ -174,42 +178,42 @@ fn decode_video_frames(
             "-protocol_whitelist",
             "file",
         ])
-        .args(["-format_whitelist", DEMUXERS, "-f", demuxer]);
-    if demuxer == "mov" {
+        .args(["-format_whitelist", DEMUXERS, "-f", spec.demuxer]);
+    if spec.demuxer == "mov" {
         decode.args(NO_REFERENCES);
     }
     if let Some(mode) = hwaccel {
         decode.args(["-hwaccel", mode]);
     }
     decode
-        .args(["-ss", &seconds(sampling.start_ms), "-i"])
-        .arg(input)
+        .args(["-ss", &seconds(spec.sampling.start_ms), "-i"])
+        .arg(spec.input)
         // The first video track, the one ffprobe measured, not the one ffmpeg would pick.
         .args([
             "-map",
             "0:v:0",
             "-t",
-            &seconds(end_ms - sampling.start_ms),
+            &seconds(spec.end_ms - spec.sampling.start_ms),
             "-an",
             "-vf",
         ])
         .arg(format!(
             "fps={},scale={pixels_wide}:{pixels_high}",
-            sampling.fps
+            spec.sampling.fps
         ))
-        .args(["-frames:v", &times.len().to_string()])
+        .args(["-frames:v", &spec.times.len().to_string()])
         .args(["-f", "rawvideo", "-pix_fmt", "rgba", "pipe:1"]);
     let mut run = Run::start(&mut decode, STALL_LIMIT)?;
-    let frames = read_frames(&mut run, (pixels_wide, pixels_high), times, options, glyphs);
-    let (status, errors) = run.finish("ffmpeg", shown)?;
+    let frames = read_frames(&mut run, spec.pixels, spec.times, spec.options, spec.glyphs);
+    let (status, errors) = run.finish("ffmpeg", spec.shown)?;
     let frames = frames?;
     if !status.success() {
-        return Err(failed("ffmpeg", shown, &errors));
+        return Err(failed("ffmpeg", spec.shown, &errors));
     }
     // A clean exit before every sample means the video's frames end before its duration: keep
     // what there is, and let the last frame last to the end.
     if frames.is_empty() {
-        return Err(format!("ffmpeg decoded no frames from {shown}"));
+        return Err(format!("ffmpeg decoded no frames from {}", spec.shown));
     }
     Ok(frames)
 }
