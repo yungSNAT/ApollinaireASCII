@@ -512,6 +512,52 @@ fn tools_return_what_their_commands_print() {
         ),
         (
             call(
+                22,
+                "diagram",
+                json!({"text": "stateDiagram-v2\n[*] --> Idle"}),
+            ),
+            printed(&["diagram", "-"], b"stateDiagram-v2\n[*] --> Idle"),
+        ),
+        (
+            call(
+                23,
+                "diagram",
+                json!({"text": "classDiagram\nAnimal <|-- Dog"}),
+            ),
+            printed(&["diagram", "-"], b"classDiagram\nAnimal <|-- Dog"),
+        ),
+        (
+            call(
+                24,
+                "diagram",
+                json!({"text": "erDiagram\nUSER ||--o{ ORDER : places"}),
+            ),
+            printed(&["diagram", "-"], b"erDiagram\nUSER ||--o{ ORDER : places"),
+        ),
+        (
+            call(
+                25,
+                "diagram",
+                json!({"text": "graph LR\nA[Start] --> B[End]", "max_width": 16}),
+            ),
+            printed(
+                &["diagram", "--max-width", "16", "-"],
+                b"graph LR\nA[Start] --> B[End]",
+            ),
+        ),
+        (
+            call(
+                26,
+                "diagram",
+                json!({"text": "# Doc\n```mermaid\ngraph LR\nA-->B\n```\n", "markdown": true}),
+            ),
+            printed(
+                &["diagram", "--markdown", "-"],
+                b"# Doc\n```mermaid\ngraph LR\nA-->B\n```\n",
+            ),
+        ),
+        (
+            call(
                 19,
                 "transform",
                 json!({"text": "Hi", "operation": "border", "design": "curly"}),

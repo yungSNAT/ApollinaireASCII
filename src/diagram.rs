@@ -22,13 +22,23 @@
 
 use crate::{Canvas, Result, canvas::bounds, printable};
 
+mod class;
+mod er;
 mod flowchart;
+mod graph;
+mod markdown;
 mod sequence;
+mod state;
+pub use class::class_diagram;
+pub use er::er_diagram;
 pub use flowchart::flowchart;
+pub use markdown::render_markdown;
 pub use sequence::sequence;
+pub use state::state_diagram;
 
-/// Lay out Mermaid text as a [`flowchart`] or a [`sequence`] diagram, chosen by its first
-/// statement: `flowchart` or `graph`, or `sequenceDiagram`.
+/// Lay out Mermaid text as a [`flowchart`], [`sequence`], [`state_diagram`], [`class_diagram`]
+/// or [`er_diagram`], chosen by its first statement: `flowchart` or `graph`, `sequenceDiagram`,
+/// `stateDiagram-v2` (or `stateDiagram`), `classDiagram` or `erDiagram`.
 ///
 /// ```
 /// use apollinaire_ascii::diagram::mermaid;
@@ -40,7 +50,27 @@ pub use sequence::sequence;
 /// # Ok::<(), String>(())
 /// ```
 pub fn mermaid(source: &str) -> Result<crate::Frame> {
-    const KINDS: &str = "a Mermaid diagram starts with flowchart, graph or sequenceDiagram";
+    mermaid_fitted(source, None)
+}
+
+/// Lay out Mermaid text as in [`mermaid`], wrapping or reflowing the drawing so its width is at
+/// most `max_width` columns (1 to 512).
+///
+/// ```
+/// use apollinaire_ascii::diagram::mermaid_with_max_width;
+/// let chart = mermaid_with_max_width("graph LR\n  A[Start] --> B[Middle] --> C[Finish]", 20)?;
+/// assert!(chart.width() <= 20);
+/// # Ok::<(), String>(())
+/// ```
+pub fn mermaid_with_max_width(source: &str, max_width: usize) -> Result<crate::Frame> {
+    mermaid_fitted(source, Some(max_width))
+}
+
+pub(crate) fn mermaid_fitted(source: &str, max_width: Option<usize>) -> Result<crate::Frame> {
+    const KINDS: &str = "a Mermaid diagram starts with flowchart, graph, sequenceDiagram, stateDiagram-v2, classDiagram or erDiagram";
+    if let Some(limit) = max_width {
+        graph::check_max_width(limit)?;
+    }
     // A bad byte or a code fence that is unclosed, tagged otherwise or followed by text is
     // reported before the diagram type.
     mermaid_lines(source, |_, _| Ok(()))?;
@@ -53,7 +83,10 @@ pub fn mermaid(source: &str) -> Result<crate::Frame> {
         return Err(format!("The text is empty: {KINDS}"));
     };
     match line.split([' ', '\t', ';']).next() {
-        Some("sequenceDiagram") => sequence(source),
+        Some("sequenceDiagram") => sequence::sequence_fitted(source, max_width),
+        Some("stateDiagram-v2" | "stateDiagram") => state::state_diagram_fitted(source, max_width),
+        Some("classDiagram") => class::class_diagram_fitted(source, max_width),
+        Some("erDiagram") => er::er_diagram_fitted(source, max_width),
         // Another diagram type is named as such; anything else gets the flowchart's own error.
         Some(word)
             if word.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
@@ -61,8 +94,36 @@ pub fn mermaid(source: &str) -> Result<crate::Frame> {
         {
             Err(format!("Line {number}: {KINDS}"))
         }
-        _ => flowchart(source),
+        _ => flowchart::flowchart_fitted(source, max_width),
     }
+}
+
+/// Split a Mermaid line at each `;` outside double quotes and `#entity;` codes.
+fn split_statements(line: &str) -> Vec<&str> {
+    let (mut parts, mut start, mut at, mut in_quotes) = (Vec::new(), 0, 0, false);
+    let bytes = line.as_bytes();
+    while let Some(&byte) = bytes.get(at) {
+        if byte == b'"' {
+            in_quotes = !in_quotes;
+            at += 1;
+            continue;
+        }
+        if !in_quotes {
+            if byte == b'#'
+                && let Some(entity) = entity_length(&line[at..])
+            {
+                at += entity;
+                continue;
+            }
+            if byte == b';' {
+                parts.push(&line[start..at]);
+                start = at + 1;
+            }
+        }
+        at += 1;
+    }
+    parts.push(&line[start..]);
+    parts
 }
 
 /// The HTML character names for printable ASCII characters, which Mermaid text may write as
