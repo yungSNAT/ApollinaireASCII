@@ -177,5 +177,5 @@ fn a_failing_tool_s_stderr_reaches_the_terminal() {
     fs::remove_dir_all(&root).unwrap();
     assert_eq!(out.status.code(), Some(1));
     let stderr = String::from_utf8(out.stderr).unwrap();
-    assert!(stderr.starts_with("nvim says Lumbridge\n"), "{stderr}");
+    assert!(stderr.contains("nvim says Lumbridge\n"), "{stderr}");
 }

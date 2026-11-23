@@ -97,10 +97,11 @@ fn remove(path: &Path) -> Result<(), String> {
 struct TempDir(PathBuf);
 
 impl TempDir {
+    /// Refuses a path that already exists, so a planted folder or link is never used.
     fn new(name: &str) -> Result<Self, String> {
+        // nosemgrep: rust.lang.security.temp-dir.temp-dir -- create_dir fails on an existing path, so a planted folder or link stops the run
         let path = std::env::temp_dir().join(format!("{name}-{}", std::process::id()));
-        remove(&path)?;
-        fs::create_dir_all(&path).map_err(fail(&path))?;
+        fs::create_dir(&path).map_err(fail(&path))?;
         Ok(Self(path))
     }
 }
@@ -251,4 +252,31 @@ pub fn code_exports(bin: &str) -> Result<(), String> {
         run(&go, &env, "go", &["test", "./..."])?;
     }
     remove(&go.join("main.go"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_folder_already_there_is_refused_and_kept() {
+        let name = "apollinaire-suites-test";
+        let planted = std::env::temp_dir().join(format!("{name}-{}", std::process::id()));
+        fs::create_dir_all(&planted).unwrap();
+        fs::write(planted.join("planted.el"), "").unwrap();
+        assert!(TempDir::new(name).is_err());
+        assert!(planted.join("planted.el").exists());
+        fs::remove_dir_all(&planted).unwrap();
+        let fresh = TempDir::new(name).unwrap();
+        assert!(fresh.0.is_dir());
+        drop(fresh);
+        assert!(!planted.exists());
+    }
+
+    #[test]
+    fn the_binary_path_is_absolute() {
+        let path = binary("Cargo.toml").unwrap();
+        assert!(Path::new(&path).is_absolute(), "{path}");
+        assert!(binary("absent").is_err());
+    }
 }
