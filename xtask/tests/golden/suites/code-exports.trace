@@ -1,0 +1,27 @@
+apollinaire [/tests/code_exports] import once.json --format react --output out/once-react.js APOLLINAIRE=unset DOTNET_NOLOGO=unset DOTNET_CLI_TELEMETRY_OPTOUT=unset
+apollinaire [/tests/code_exports] import once.json --format ink --output out/once-ink.js APOLLINAIRE=unset DOTNET_NOLOGO=unset DOTNET_CLI_TELEMETRY_OPTOUT=unset
+apollinaire [/tests/code_exports] import once.json --format opentui --output out/once-opentui.js APOLLINAIRE=unset DOTNET_NOLOGO=unset DOTNET_CLI_TELEMETRY_OPTOUT=unset
+apollinaire [/tests/code_exports] import once.json --output out/once.go APOLLINAIRE=unset DOTNET_NOLOGO=unset DOTNET_CLI_TELEMETRY_OPTOUT=unset
+apollinaire [/tests/code_exports] import once.json --output out/once.py APOLLINAIRE=unset DOTNET_NOLOGO=unset DOTNET_CLI_TELEMETRY_OPTOUT=unset
+apollinaire [/tests/code_exports] import once.json --output out/once.rb APOLLINAIRE=unset DOTNET_NOLOGO=unset DOTNET_CLI_TELEMETRY_OPTOUT=unset
+apollinaire [/tests/code_exports] import once.json --output out/once.cs APOLLINAIRE=unset DOTNET_NOLOGO=unset DOTNET_CLI_TELEMETRY_OPTOUT=unset
+apollinaire [/tests/code_exports] import loop.json --format react --output out/loop-react.js APOLLINAIRE=unset DOTNET_NOLOGO=unset DOTNET_CLI_TELEMETRY_OPTOUT=unset
+apollinaire [/tests/code_exports] import loop.json --format ink --output out/loop-ink.js APOLLINAIRE=unset DOTNET_NOLOGO=unset DOTNET_CLI_TELEMETRY_OPTOUT=unset
+apollinaire [/tests/code_exports] import loop.json --format opentui --output out/loop-opentui.js APOLLINAIRE=unset DOTNET_NOLOGO=unset DOTNET_CLI_TELEMETRY_OPTOUT=unset
+apollinaire [/tests/code_exports] import loop.json --output out/loop.go APOLLINAIRE=unset DOTNET_NOLOGO=unset DOTNET_CLI_TELEMETRY_OPTOUT=unset
+apollinaire [/tests/code_exports] import loop.json --output out/loop.py APOLLINAIRE=unset DOTNET_NOLOGO=unset DOTNET_CLI_TELEMETRY_OPTOUT=unset
+apollinaire [/tests/code_exports] import loop.json --output out/loop.rb APOLLINAIRE=unset DOTNET_NOLOGO=unset DOTNET_CLI_TELEMETRY_OPTOUT=unset
+apollinaire [/tests/code_exports] import loop.json --output out/loop.cs APOLLINAIRE=unset DOTNET_NOLOGO=unset DOTNET_CLI_TELEMETRY_OPTOUT=unset
+npm [/tests/code_exports] ci --ignore-scripts --no-audit --no-fund APOLLINAIRE=unset DOTNET_NOLOGO=unset DOTNET_CLI_TELEMETRY_OPTOUT=unset
+node [/tests/code_exports] --test --test-timeout=60000 react.test.mjs ink.test.mjs APOLLINAIRE=unset DOTNET_NOLOGO=unset DOTNET_CLI_TELEMETRY_OPTOUT=unset
+python3 [/tests/code_exports] --version APOLLINAIRE=unset DOTNET_NOLOGO=1 DOTNET_CLI_TELEMETRY_OPTOUT=1
+ruby [/tests/code_exports] --version APOLLINAIRE=unset DOTNET_NOLOGO=1 DOTNET_CLI_TELEMETRY_OPTOUT=1
+dotnet [/tests/code_exports] --version APOLLINAIRE=unset DOTNET_NOLOGO=1 DOTNET_CLI_TELEMETRY_OPTOUT=1
+node [/tests/code_exports] --test --test-timeout=120000 --test-concurrency=1 programs.test.mjs APOLLINAIRE=unset DOTNET_NOLOGO=1 DOTNET_CLI_TELEMETRY_OPTOUT=1
+bun [/tests/code_exports] test --timeout 60000 ./opentui.test.js APOLLINAIRE=unset DOTNET_NOLOGO=1 DOTNET_CLI_TELEMETRY_OPTOUT=1
+gofmt [/tests/code_exports/go] -l . APOLLINAIRE=unset DOTNET_NOLOGO=1 DOTNET_CLI_TELEMETRY_OPTOUT=1
+go [/tests/code_exports/go] vet ./... APOLLINAIRE=unset DOTNET_NOLOGO=1 DOTNET_CLI_TELEMETRY_OPTOUT=1
+go [/tests/code_exports/go] test ./... APOLLINAIRE=unset DOTNET_NOLOGO=1 DOTNET_CLI_TELEMETRY_OPTOUT=1
+gofmt [/tests/code_exports/go] -l . APOLLINAIRE=unset DOTNET_NOLOGO=1 DOTNET_CLI_TELEMETRY_OPTOUT=1
+go [/tests/code_exports/go] vet ./... APOLLINAIRE=unset DOTNET_NOLOGO=1 DOTNET_CLI_TELEMETRY_OPTOUT=1
+go [/tests/code_exports/go] test ./... APOLLINAIRE=unset DOTNET_NOLOGO=1 DOTNET_CLI_TELEMETRY_OPTOUT=1
