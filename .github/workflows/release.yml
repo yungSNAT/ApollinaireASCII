@@ -279,6 +279,7 @@ jobs:
     environment: crates-io
     permissions:
       contents: read
+      # nosemgrep: codacy.yaml.security.hard-coded-tokens -- a GitHub permission scope for trusted publishing, not a token
       id-token: write
     defaults:
       run:

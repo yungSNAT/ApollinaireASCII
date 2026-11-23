@@ -539,6 +539,7 @@ impl Tool {
 
 /// Run this program with a tool's command line, giving it `stdin`.
 fn run(line: &[String], stdin: Option<Vec<u8>>) -> Value {
+    // nosemgrep: rust.lang.security.current-exe.current-exe -- the server reruns its own program for a tool call; no trust decision rests on the path
     let child = std::env::current_exe().and_then(|program| {
         let mut child = Command::new(program)
             .args(line)
