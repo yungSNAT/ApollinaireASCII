@@ -376,6 +376,20 @@ function cases.preview_renders_an_edited_block_again()
   vim.cmd("ApollinairePreview")
 end
 
+function cases.preview_catches_up_with_a_change_no_textchanged_reported()
+  buffer(concat({ "# Map" }, fenced("```mermaid", flowchart, "```")))
+  vim.cmd("ApollinairePreview")
+  settle()
+  vim.api.nvim_buf_set_lines(0, 3, 4, true, { "  Lumbridge --> Draynor" })
+  vim.api.nvim_win_set_cursor(0, { 1, 0 })
+  vim.api.nvim_exec_autocmds("CursorMoved", { buffer = 0 })
+  local want = cli({ "diagram", "-" }, text({ "flowchart LR", "  Lumbridge --> Draynor" }))
+  assert(vim.wait(20000, function()
+    return vim.deep_equal(previews()[5], want)
+  end, 20), "no preview of the changed block")
+  vim.cmd("ApollinairePreview")
+end
+
 function cases.preview_rerenders_after_a_normal_mode_change()
   buffer(concat({ "# Map" }, fenced("```mermaid", flowchart, "```")))
   vim.cmd("ApollinairePreview")

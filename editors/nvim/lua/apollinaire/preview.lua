@@ -57,7 +57,7 @@ function M.blocks(lines)
   return blocks
 end
 
-local draw, pump
+local draw, pump, later
 
 -- Stop every render still running, as when the preview stops or renders again.
 local function kill(preview)
@@ -135,10 +135,10 @@ end
 
 -- Place each block's preview, leaving out the block holding the cursor and, whilst the buffer
 -- is current in Insert or Replace mode, every block. Between an edit and the scan after it the
--- blocks are out of date, so the previews stay where the edit moved them.
+-- blocks are out of date, so the previews stay where the edit moved them and a scan is due.
 function draw(buffer, preview)
   if vim.api.nvim_buf_get_changedtick(buffer) ~= preview.scanned then
-    return
+    return later(buffer, preview)
   end
   vim.api.nvim_buf_clear_namespace(buffer, namespace, 0, -1)
   local cursor = nil
@@ -182,6 +182,17 @@ local function scan(buffer, preview)
   pump(buffer, preview)
 end
 
+-- Scan once M.delay passes with no later call; each call starts the wait again.
+function later(buffer, preview)
+  preview.tick = preview.tick + 1
+  local tick = preview.tick
+  vim.defer_fn(function()
+    if previews[buffer] == preview and preview.tick == tick then
+      scan(buffer, preview)
+    end
+  end, M.delay)
+end
+
 function M.stop(buffer)
   local preview = previews[buffer]
   if preview then
@@ -209,13 +220,7 @@ function M.start(buffer)
     vim.api.nvim_create_autocmd(events, opts)
   end
   on("TextChanged", function()
-    preview.tick = preview.tick + 1
-    local tick = preview.tick
-    vim.defer_fn(function()
-      if previews[buffer] == preview and preview.tick == tick then
-        scan(buffer, preview)
-      end
-    end, M.delay)
+    later(buffer, preview)
   end)
   -- Every way into and out of Insert or Replace mode, Ctrl-C included, which skips InsertLeave.
   vim.api.nvim_create_autocmd("ModeChanged", {
