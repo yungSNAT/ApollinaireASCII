@@ -18,3 +18,29 @@ end, {
   range = "%",
   desc = "List the problems apollinaire check finds in the quickfix list",
 })
+
+vim.api.nvim_create_user_command("ApollinairePreview", function(opts)
+  require("apollinaire.preview").command(opts)
+end, {
+  bang = true,
+  desc = "Toggle the preview of fenced mermaid blocks; with ! render them again",
+})
+
+local group = vim.api.nvim_create_augroup("apollinaire_preview", { clear = true })
+
+-- :colorscheme clears highlight groups, so link the preview's again after each one.
+local function highlight()
+  vim.api.nvim_set_hl(0, "ApollinairePreview", { link = "Comment", default = true })
+end
+highlight()
+vim.api.nvim_create_autocmd("ColorScheme", { group = group, callback = highlight })
+
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = "markdown",
+  group = group,
+  callback = function(args)
+    if vim.g.apollinaire_preview then
+      require("apollinaire.preview").start(args.buf)
+    end
+  end,
+})
