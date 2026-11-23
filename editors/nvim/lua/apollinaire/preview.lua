@@ -79,7 +79,10 @@ function pump(buffer, preview)
           preview.cache[text] = { lines = lines }
         else
           local message = vim.trim(result.stderr):match("^[^\n]*")
-          preview.cache[text] = { error = message ~= "" and message or "apollinaire diagram: exit code " .. result.code }
+          if message == "" then
+            message = "apollinaire diagram: exit code " .. result.code
+          end
+          preview.cache[text] = { error = message }
         end
         if previews[buffer] == preview then
           draw(buffer, preview)
