@@ -7,12 +7,13 @@
 local M = {}
 
 local namespace = vim.api.nvim_create_namespace("apollinaire_preview")
-vim.api.nvim_set_hl(0, "ApollinairePreview", { link = "Comment", default = true })
 
 -- Renders running at once in one buffer; the rest wait their turn.
 M.max_jobs = 4
 -- Milliseconds to wait after an edit before scanning the buffer again.
 M.delay = 200
+-- Milliseconds a render may take before it is stopped.
+M.timeout = 10000
 
 -- Buffer number -> its preview state.
 local previews = {}
@@ -58,19 +59,31 @@ end
 
 local draw, pump
 
+-- Stop every render still running, as when the preview stops or renders again.
+local function kill(preview)
+  for job in pairs(preview.jobs) do
+    pcall(job.kill, job, 15)
+  end
+  preview.jobs = {}
+end
+
 -- Start renders from the queue until max_jobs run, skipping text no block holds any longer.
+-- A program that cannot start is reported once and empties the queue.
 function pump(buffer, preview)
   while preview.running < M.max_jobs and #preview.queue > 0 do
     local text = table.remove(preview.queue, 1)
     if not preview.wanted[text] then
       preview.queued[text] = nil
     else
-      preview.running = preview.running + 1
-      preview.started = preview.started + 1
-      preview.peak = math.max(preview.peak, preview.running)
       local command = { vim.g.apollinaire_program or "apollinaire", "diagram", "-" }
+      local job
       local function finish(result)
+        -- A render stopped by M.stop or a bang has no say.
+        if not preview.jobs[job] then
+          return
+        end
         preview.running = preview.running - 1
+        preview.jobs[job] = nil
         preview.queued[text] = nil
         if result.code == 0 then
           local lines = vim.split(result.stdout, "\n", { plain = true })
@@ -80,7 +93,9 @@ function pump(buffer, preview)
           preview.cache[text] = { lines = lines }
         else
           local message = vim.trim(result.stderr):match("^[^\n]*")
-          if message == "" then
+          if result.code == 124 and message == "" then
+            message = "apollinaire diagram: no drawing within " .. M.timeout / 1000 .. " seconds"
+          elseif message == "" then
             message = "apollinaire diagram: exit code " .. result.code
           end
           preview.cache[text] = { error = message }
@@ -90,27 +105,47 @@ function pump(buffer, preview)
           pump(buffer, preview)
         end
       end
-      local ok, err = pcall(vim.system, command, { stdin = text, text = true }, function(result)
+      local options = { stdin = text, text = true, timeout = M.timeout }
+      local ok, started = pcall(vim.system, command, options, function(result)
         vim.schedule(function()
           finish(result)
         end)
       end)
       if not ok then
-        finish({ code = -1, stderr = command[1] .. ": " .. tostring(err) })
+        preview.queue, preview.queued = {}, {}
+        local message = command[1] .. " cannot run, so there is no preview: set vim.g.apollinaire_program"
+        vim.notify(message, vim.log.levels.ERROR, { title = "apollinaire" })
+        return
       end
+      job = started
+      preview.jobs[job] = true
+      preview.running = preview.running + 1
+      preview.started = preview.started + 1
+      preview.peak = math.max(preview.peak, preview.running)
     end
   end
 end
 
--- Place each block's preview, leaving out the block holding the cursor and, in Insert mode,
--- every block.
+-- An error's line number counted from the buffer's first line rather than the block's.
+local function located(message, block)
+  return (message:gsub("^(apollinaire: Line )(%d+)", function(prefix, line)
+    return prefix .. (tonumber(line) + block.first)
+  end, 1))
+end
+
+-- Place each block's preview, leaving out the block holding the cursor and, whilst the buffer
+-- is current in Insert or Replace mode, every block. Between an edit and the scan after it the
+-- blocks are out of date, so the previews stay where the edit moved them.
 function draw(buffer, preview)
-  vim.api.nvim_buf_clear_namespace(buffer, namespace, 0, -1)
-  if preview.insert then
+  if vim.api.nvim_buf_get_changedtick(buffer) ~= preview.scanned then
     return
   end
+  vim.api.nvim_buf_clear_namespace(buffer, namespace, 0, -1)
   local cursor = nil
   if vim.api.nvim_get_current_buf() == buffer then
+    if vim.api.nvim_get_mode().mode:find("^[iR]") then
+      return
+    end
     cursor = vim.api.nvim_win_get_cursor(0)[1]
   end
   for _, block in ipairs(preview.blocks) do
@@ -118,7 +153,7 @@ function draw(buffer, preview)
     if result and not (cursor and cursor >= block.first and cursor <= block.last) then
       local lines = {}
       if result.error then
-        lines = { { { result.error, "ErrorMsg" } } }
+        lines = { { { located(result.error, block), "ErrorMsg" } } }
       else
         for _, line in ipairs(result.lines) do
           table.insert(lines, { { line, "ApollinairePreview" } })
@@ -132,6 +167,7 @@ end
 -- Find the blocks again, keep only their results, queue the text not yet rendered and draw.
 local function scan(buffer, preview)
   preview.blocks = M.blocks(vim.api.nvim_buf_get_lines(buffer, 0, -1, true))
+  preview.scanned = vim.api.nvim_buf_get_changedtick(buffer)
   local wanted, cache = {}, {}
   for _, block in ipairs(preview.blocks) do
     wanted[block.text] = true
@@ -150,6 +186,7 @@ function M.stop(buffer)
   local preview = previews[buffer]
   if preview then
     previews[buffer] = nil
+    kill(preview)
     vim.api.nvim_del_augroup_by_id(preview.group)
     if vim.api.nvim_buf_is_valid(buffer) then
       vim.api.nvim_buf_clear_namespace(buffer, namespace, 0, -1)
@@ -162,8 +199,8 @@ function M.start(buffer)
     return
   end
   local preview = {
-    blocks = {}, cache = {}, wanted = {}, queue = {}, queued = {},
-    running = 0, peak = 0, started = 0, tick = 0, insert = false,
+    blocks = {}, cache = {}, wanted = {}, queue = {}, queued = {}, jobs = {},
+    running = 0, peak = 0, started = 0, tick = 0,
   }
   preview.group = vim.api.nvim_create_augroup("apollinaire_preview_" .. buffer, { clear = true })
   previews[buffer] = preview
@@ -180,14 +217,16 @@ function M.start(buffer)
       end
     end, M.delay)
   end)
-  on("InsertEnter", function()
-    preview.insert = true
-    draw(buffer, preview)
-  end)
-  on("InsertLeave", function()
-    preview.insert = false
-    scan(buffer, preview)
-  end)
+  -- Every way into and out of Insert or Replace mode, Ctrl-C included, which skips InsertLeave.
+  vim.api.nvim_create_autocmd("ModeChanged", {
+    group = preview.group,
+    pattern = { "*:[iR]*", "[iR]*:*" },
+    callback = function()
+      if vim.api.nvim_get_current_buf() == buffer then
+        scan(buffer, preview)
+      end
+    end,
+  })
   on({ "CursorMoved", "BufEnter" }, function()
     draw(buffer, preview)
   end)
@@ -204,7 +243,8 @@ function M.command(opts)
   local preview = previews[buffer]
   if opts.bang then
     if preview then
-      preview.cache, preview.queue, preview.queued = {}, {}, {}
+      kill(preview)
+      preview.cache, preview.queue, preview.queued, preview.running = {}, {}, {}, 0
       scan(buffer, preview)
     else
       M.start(buffer)

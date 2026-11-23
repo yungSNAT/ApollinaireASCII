@@ -197,6 +197,20 @@ local function previews()
   return shown
 end
 
+-- Run the scan an edit schedules, and wait for it.
+local function rescan()
+  local buffer = vim.api.nvim_get_current_buf()
+  local state = preview.state(buffer)
+  vim.api.nvim_exec_autocmds("TextChanged", { buffer = buffer })
+  assert(vim.wait(5000, function()
+    return state.scanned == vim.api.nvim_buf_get_changedtick(buffer)
+  end, 10), "no scan after the edit")
+end
+
+local function keys(text)
+  return vim.api.nvim_replace_termcodes(text, true, false, true)
+end
+
 -- Wait until no render runs in the current buffer.
 local function settle()
   local state = preview.state(vim.api.nvim_get_current_buf())
@@ -207,6 +221,14 @@ end
 
 local function fenced(open, body, close)
   return concat({ open }, body, { close })
+end
+
+local function many()
+  local body = { "# Many" }
+  for n = 1, 12 do
+    body = concat(body, fenced("```mermaid", { "flowchart LR", "  Lumbridge --> Varrock" .. n }, "```"))
+  end
+  return body
 end
 
 function cases.preview_finds_commonmark_fences()
@@ -255,10 +277,75 @@ function cases.preview_hides_the_block_holding_the_cursor_and_in_insert_mode()
   vim.api.nvim_win_set_cursor(0, { 6, 0 })
   vim.api.nvim_exec_autocmds("CursorMoved", { buffer = 0 })
   same(vim.tbl_count(previews()), 2, "cursor between blocks")
-  vim.api.nvim_exec_autocmds("InsertEnter", { buffer = 0 })
-  same(previews(), {}, "Insert mode")
-  vim.api.nvim_exec_autocmds("InsertLeave", { buffer = 0 })
+  -- <F2> records the previews from inside Insert mode; Ctrl-C leaves it without InsertLeave.
+  local seen
+  vim.o.showmode = false
+  vim.keymap.set("i", "<F2>", function()
+    seen = previews()
+  end, { buffer = 0 })
+  vim.api.nvim_feedkeys(keys("i<F2><C-c>"), "xt", false)
+  same(seen, {}, "Insert mode")
+  same(vim.api.nvim_get_mode().mode, "n", "mode after Ctrl-C")
   same(vim.tbl_count(previews()), 2, "after Insert mode")
+  vim.cmd("ApollinairePreview")
+end
+
+function cases.preview_waits_for_the_scan_after_lines_are_deleted()
+  buffer(concat({ "# Map" }, fenced("```mermaid", flowchart, "```")))
+  vim.api.nvim_win_set_cursor(0, { 1, 0 })
+  vim.cmd("ApollinairePreview")
+  settle()
+  assert(previews()[5], "no preview")
+  -- The block's opening fence goes, and with it the line the preview was drawn under.
+  vim.cmd("normal! 2dd")
+  vim.api.nvim_exec_autocmds("CursorMoved", { buffer = 0 })
+  rescan()
+  same(previews(), {}, "no block left")
+  vim.cmd("ApollinairePreview")
+end
+
+function cases.preview_moves_with_its_block_until_the_scan()
+  buffer(concat({ "# Map" }, fenced("```mermaid", flowchart, "```"), { "Varrock" }))
+  vim.api.nvim_win_set_cursor(0, { 1, 0 })
+  vim.cmd("ApollinairePreview")
+  settle()
+  local want = cli({ "diagram", "-" }, text(flowchart))
+  vim.cmd("normal! dd")
+  vim.api.nvim_exec_autocmds("CursorMoved", { buffer = 0 })
+  same(previews(), { [4] = want }, "before the scan")
+  vim.api.nvim_win_set_cursor(0, { 5, 0 })
+  rescan()
+  same(previews(), { [4] = want }, "after the scan")
+  vim.cmd("ApollinairePreview")
+end
+
+function cases.preview_stops_its_renders_when_the_buffer_goes()
+  buffer(many())
+  vim.api.nvim_win_set_cursor(0, { 1, 0 })
+  vim.cmd("ApollinairePreview")
+  local buffer_number = vim.api.nvim_get_current_buf()
+  local state = preview.state(buffer_number)
+  assert(state.running > 0, "no render running")
+  vim.cmd("bwipeout!")
+  assert(preview.state(buffer_number) == nil, "state left")
+  same(next(state.jobs), nil, "renders left")
+  vim.wait(300)
+end
+
+function cases.preview_bang_draws_every_block_again_whilst_renders_run()
+  buffer(many())
+  vim.api.nvim_win_set_cursor(0, { 1, 0 })
+  vim.cmd("ApollinairePreview")
+  local state = preview.state(vim.api.nvim_get_current_buf())
+  assert(state.running > 0, "no render running")
+  vim.cmd("ApollinairePreview!")
+  settle()
+  vim.wait(300)
+  same(state.running, 0, "running")
+  local shown = previews()
+  same(vim.tbl_count(shown), 12, "previews")
+  same(shown[5], cli({ "diagram", "-" }, text({ "flowchart LR", "  Lumbridge --> Varrock1" })), "first block")
+  same(shown[49], cli({ "diagram", "-" }, text({ "flowchart LR", "  Lumbridge --> Varrock12" })), "last block")
   vim.cmd("ApollinairePreview")
 end
 
@@ -270,7 +357,7 @@ function cases.preview_keeps_a_rendered_block_through_edits_elsewhere()
   local rendered = state.started
   vim.api.nvim_buf_set_lines(0, 0, 1, true, { "# Misthalin", "" })
   vim.api.nvim_win_set_cursor(0, { 1, 0 })
-  vim.api.nvim_exec_autocmds("InsertLeave", { buffer = 0 })
+  rescan()
   same(previews()[6], cli({ "diagram", "-" }, text(flowchart)), "moved preview, drawn at once")
   same(state.running + #state.queue, 0, "no render for an unchanged block")
   same(state.started, rendered, "renders started")
@@ -283,7 +370,7 @@ function cases.preview_renders_an_edited_block_again()
   settle()
   vim.api.nvim_buf_set_lines(0, 3, 4, true, { "  Lumbridge --> Draynor" })
   vim.api.nvim_win_set_cursor(0, { 1, 0 })
-  vim.api.nvim_exec_autocmds("InsertLeave", { buffer = 0 })
+  rescan()
   settle()
   same(previews()[5], cli({ "diagram", "-" }, text({ "flowchart LR", "  Lumbridge --> Draynor" })), "edited preview")
   vim.cmd("ApollinairePreview")
@@ -324,7 +411,8 @@ function cases.preview_shows_why_a_block_failed()
   vim.cmd("ApollinairePreview")
   settle()
   local shown = previews()[5]
-  assert(shown and #shown == 1 and vim.startswith(shown[1], "apollinaire: "), vim.inspect(shown))
+  -- The CLI counts from the block's first line, the preview from the buffer's.
+  assert(shown and #shown == 1 and vim.startswith(shown[1], "apollinaire: Line 3: "), vim.inspect(shown))
   vim.cmd("ApollinairePreview")
 end
 
@@ -334,8 +422,9 @@ function cases.preview_reports_a_missing_program()
   vim.api.nvim_win_set_cursor(0, { 1, 0 })
   vim.cmd("ApollinairePreview")
   settle()
-  local shown = previews()[5]
-  assert(shown and #shown == 1 and shown[1]:find("apollinaire-not-installed", 1, true), vim.inspect(shown))
+  same(previews(), {}, "previews")
+  same(#notes, 1, "notifications")
+  assert(notes[1].message:find("apollinaire-not-installed cannot run", 1, true), notes[1].message)
   vim.cmd("ApollinairePreview")
 end
 
