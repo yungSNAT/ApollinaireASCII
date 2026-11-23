@@ -35,6 +35,9 @@ fn video_options_need_a_video_and_video_needs_ffmpeg() {
             "{args:?}"
         );
     }
+    let hw = cli(&["image", "picture.png", "--hwaccel", "auto"]);
+    assert!(!hw.status.success());
+    assert_eq!(stderr(&hw), "apollinaire: --hwaccel needs a video input\n");
     assert!(!cli(&["image", "clip.mp4", "--fps", "61"]).status.success());
     let output = Command::new(env!("CARGO_BIN_EXE_apollinaire"))
         .args(["image", "clip.MP4"])
@@ -203,6 +206,31 @@ mod with_ffmpeg {
         );
         let upright = project(&cli(&["image", turned.to_str().unwrap(), "--fps", "1"]));
         assert_eq!((upright.width(), upright.height()), (80, 54));
+        let auto = project(&cli(&[
+            "image",
+            clip.to_str().unwrap(),
+            "--width",
+            "8",
+            "--height",
+            "4",
+            "--fps",
+            "2",
+            "--hwaccel",
+            "auto",
+        ]));
+        let none = project(&cli(&[
+            "image",
+            clip.to_str().unwrap(),
+            "--width",
+            "8",
+            "--height",
+            "4",
+            "--fps",
+            "2",
+            "--hwaccel",
+            "none",
+        ]));
+        assert_eq!(auto.frames(), none.frames());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

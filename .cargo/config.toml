@@ -1,6 +1,9 @@
 # `cargo test-editor` runs the browser editor tests; set CHROMEDRIVER first.
 [target.wasm32-unknown-unknown]
 runner = "wasm-bindgen-test-runner"
+# Keep the target_features custom section for wasm-opt (which strips the output itself)
+# whilst native release binaries keep [profile.release] strip = true.
+rustflags = ["-C", "strip=none"]
 
 [alias]
 test-editor = "test --locked --target wasm32-unknown-unknown --no-default-features --features web --lib"

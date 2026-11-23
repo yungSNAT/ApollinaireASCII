@@ -16,6 +16,7 @@ use apollinaire_ascii::{
     rexpaint,
 };
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
+use rayon::prelude::*;
 use std::{
     fs::File,
     io::{self, IsTerminal, Read, Write},
@@ -313,6 +314,9 @@ enum Command {
         /// Video: seconds from the start of the video to stop at; the video's end by default.
         #[arg(long)]
         end: Option<f64>,
+        /// Video: hardware decode acceleration for ffmpeg; none by default.
+        #[arg(long, value_enum)]
+        hwaccel: Option<ffmpeg::HwAccel>,
     },
     /// Deterministic procedural ASCII scenes, exported as timed JSON.
     Animate {
@@ -655,6 +659,7 @@ fn run(args: Args) -> Result<()> {
             fps,
             start,
             end,
+            hwaccel,
         } => {
             let video = |input: &Path| {
                 ffmpeg::is_video(input) && !input.to_str().is_some_and(fetch::is_url)
@@ -664,10 +669,14 @@ fn run(args: Args) -> Result<()> {
             {
                 return Err("--fps, --start and --end need a video input".into());
             }
+            if hwaccel.is_some() && !inputs.iter().any(|input| video(input)) {
+                return Err("--hwaccel needs a video input".into());
+            }
             let sampling = ffmpeg::Sampling {
                 fps: fps.unwrap_or(10),
                 start_ms: start.unwrap_or(0.0) * 1000.0,
                 end_ms: end.map(|seconds| seconds * 1000.0),
+                hwaccel: hwaccel.unwrap_or_default(),
             };
             let glyphs = if shapes { Glyphs::Shapes } else { Glyphs::Ramp };
             let ramp = apollinaire_ascii::image_renderer::RAMPS
@@ -1047,13 +1056,44 @@ fn create_new(path: &Path, content: &str) -> Result<()> {
     file.write_all(content.as_bytes())
         .map_err(|e| format!("Write failed: {e}"))
 }
+/// Classify inputs for `--output-dir` batching by format magic and decoded dimensions so only
+/// confirmed small still images (<= 8 MiB worst-case decoded pixel storage) run in parallel.
+/// Videos, GIFs (regardless of extension), URLs, large still images (even tightly compressed or
+/// 16-bit) and unrecognised headers run one at a time, bounding peak decoded memory and avoiding
+/// nested parallelism.
+fn is_heavy_batch_input(input: &Path) -> bool {
+    const HEAVY_DECODED_BYTES: u64 = 8 * 1024 * 1024;
+    // Worst-case pixel size across enabled decoders (PNG RGBA16 = 8 B/px; JPEG/WebP/BMP/PNM <= 6).
+    const MAX_BYTES_PER_PIXEL: u64 = 8;
+    if ffmpeg::is_video(input) || fetch::is_url(&input.to_string_lossy()) {
+        return true;
+    }
+    let mut magic = [0u8; 6];
+    if std::fs::File::open(input)
+        .and_then(|mut f| std::io::Read::read_exact(&mut f, &mut magic))
+        .is_ok_and(|()| &magic == b"GIF89a" || &magic == b"GIF87a")
+    {
+        return true;
+    }
+    image::ImageReader::open(input)
+        .ok()
+        .and_then(|r| r.with_guessed_format().ok())
+        .and_then(|r| r.into_dimensions().ok())
+        .is_none_or(|(w, h)| {
+            u64::from(w)
+                .saturating_mul(u64::from(h))
+                .saturating_mul(MAX_BYTES_PER_PIXEL)
+                > HEAVY_DECODED_BYTES
+        })
+}
+
 /// Convert each input to a new file in `dir`. A failed input is reported and skipped;
 /// existing files are never replaced.
 fn batch(
     inputs: &[PathBuf],
     dir: &Path,
     args: &Export,
-    convert: impl Fn(&Path) -> Result<Animation>,
+    convert: impl Fn(&Path) -> Result<Animation> + Sync,
 ) -> Result<()> {
     if args.output.is_some() {
         return Err("Use either --output or --output-dir".into());
@@ -1074,25 +1114,39 @@ fn batch(
         names.push(name);
     }
     std::fs::create_dir_all(dir).map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
+    let convert_one = |input: &Path, stem: &str| -> Result<PathBuf> {
+        let project = convert(input)?;
+        let (format, content) = export(&project, args, None)?;
+        let extension = match format {
+            Format::Text => "txt",
+            Format::Json => "json",
+            Format::Html => "html",
+            Format::Cast => "cast",
+            Format::React | Format::Ink | Format::Opentui => "js",
+            Format::Bubbletea => "go",
+            Format::Python => "py",
+            Format::Ruby => "rb",
+            Format::Csharp => "cs",
+        };
+        let path = dir.join(format!("{stem}.{extension}"));
+        create_new(&path, &content)?;
+        Ok(path)
+    };
+    let (heavy, light): (Vec<usize>, Vec<usize>) =
+        (0..inputs.len()).partition(|&i| is_heavy_batch_input(&inputs[i]));
+    let mut results: Vec<Option<Result<PathBuf>>> = (0..inputs.len()).map(|_| None).collect();
+    let light_out: Vec<(usize, Result<PathBuf>)> = light
+        .into_par_iter()
+        .map(|i| (i, convert_one(&inputs[i], &names[i])))
+        .collect();
+    for (i, result) in light_out {
+        results[i] = Some(result);
+    }
+    for i in heavy {
+        results[i] = Some(convert_one(&inputs[i], &names[i]));
+    }
     let mut failed = 0;
-    for (input, stem) in inputs.iter().zip(&names) {
-        let result = convert(input).and_then(|project| {
-            let (format, content) = export(&project, args, None)?;
-            let extension = match format {
-                Format::Text => "txt",
-                Format::Json => "json",
-                Format::Html => "html",
-                Format::Cast => "cast",
-                Format::React | Format::Ink | Format::Opentui => "js",
-                Format::Bubbletea => "go",
-                Format::Python => "py",
-                Format::Ruby => "rb",
-                Format::Csharp => "cs",
-            };
-            let path = dir.join(format!("{stem}.{extension}"));
-            create_new(&path, &content)?;
-            Ok(path)
-        });
+    for (input, result) in inputs.iter().zip(results.into_iter().flatten()) {
         match result {
             Ok(path) => {
                 emit(format!("{} -> {}\n", input.display(), path.display()).as_bytes())?;
@@ -1382,6 +1436,7 @@ fn choices_keep_their_values_help_and_defaults() {
             "apollinaire text vertical [default] default | full | fitted | smush",
             &format!("apollinaire say style [plain] {border}"),
             "apollinaire table rules [header] header | every | none",
+            "apollinaire image hwaccel [] none=Decode frames in software | auto=Ask ffmpeg to pick an available hardware decoder, falling back to software if it fails",
             "apollinaire model spin [y] y=Upright, like a turntable | x=Head over heels | xy=Both at once",
             "apollinaire model light [top-left] top-left | top | front | left | right",
             "apollinaire generate maze algorithm [depth-first] depth-first=Depth-first search: long, winding passages | prim=Randomised Prim: many short dead ends | wilson=Wilson's loop-erased random walks: every maze equally likely | sidewinder=Row by row, with an open top row",
@@ -1393,4 +1448,41 @@ fn choices_keep_their_values_help_and_defaults() {
             "apollinaire completions shell [] bash | elvish | fish | powershell | zsh",
         ]
     );
+}
+
+#[cfg(test)]
+#[test]
+fn heavy_batch_input_checks_decoded_dimensions_and_gif_magic() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("target")
+        .join("test-tmp")
+        .join(format!("apollinaire-heavy-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let small = dir.join("small.png");
+    image::RgbaImage::new(1280, 720).save(&small).unwrap();
+    assert!(!is_heavy_batch_input(&small));
+
+    // A 1300x1300 16-bit RGBA PNG decodes to ~12.9 MiB (> 8 MiB) even when tightly compressed.
+    let large_16bit = dir.join("large-16bit.png");
+    image::ImageBuffer::<image::Rgba<u16>, Vec<u16>>::new(1300, 1300)
+        .save(&large_16bit)
+        .unwrap();
+    assert!(std::fs::metadata(&large_16bit).unwrap().len() < 100_000);
+    assert!(is_heavy_batch_input(&large_16bit));
+
+    // Crafted PNM header whose u32 dimensions would overflow unchecked u64 multiplication.
+    let overflow_pnm = dir.join("overflow.ppm");
+    std::fs::write(&overflow_pnm, b"P6\n2147483648 2147483648\n255\n").unwrap();
+    assert!(is_heavy_batch_input(&overflow_pnm));
+
+    let disguised_gif = dir.join("disguised.png");
+    std::fs::write(&disguised_gif, b"GIF89a\x01\x00\x01\x00").unwrap();
+    assert!(is_heavy_batch_input(&disguised_gif));
+
+    assert!(is_heavy_batch_input(Path::new("clip.mp4")));
+    assert!(is_heavy_batch_input(Path::new("https://example.com/a.png")));
+
+    let _ = std::fs::remove_dir_all(&dir);
 }

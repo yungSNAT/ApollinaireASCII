@@ -13,7 +13,7 @@ p{max-width:65ch}#status{border:1px solid var(--rule);padding:12px 16px;min-heig
 .workspace{display:grid;grid-template-columns:304px minmax(0,1fr);gap:32px;align-items:start}
 .controls{border-right:1px solid var(--rule);padding-right:24px}.controls>*:first-child{margin-top:0}
 label{display:block;font-size:14px;font-weight:600;margin:16px 0 8px}input,textarea,select,button{font:inherit;color:var(--text);border:1px solid var(--text);background:var(--background);border-radius:0}
-input:not([type=checkbox]):not([type=radio]):not([type=range]),select,textarea{display:block;width:100%;min-width:0;padding:8px;min-height:44px}input[type=file]{font-size:13px;overflow:hidden}input::file-selector-button{font:inherit;border:0;padding:4px;background:var(--text);color:var(--background)}
+input:not([type=checkbox],[type=radio],[type=range]),select,textarea{display:block;width:100%;min-width:0;padding:8px;min-height:44px}input[type=file]{font-size:13px;overflow:hidden}input::file-selector-button{font:inherit;border:0;padding:4px;background:var(--text);color:var(--background)}
 textarea{resize:vertical}button{padding:8px 12px;min-height:44px;cursor:pointer;touch-action:manipulation}button:hover{background:var(--surface)}button:active{background:var(--selected)}button.primary{background:var(--surface)}button.primary:hover{background:var(--selected)}
 button:disabled{color:var(--subtle);border-style:dashed;background:var(--background);cursor:not-allowed}.pair{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}.pair>div{min-width:0}
 .check{display:flex;align-items:center;gap:8px;min-height:44px;font-weight:400;margin:8px 0}.check input{width:20px;height:20px;accent-color:var(--focus);flex:0 0 auto}
