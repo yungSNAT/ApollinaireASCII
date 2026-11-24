@@ -5,6 +5,7 @@
 //! ascii-image-converter and chafa, and check each converter's output is plain ASCII text.
 //! docs/VALIDATION.md records a run. ImageMagick 7 (`magick`) draws the 3 test pictures.
 //! Without a work folder it uses a temporary one and removes it afterwards.
+use crate::shared::{exec, first_line};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -18,31 +19,6 @@ fn absolute(program: &str) -> Result<PathBuf, String> {
     fs::canonicalize(program).map_err(|error| format!("{program}: {error}"))
 }
 
-/// Run a command in `work` and return its output, failing on a non-zero exit.
-fn call(work: &Path, program: &Path, args: &[&str], stdout: Stdio) -> Result<Vec<u8>, String> {
-    let out = Command::new(program)
-        .args(args)
-        .current_dir(work)
-        .stdout(stdout)
-        .stderr(Stdio::inherit())
-        .output()
-        .map_err(|error| format!("Cannot run {}: {error}", program.display()))?;
-    if !out.status.success() {
-        return Err(format!("{} failed: {}", program.display(), out.status));
-    }
-    Ok(out.stdout)
-}
-
-/// Print a command's first line of output.
-fn first_line(work: &Path, program: &Path, args: &[&str]) -> Result<(), String> {
-    let out = call(work, program, args, Stdio::piped())?;
-    println!(
-        "{}",
-        String::from_utf8_lossy(&out).lines().next().unwrap_or("")
-    );
-    Ok(())
-}
-
 /// The bytes outside line feeds and printable ASCII.
 fn outside_ascii(out: &[u8]) -> usize {
     out.iter()
@@ -53,10 +29,10 @@ fn outside_ascii(out: &[u8]) -> usize {
 fn run_in(work: &Path, apo: &Path, aic: &Path, chafa: &Path) -> Result<(), String> {
     let magick = Path::new("magick");
     for program in [apo, aic] {
-        call(work, program, &["--version"], Stdio::inherit())?;
+        exec(work, &[], program, &["--version"], Stdio::inherit())?;
     }
-    first_line(work, chafa, &["--version"])?;
-    first_line(work, magick, &["-version"])?;
+    first_line(work, &[], chafa, &["--version"])?;
+    first_line(work, &[], magick, &["-version"])?;
     for args in [
         [
             "-size",
@@ -86,7 +62,7 @@ fn run_in(work: &Path, apo: &Path, aic: &Path, chafa: &Path) -> Result<(), Strin
             "big.png",
         ],
     ] {
-        call(work, magick, args, Stdio::inherit())?;
+        exec(work, &[], magick, args, Stdio::inherit())?;
     }
     for picture in PICTURES {
         let path = work.join(picture);
@@ -140,7 +116,7 @@ fn run_in(work: &Path, apo: &Path, aic: &Path, chafa: &Path) -> Result<(), Strin
             let mut fastest = u128::MAX;
             for _ in 0..5 {
                 let start = Instant::now();
-                call(work, program, &args, Stdio::null())?;
+                exec(work, &[], program, &args, Stdio::null())?;
                 fastest = fastest.min(start.elapsed().as_millis());
             }
             println!("{name}: {fastest} ms");

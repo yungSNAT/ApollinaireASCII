@@ -1,18 +1,22 @@
 // Copyright 2026 Ryan Duguid
 // SPDX-License-Identifier: MIT
 
-//! Release packaging and the conversion speed benchmark.
+//! Release packaging, the conversion speed benchmark and the test suites run outside Cargo.
 //! Run from the repository with `cargo run --locked --manifest-path xtask/Cargo.toml -- <command>`.
 use std::{path::Path, process::ExitCode};
 
 mod deb;
 mod manifests;
+mod shared;
 mod speed;
+mod suites;
 
 const USAGE: &str = "Usage:
   xtask deb <release folder> <version> <amd64|arm64> <output .deb>
   xtask manifests <tag> <SHA256SUMS.txt> <output folder>
-  xtask speed <apollinaire> <ascii-image-converter> <chafa> [work folder]";
+  xtask speed <apollinaire> <ascii-image-converter> <chafa> [work folder]
+  xtask editors <apollinaire>
+  xtask code-exports <apollinaire>";
 
 fn main() -> ExitCode {
     // nosemgrep: rust.lang.security.args.args -- a maintainer tool's subcommand and paths; no access decision rests on them
@@ -25,6 +29,8 @@ fn main() -> ExitCode {
         ["manifests", tag, sums, out] => manifests::write(tag, Path::new(sums), Path::new(out)),
         ["speed", apo, aic, chafa] => speed::run(apo, aic, chafa, None),
         ["speed", apo, aic, chafa, work] => speed::run(apo, aic, chafa, Some(Path::new(work))),
+        ["editors", apo] => suites::editors(apo),
+        ["code-exports", apo] => suites::code_exports(apo),
         _ => Err(USAGE.into()),
     };
     match result {
