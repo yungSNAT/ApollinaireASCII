@@ -179,4 +179,9 @@ fn a_failing_tool_s_stderr_reaches_the_terminal() {
     assert_eq!(out.status.code(), Some(1));
     let stderr = String::from_utf8(out.stderr).unwrap();
     assert!(stderr.contains("nvim says Lumbridge\n"), "{stderr}");
+    let last = stderr.lines().last().unwrap_or_default();
+    assert!(
+        last.starts_with("nvim ") && last.ends_with(" failed: exit status: 3"),
+        "{stderr}"
+    );
 }

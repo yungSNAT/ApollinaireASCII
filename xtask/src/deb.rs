@@ -19,16 +19,13 @@ pub use unix::build;
 
 #[cfg(unix)]
 mod unix {
+    use crate::shared::fail as io;
     use std::{
         fs,
         os::unix::fs::{MetadataExt, PermissionsExt},
         path::Path,
         process::{Command, Stdio},
     };
-
-    fn io(path: &Path) -> impl Fn(std::io::Error) -> String + '_ {
-        move |error| format!("{}: {error}", path.display())
-    }
 
     /// `install -Dm<mode>`: copy a file, making its folders, and set its mode.
     fn install(from: &Path, to: &Path, mode: u32) -> Result<(), String> {
