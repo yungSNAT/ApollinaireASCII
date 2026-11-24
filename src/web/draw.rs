@@ -1016,6 +1016,13 @@ pub(super) fn listen_all() -> std::result::Result<(), wasm_bindgen::JsValue> {
                 app.drawing.tool = tool;
                 status(tool.help(), false);
                 node::<Element>("tool-help")?.set_text_content(Some(tool.help()));
+                // Keys draw with every tool but Select text.
+                let read_only = if tool == Tool::SelectText {
+                    "true"
+                } else {
+                    "false"
+                };
+                let _ = node::<Element>("art")?.set_attribute("aria-readonly", read_only);
                 app.render()
             })
         })())
