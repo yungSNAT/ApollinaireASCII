@@ -101,11 +101,23 @@ def _open_root_posix(root_real: Path, dir_flags: int, walk_flags: int) -> int:
     root_parts = root_real.parts
     if not root_parts or root_parts[0] != "/":
         raise SafeIoError(f"Workspace root is not absolute: {root_real}")
-    cur_fd = os.open("/", dir_flags)
+    search_base = getattr(os, "O_PATH", getattr(os, "O_SEARCH", os.O_RDONLY))
+    root_search_flags = (
+        search_base | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_CLOEXEC", 0)
+    )
+    ancestor_flags = root_search_flags | getattr(os, "O_NOFOLLOW", 0)
+
+    if len(root_parts) == 1:
+        return os.open("/", dir_flags)
+
+    cur_fd = os.open("/", root_search_flags)
     try:
-        for part in root_parts[1:]:
-            entry = _lookup_entry_name(cur_fd, part)
-            next_fd = os.open(entry, walk_flags, dir_fd=cur_fd)
+        tail = root_parts[1:]
+        for index, part in enumerate(tail):
+            if not part or part in (".", "..") or "/" in part or "\x00" in part:
+                raise SafeIoError(f"Refused unsafe workspace path component: {part!r}")
+            flags = walk_flags if index == len(tail) - 1 else ancestor_flags
+            next_fd = os.open(part, flags, dir_fd=cur_fd)
             os.close(cur_fd)
             cur_fd = next_fd
     except BaseException:

@@ -24,6 +24,12 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 import _safe_io
 
 
+def write_payload(cwd: Path | str, file_path: Path | str) -> str:
+    return json.dumps(
+        {"tool_name": "Write", "cwd": str(cwd), "tool_input": {"file_path": str(file_path)}}
+    )
+
+
 def run_hook(
     args: list[str],
     stdin_text: str,
@@ -347,16 +353,7 @@ class HookBehaviourTests(unittest.TestCase):
             if os.name != "nt":
                 link_file = workspace / "link.md"
                 link_file.symlink_to(outside)
-                code, _, stderr = run_hook(
-                    [],
-                    json.dumps(
-                        {
-                            "tool_name": "Write",
-                            "cwd": str(workspace),
-                            "tool_input": {"file_path": str(link_file)},
-                        }
-                    ),
-                )
+                code, _, stderr = run_hook([], write_payload(workspace, link_file))
                 self.assertEqual(code, 2)
                 self.assertIn("Cannot safely open", stderr)
 
@@ -365,31 +362,13 @@ class HookBehaviourTests(unittest.TestCase):
                 (outside_dir / "doc.md").write_bytes(sample.encode("utf-8"))
                 link_dir = workspace / "sub"
                 link_dir.symlink_to(outside_dir)
-                code, _, stderr = run_hook(
-                    [],
-                    json.dumps(
-                        {
-                            "tool_name": "Write",
-                            "cwd": str(workspace),
-                            "tool_input": {"file_path": str(link_dir / "doc.md")},
-                        }
-                    ),
-                )
+                code, _, stderr = run_hook([], write_payload(workspace, link_dir / "doc.md"))
                 self.assertEqual(code, 2)
                 self.assertIn("Cannot safely open", stderr)
 
                 esc_file = workspace / "bad\x1bname.md"
                 esc_file.write_bytes(sample.encode("utf-8"))
-                code, stdout, stderr = run_hook(
-                    [],
-                    json.dumps(
-                        {
-                            "tool_name": "Write",
-                            "cwd": str(workspace),
-                            "tool_input": {"file_path": str(esc_file)},
-                        }
-                    ),
-                )
+                code, stdout, stderr = run_hook([], write_payload(workspace, esc_file))
                 self.assertEqual(code, 0, stderr)
                 ctx = json.loads(stdout)["hookSpecificOutput"]["additionalContext"]
                 self.assertIn("bad\\x1bname.md", ctx)
@@ -398,18 +377,25 @@ class HookBehaviourTests(unittest.TestCase):
                 # FIFO at target path must fail closed immediately without blocking.
                 fifo_path = workspace / "pipe.md"
                 os.mkfifo(fifo_path)
-                code, _, stderr = run_hook(
-                    [],
-                    json.dumps(
-                        {
-                            "tool_name": "Write",
-                            "cwd": str(workspace),
-                            "tool_input": {"file_path": str(fifo_path)},
-                        }
-                    ),
-                )
+                code, _, stderr = run_hook([], write_payload(workspace, fifo_path))
                 self.assertEqual(code, 2)
                 self.assertIn("Path is not a regular file", stderr)
+
+                if hasattr(os, "O_PATH") or hasattr(os, "O_SEARCH"):
+                    # Search-only (0o111) ancestor directory above workspace must still succeed.
+                    gated_parent = Path(tmp) / "search_only_parent"
+                    gated_work = gated_parent / "repo"
+                    gated_work.mkdir(parents=True)
+                    gated_md = gated_work / "flow.md"
+                    gated_md.write_bytes(sample.encode("utf-8"))
+                    os.chmod(gated_parent, 0o111)
+                    try:
+                        code, stdout, stderr = run_hook([], write_payload(gated_work, gated_md))
+                        self.assertEqual(code, 0, stderr)
+                        ctx = json.loads(stdout)["hookSpecificOutput"]["additionalContext"]
+                        self.assertIn("flow.md", ctx)
+                    finally:
+                        os.chmod(gated_parent, 0o700)
 
     def test_bounded_process_and_file_read_reject_overflow(self) -> None:
         with self.assertRaises(_safe_io.SafeIoError) as cm:
