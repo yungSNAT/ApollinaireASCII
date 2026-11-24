@@ -11,7 +11,7 @@
 
 use serde_json::{Value, json};
 use std::{
-    collections::VecDeque,
+    hash::{BuildHasher, RandomState},
     io,
     net::{Shutdown, TcpListener, TcpStream},
     sync::{
@@ -34,10 +34,10 @@ const EDITOR: &str = "https://yungsnat.github.io";
 const EDITOR_PAGE: &str = "https://yungsnat.github.io/ApollinaireASCII/";
 /// From accepting a connection to receiving its token.
 const ADMISSION: Duration = Duration::from_secs(5);
-/// How long a thread waits after a failed admission, which slows token guessing.
-const REFUSAL_DELAY: Duration = Duration::from_millis(250);
-/// Connections being admitted at once; a newer one closes the oldest.
+/// Connections being admitted at once; a newer one closes one of them at random.
 const ADMITTING: usize = 32;
+/// A connection being admitted: its number, a copy of its stream and its admission's flag.
+type Pending = (u64, TcpStream, Arc<AtomicBool>);
 /// The longest message read before the token is checked; the token is 64 characters.
 const TOKEN_LIMIT: usize = 128;
 /// How long the editor has to answer a request.
@@ -260,8 +260,9 @@ fn timed_out(error: &io::Error) -> bool {
 }
 
 fn accept(listener: &TcpListener, port: u16, token: &Arc<str>, slot: &Slot) {
-    // Connections being admitted, oldest first, each with a copy of its stream.
-    let admitting: Arc<Mutex<VecDeque<(u64, TcpStream)>>> = Arc::default();
+    let admitting: Arc<Mutex<Vec<Pending>>> = Arc::default();
+    // Picks which admission to close when the limit is reached; randomly keyed for each run.
+    let pick = RandomState::new();
     // Out of file descriptors, say: wait rather than spin.
     let wait = |_| thread::sleep(Duration::from_millis(50));
     let pair = |s: TcpStream| Ok((s.try_clone()?, s));
@@ -269,27 +270,27 @@ fn accept(listener: &TcpListener, port: u16, token: &Arc<str>, slot: &Slot) {
         .incoming()
         .filter_map(|s| s.and_then(pair).map_err(wait).ok());
     for (id, (copy, stream)) in (0..).zip(streams) {
+        let done = Arc::new(AtomicBool::new(false));
         {
             let mut queue = admitting.lock().unwrap_or_else(PoisonError::into_inner);
-            // At the limit the oldest admission is closed, so connections that never sign in
-            // cannot keep a newer one, such as the editor's, out.
-            if queue.len() >= ADMITTING
-                && let Some((_, oldest)) = queue.pop_front()
-            {
-                let _ = oldest.shutdown(Shutdown::Both);
+            // At the limit a random admission is closed, so a flood of connections that never
+            // sign in cannot reliably close a newer one, such as the editor's.
+            if queue.len() >= ADMITTING {
+                let (_, evicted, signed_in) =
+                    queue.swap_remove(pick.hash_one(id) as usize % ADMITTING);
+                // Whichever of eviction, the watchdog and the admission sets the flag first decides.
+                if !signed_in.swap(true, Ordering::SeqCst) {
+                    let _ = evicted.shutdown(Shutdown::Both);
+                }
             }
-            queue.push_back((id, copy));
+            queue.push((id, copy, done.clone()));
         }
-        let (admitting, token, slot) = (admitting.clone(), token.clone(), slot.clone());
-        thread::spawn(move || {
-            let admitted = admit(stream, port, &token);
-            admitting
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .retain(|(each, _)| *each != id);
-            if admitted.is_none() {
-                thread::sleep(REFUSAL_DELAY);
-            }
+        let (queue, token, slot) = (admitting.clone(), token.clone(), slot.clone());
+        let admission = move || {
+            let admitted = admit(stream, port, &token, &done);
+            let mut pending = queue.lock().unwrap_or_else(PoisonError::into_inner);
+            pending.retain(|(each, ..)| *each != id);
+            drop(pending);
             let lock = || slot.lock().unwrap_or_else(PoisonError::into_inner);
             if let Some(mut old) = admitted.and_then(|socket| lock().replace(socket)) {
                 let _ = old.close(Some(CloseFrame {
@@ -298,26 +299,29 @@ fn accept(listener: &TcpListener, port: u16, token: &Arc<str>, slot: &Slot) {
                 }));
                 let _ = old.flush();
             }
-        });
+        };
+        // Out of threads: the connection is dropped (and its queue entry left for eviction).
+        let _ = thread::Builder::new().spawn(admission);
     }
 }
 
 /// The handshake and the token, within the admission time, or `None`.
-fn admit(stream: TcpStream, port: u16, token: &str) -> Option<Socket> {
+fn admit(stream: TcpStream, port: u16, token: &str, done: &Arc<AtomicBool>) -> Option<Socket> {
     let start = Instant::now();
     // Closes a connection still not admitted at the deadline, whatever it is waiting on. It
     // ends, with its copy of the stream, as soon as this function returns and drops `_stop`.
-    let done = Arc::new(AtomicBool::new(false));
     let (_stop, stopped) = mpsc::channel::<()>();
     let watch = (stream.try_clone().ok()?, done.clone());
-    thread::spawn(move || {
-        // Whichever of the watch and the admission sets the flag first decides.
-        if stopped.recv_timeout(ADMISSION) == Err(RecvTimeoutError::Timeout)
-            && !watch.1.swap(true, Ordering::SeqCst)
-        {
-            let _ = watch.0.shutdown(Shutdown::Both);
-        }
-    });
+    thread::Builder::new()
+        .spawn(move || {
+            // Whichever of the watch and the admission sets the flag first decides.
+            if stopped.recv_timeout(ADMISSION) == Err(RecvTimeoutError::Timeout)
+                && !watch.1.swap(true, Ordering::SeqCst)
+            {
+                let _ = watch.0.shutdown(Shutdown::Both);
+            }
+        })
+        .ok()?;
     stream.set_read_timeout(Some(ADMISSION)).ok()?;
     stream.set_write_timeout(Some(ADMISSION)).ok()?;
     // Nothing longer than a token is read before the token is checked.
