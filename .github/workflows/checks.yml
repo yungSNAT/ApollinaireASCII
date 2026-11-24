@@ -231,7 +231,7 @@ jobs:
       - name: Install Chocolatey's Emacs
         if: matrix.emacs == 'choco'
         run: |
-          choco install emacs --no-progress -y
+          choco install emacs --no-progress -y --require-checksums
           echo "C:/ProgramData/chocolatey/bin" >> "$GITHUB_PATH"
       - run: cargo build --locked --bin apollinaire
       - run: cargo run --locked --quiet --manifest-path xtask/Cargo.toml -- editors "target/debug/apollinaire${{ runner.os == 'Windows' && '.exe' || '' }}"
