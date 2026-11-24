@@ -24,6 +24,7 @@ mod gif;
 pub mod image_renderer;
 pub mod layers;
 pub mod lettering;
+pub mod live_edit;
 pub mod model;
 pub mod motion;
 pub mod palette;

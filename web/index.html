@@ -228,6 +228,13 @@
           <div class="actions"><button id="restore-recovery" type="button" disabled>Restore saved project</button><button id="discard-recovery" type="button" disabled>Discard saved recovery</button></div>
           <p class="hint">Recovery is off on each page load. Enabling it stores applied artwork and timings locally. Unapplied text edits, session stamps and undo history are excluded. Browser clearing or eviction can remove it; save JSON for a separate copy. Another tab changing the saved record stops recovery in this tab.</p>
         </details>
+        <details id="live-panel">
+          <summary>Connect an agent</summary>
+          <p class="hint">An AI agent running <code>apollinaire mcp --live</code> on this computer can read and change the frame on screen. Ask it to call <code>live_connect</code>, then enter the port and token it gives. Each change it makes is one undo step.</p>
+          <label>Port <input id="live-port" type="text" inputmode="numeric" autocomplete="off" spellcheck="false"></label>
+          <label>Token <input id="live-token" type="password" autocomplete="off" spellcheck="false"></label>
+          <div class="actions"><button id="live-connect" type="button">Connect</button><button id="live-disconnect" type="button">Disconnect</button></div>
+        </details>
         <details id="effect-panel">
           <summary>Animate this frame with an effect</summary>
           <p>Builds a new animation from the selected frame. Undo restores the previous project.</p>
