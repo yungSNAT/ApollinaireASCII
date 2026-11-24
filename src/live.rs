@@ -264,8 +264,11 @@ fn accept(listener: &TcpListener, port: u16, token: &Arc<str>, slot: &Slot) {
     let admitting: Arc<Mutex<VecDeque<(u64, TcpStream)>>> = Arc::default();
     // Out of file descriptors, say: wait rather than spin.
     let wait = |_| thread::sleep(Duration::from_millis(50));
-    for (id, stream) in (0..).zip(listener.incoming().filter_map(|s| s.map_err(wait).ok())) {
-        let Ok(copy) = stream.try_clone() else { continue };
+    let pair = |s: TcpStream| Ok((s.try_clone()?, s));
+    let streams = listener
+        .incoming()
+        .filter_map(|s| s.and_then(pair).map_err(wait).ok());
+    for (id, (copy, stream)) in (0..).zip(streams) {
         {
             let mut queue = admitting.lock().unwrap_or_else(PoisonError::into_inner);
             // At the limit the oldest admission is closed, so connections that never sign in

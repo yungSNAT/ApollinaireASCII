@@ -423,7 +423,9 @@ fn past_the_admission_limit_the_oldest_connection_is_closed_at_once() {
         .map(|_| TcpStream::connect(("127.0.0.1", port)).unwrap())
         .collect();
     let first = &mut streams[0];
-    first.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+    first
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .unwrap();
     // Closed (a reset on Windows) well before the 5 second deadline.
     match first.read(&mut [0; 16]) {
         Ok(read) => assert_eq!(read, 0),
