@@ -47,10 +47,10 @@ fn connect() -> Result<()> {
     socket.set_onopen(Some(open.unchecked_ref()));
     let sender = socket.clone();
     let message = Closure::<dyn FnMut(MessageEvent)>::new(move |event: MessageEvent| {
-        if let Some(text) = event.data().as_string() {
-            if let Some(reply) = reply(&text) {
-                let _ = sender.send_with_str(&reply);
-            }
+        if let Some(text) = event.data().as_string()
+            && let Some(reply) = reply(&text)
+        {
+            let _ = sender.send_with_str(&reply);
         }
     });
     socket.set_onmessage(Some(message.as_ref().unchecked_ref()));

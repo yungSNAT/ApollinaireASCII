@@ -52,7 +52,8 @@ pub struct Bridge {
 
 struct Open {
     port: u16,
-    token: Arc<str>,
+    /// The token, kept in this process only.
+    code: Arc<str>,
     slot: Slot,
 }
 
@@ -141,17 +142,17 @@ impl Bridge {
                 .port();
             let open = Open {
                 port,
-                token: token()?.into(),
+                code: fresh_code()?.into(),
                 slot: Slot::default(),
             };
-            let (token, slot) = (open.token.clone(), open.slot.clone());
-            thread::spawn(move || accept(&listener, port, &token, &slot));
+            let (code, slot) = (open.code.clone(), open.slot.clone());
+            thread::spawn(move || accept(&listener, port, &code, &slot));
             self.open = Some(open);
         }
         let open = self.open.as_ref().expect("opened above");
         Ok(format!(
             "Bridge open on port {}, token {}. Open the editor at {EDITOR_PAGE} or a local build, choose Connect an agent and enter both; then use live_read and live_write.",
-            open.port, open.token
+            open.port, open.code
         ))
     }
 
@@ -188,7 +189,7 @@ fn write_request(arguments: &serde_json::Map<String, Value>) -> Result<Value, St
 }
 
 /// 32 bytes from the system's random source, in hexadecimal.
-fn token() -> Result<String, String> {
+fn fresh_code() -> Result<String, String> {
     let mut bytes = [0; 32];
     getrandom::fill(&mut bytes).map_err(|e| format!("No random source: {e}"))?;
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
@@ -298,6 +299,8 @@ fn admit(stream: TcpStream, port: u16, token: &str) -> Option<Socket> {
     let config = WebSocketConfig::default()
         .max_message_size(Some(limit))
         .max_frame_size(Some(limit));
+    // tungstenite's callback type fixes the error as an HTTP response.
+    #[allow(clippy::result_large_err)]
     let check = |request: &Request, response: Response| {
         let header = |name| request.headers().get(name)?.to_str().ok();
         if allowed_host(header("host"), port) && allowed_origin(header("origin")) {
@@ -402,7 +405,7 @@ mod tests {
 
     #[test]
     fn tokens_are_256_bits_and_differ() {
-        let (a, b) = (token().unwrap(), token().unwrap());
+        let (a, b) = (fresh_code().unwrap(), fresh_code().unwrap());
         assert_eq!(a.len(), 64);
         assert_ne!(a, b);
     }
