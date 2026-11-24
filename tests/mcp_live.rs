@@ -21,7 +21,7 @@ const EDITOR: &str = "https://yungsnat.github.io";
 /// An MCP session with one server process.
 struct Session {
     child: Child,
-    stdin: ChildStdin,
+    stdin: Option<ChildStdin>,
     stdout: BufReader<ChildStdout>,
     id: u64,
 }
@@ -39,7 +39,7 @@ impl Session {
         let stdout = BufReader::new(child.stdout.take().unwrap());
         Self {
             child,
-            stdin,
+            stdin: Some(stdin),
             stdout,
             id: 0,
         }
@@ -53,8 +53,9 @@ impl Session {
             "io.modelcontextprotocol/clientCapabilities": {},
         });
         let message = json!({"jsonrpc": "2.0", "id": self.id, "method": method, "params": params});
-        writeln!(self.stdin, "{message}").unwrap();
-        self.stdin.flush().unwrap();
+        let stdin = self.stdin.as_mut().unwrap();
+        writeln!(stdin, "{message}").unwrap();
+        stdin.flush().unwrap();
         let mut line = String::new();
         self.stdout.read_line(&mut line).unwrap();
         let reply: Value = serde_json::from_str(&line).unwrap();
@@ -99,7 +100,8 @@ impl Session {
 
 impl Drop for Session {
     fn drop(&mut self) {
-        let _ = self.child.kill();
+        // Closing stdin ends the server normally, so a coverage run records what it ran.
+        drop(self.stdin.take());
         let _ = self.child.wait();
     }
 }
@@ -389,13 +391,24 @@ fn a_connection_trickling_its_handshake_is_closed_at_the_deadline() {
         "GET / HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nX-Slow: {}",
         "a".repeat(30)
     );
+    stream
+        .set_read_timeout(Some(Duration::from_secs(1)))
+        .unwrap();
     let mut closed_after = None;
     for byte in request.bytes() {
-        if stream.write_all(&[byte]).is_err() {
+        let sent = stream.write_all(&[byte]);
+        // The bridge sends nothing before the request ends, so a read returns only at its close.
+        let ended = match stream.read(&mut [0; 16]) {
+            Ok(_) => true,
+            Err(e) => !matches!(
+                e.kind(),
+                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+            ),
+        };
+        if sent.is_err() || ended {
             closed_after = Some(start.elapsed());
             break;
         }
-        thread::sleep(Duration::from_secs(1));
     }
     let closed_after = closed_after.expect("the bridge kept a trickling connection open");
     assert!(closed_after < Duration::from_secs(8), "{closed_after:?}");
