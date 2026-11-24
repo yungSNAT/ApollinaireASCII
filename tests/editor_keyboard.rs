@@ -425,3 +425,119 @@ fn layers_panel_works_from_the_keyboard_alone() {
         b.script("return document.getElementById('group-solo').checked;")
     });
 }
+
+/// One request to an `apollinaire mcp --live` process on its stdio, and the tool's text.
+fn tool(
+    stdin: &mut std::process::ChildStdin,
+    stdout: &mut BufReader<std::process::ChildStdout>,
+    id: u64,
+    name: &str,
+    arguments: Value,
+) -> (String, bool) {
+    let request = json!({"jsonrpc": "2.0", "id": id, "method": "tools/call",
+        "params": {"name": name, "arguments": arguments, "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {}}}});
+    writeln!(stdin, "{request}").unwrap();
+    stdin.flush().unwrap();
+    let mut line = String::new();
+    stdout.read_line(&mut line).unwrap();
+    let reply: Value = serde_json::from_str(&line).unwrap();
+    let result = &reply["result"];
+    (
+        result["content"][0]["text"].as_str().unwrap().to_owned(),
+        result["isError"].as_bool().unwrap(),
+    )
+}
+
+#[test]
+#[ignore = "needs the built editor in web/pkg and CHROMEDRIVER; CI's browser job runs it"]
+fn an_agent_reads_and_writes_the_editor_through_mcp_live() {
+    let web = Path::new(env!("CARGO_MANIFEST_DIR")).join("web");
+    assert!(
+        web.join("pkg/apollinaire_ascii_bg.wasm").is_file(),
+        "build the editor into web/pkg first (README: Build the browser editor)"
+    );
+    let mut server = Command::new(env!("CARGO_BIN_EXE_apollinaire"))
+        .args(["mcp", "--live"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = server.stdin.take().unwrap();
+    let mut stdout = BufReader::new(server.stdout.take().unwrap());
+    let (text, failed) = tool(&mut stdin, &mut stdout, 1, "live_connect", json!({}));
+    assert!(!failed, "{text}");
+    let word_after = |name: &str| {
+        let words: Vec<&str> = text.split_whitespace().collect();
+        let at = words.iter().position(|w| *w == name).unwrap();
+        words[at + 1].trim_end_matches([',', '.']).to_owned()
+    };
+    let (bridge, token) = (word_after("port"), word_after("token"));
+
+    let port = serve(web);
+    let browser = Browser::start();
+    browser.post(
+        "/url",
+        &json!({"url": format!("http://127.0.0.1:{port}/index.html")}),
+    );
+    let started = Instant::now();
+    while browser
+        .script("return document.getElementById('art').textContent.length;")
+        .as_u64()
+        == Some(0)
+    {
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "the editor did not load"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    browser.post(
+        "/execute/sync",
+        &json!({"script": "document.getElementById('live-port').value = arguments[0];
+            document.getElementById('live-token').value = arguments[1];
+            document.getElementById('live-connect').click();", "args": [bridge, token]}),
+    );
+    let started = Instant::now();
+    while !browser.status().starts_with("Agent connected") {
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "not connected: {}",
+            browser.status()
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    let (text, failed) = tool(&mut stdin, &mut stdout, 2, "live_read", json!({}));
+    assert!(!failed, "{text}");
+    let before: Value = serde_json::from_str(&text).unwrap();
+    let (text, failed) = tool(
+        &mut stdin,
+        &mut stdout,
+        3,
+        "live_write",
+        json!({"revision": before["revision"], "text": "Hi", "x": 0, "y": 0}),
+    );
+    assert!(!failed, "{text}");
+    let (text, _) = tool(&mut stdin, &mut stdout, 4, "live_read", json!({}));
+    let after: Value = serde_json::from_str(&text).unwrap();
+    let old = before["text"].as_str().unwrap();
+    assert_eq!(after["text"].as_str().unwrap(), format!("Hi{}", &old[2..]));
+    // A write against the old revision is refused.
+    let (text, failed) = tool(
+        &mut stdin,
+        &mut stdout,
+        5,
+        "live_write",
+        json!({"revision": before["revision"], "text": "No"}),
+    );
+    assert!(failed, "{text}");
+    // One undo takes the frame back.
+    browser.script("document.getElementById('undo').click();");
+    let (text, _) = tool(&mut stdin, &mut stdout, 6, "live_read", json!({}));
+    let undone: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(undone["text"], before["text"]);
+    let _ = server.kill();
+    let _ = server.wait();
+}

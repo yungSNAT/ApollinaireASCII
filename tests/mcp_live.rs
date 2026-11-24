@@ -330,6 +330,10 @@ fn a_second_signed_in_editor_replaces_the_first() {
     let (port, token) = session.connect();
     let mut first = editor(port, &token);
     let mut second = editor(port, &token);
+    match first.read() {
+        Ok(Message::Close(Some(frame))) => assert_eq!(frame.reason.as_str(), "replaced"),
+        other => panic!("expected a close frame, got {other:?}"),
+    }
     assert!(closed(&mut first));
     let browser = thread::spawn(move || answer(&mut second, json!({"result": {"text": "second"}})));
     let (text, failed) = session.call("live_read", json!({}));
@@ -351,4 +355,84 @@ fn a_closed_editor_frees_the_bridge() {
     let (text2, failed2) = session.call("live_read", json!({}));
     assert!(failed2);
     assert!(text2.contains("No editor is connected"), "{text} / {text2}");
+}
+
+#[test]
+fn live_mode_keeps_every_other_tool_as_it_was() {
+    let list = |args: &[&str]| -> Vec<Value> {
+        let mut session = Session::start(args);
+        session.request("tools/list", json!({}))["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .clone()
+    };
+    let plain = list(&["mcp"]);
+    let live: Vec<Value> = list(&["mcp", "--live"])
+        .into_iter()
+        .filter(|tool| !tool["name"].as_str().unwrap().starts_with("live_"))
+        .collect();
+    assert_eq!(live, plain);
+    let mut session = Session::start(&["mcp", "--live"]);
+    let (text, failed) = session.call("live_connect", json!({"port": 80}));
+    assert!(failed);
+    assert_eq!(text, "live_connect takes no arguments");
+}
+
+#[test]
+fn a_connection_trickling_its_handshake_is_closed_at_the_deadline() {
+    let mut session = Session::start(&["mcp", "--live"]);
+    let (port, _) = session.connect();
+    let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    let start = Instant::now();
+    // One byte a second never ends the request, and keeps each read within its timeout.
+    let request = format!(
+        "GET / HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nX-Slow: {}",
+        "a".repeat(30)
+    );
+    let mut closed_after = None;
+    for byte in request.bytes() {
+        if stream.write_all(&[byte]).is_err() {
+            closed_after = Some(start.elapsed());
+            break;
+        }
+        thread::sleep(Duration::from_secs(1));
+    }
+    let closed_after = closed_after.expect("the bridge kept a trickling connection open");
+    assert!(closed_after < Duration::from_secs(8), "{closed_after:?}");
+}
+
+#[test]
+fn a_message_longer_than_a_token_is_refused_before_it_is_read() {
+    let mut session = Session::start(&["mcp", "--live"]);
+    let (port, token) = session.connect();
+    let mut socket = open(port, Some(EDITOR), None).unwrap();
+    let start = Instant::now();
+    let _ = socket.send(Message::text(format!("{token}{}", " ".repeat(200))));
+    assert!(closed(&mut socket));
+    assert!(start.elapsed() < Duration::from_secs(3));
+}
+
+#[test]
+fn an_unanswered_request_keeps_the_editor_and_its_late_answer_is_skipped() {
+    let mut session = Session::start(&["mcp", "--live"]);
+    let (port, token) = session.connect();
+    let mut socket = editor(port, &token);
+    let browser = thread::spawn(move || {
+        let first: Value = serde_json::from_str(socket.read().unwrap().to_text().unwrap()).unwrap();
+        let second: Value =
+            serde_json::from_str(socket.read().unwrap().to_text().unwrap()).unwrap();
+        // The late answer to the first request, then the answer to the second.
+        for (request, text) in [(&first, "late"), (&second, "current")] {
+            let reply = json!({"id": request["id"], "result": {"text": text}});
+            socket.send(Message::text(reply.to_string())).unwrap();
+        }
+        socket
+    });
+    let (text, failed) = session.call("live_read", json!({}));
+    assert!(failed);
+    assert!(text.contains("did not answer"), "{text}");
+    let (text, failed) = session.call("live_read", json!({}));
+    assert!(!failed, "{text}");
+    assert!(text.contains("current"), "{text}");
+    let _socket = browser.join().unwrap();
 }
