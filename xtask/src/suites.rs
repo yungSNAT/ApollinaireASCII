@@ -189,7 +189,8 @@ pub fn code_exports(bin: &str) -> Result<(), String> {
         run(&go, &env, "go", &["vet", "./..."])?;
         run(&go, &env, "go", &["test", "./..."])?;
     }
-    remove(&go.join("main.go"))
+    let main = go.join("main.go");
+    fs::remove_file(&main).map_err(fail(&main))
 }
 
 #[cfg(test)]

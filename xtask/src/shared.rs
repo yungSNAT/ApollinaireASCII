@@ -63,11 +63,15 @@ pub fn fail(path: &Path) -> impl Fn(io::Error) -> String + '_ {
 pub struct TempDir(pub PathBuf);
 
 impl TempDir {
-    /// Refuses a path that already exists, so a planted folder or link is never used.
+    /// Refuses a path that already exists, so a planted folder or link is never used. On Unix
+    /// only the owner can use it, as with `mktemp -d`.
     pub fn new(name: &str) -> Result<Self, String> {
-        // nosemgrep: rust.lang.security.temp-dir.temp-dir -- create_dir fails on an existing path, so a planted folder or link stops the run
+        // nosemgrep: rust.lang.security.temp-dir.temp-dir -- create fails on an existing path, so a planted folder or link stops the run
         let path = std::env::temp_dir().join(format!("{name}-{}", std::process::id()));
-        fs::create_dir(&path).map_err(fail(&path))?;
+        let mut builder = fs::DirBuilder::new();
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+        builder.create(&path).map_err(fail(&path))?;
         Ok(Self(path))
     }
 }
