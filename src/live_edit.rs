@@ -10,15 +10,15 @@ use serde_json::{Value, json};
 /// and falls back once to the bare token if a legacy bridge closes the socket before greeting.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SignIn {
-    token: String,
+    code: String,
     greeted: bool,
     fell_back: bool,
 }
 
 impl SignIn {
-    pub fn new(token: impl Into<String>) -> Self {
+    pub fn new(code: impl Into<String>) -> Self {
         Self {
-            token: token.into(),
+            code: code.into(),
             greeted: false,
             fell_back: false,
         }
@@ -27,7 +27,7 @@ impl SignIn {
     /// The initial JSON sign-in message advertising `expected_sha256` support.
     pub fn initial_message(&self) -> String {
         json!({
-            "token": self.token,
+            "token": self.code,
             "capabilities": ["expected_sha256"],
         })
         .to_string()
@@ -38,14 +38,14 @@ impl SignIn {
         self.greeted = true;
     }
 
-    /// On socket close: returns `Some(bare_token)` once if the bridge closed before greeting
+    /// On socket close: returns the bare token once if the bridge closed before greeting
     /// and this editor was not replaced; otherwise `None`.
     pub fn fallback_message(&mut self, replaced: bool) -> Option<&str> {
         if self.greeted || self.fell_back || replaced {
             return None;
         }
         self.fell_back = true;
-        Some(&self.token)
+        Some(&self.code)
     }
 }
 
