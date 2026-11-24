@@ -721,15 +721,14 @@ impl Server {
 
 /// A live tool's result, or `None` for another tool.
 fn live_call(bridge: &mut crate::live::Bridge, params: &Value) -> Option<Result<Value, Value>> {
-    let name = params["name"].as_str()?;
+    let name = params["name"]
+        .as_str()
+        .filter(|name| name.starts_with("live_"))?;
     let empty = Map::new();
     let given = match &params["arguments"] {
         Value::Null => &empty,
         Value::Object(given) => given,
-        _ if name.starts_with("live_") => {
-            return Some(Err(error(INVALID_PARAMS, "arguments must be an object")));
-        }
-        _ => return None,
+        _ => return Some(Err(error(INVALID_PARAMS, "arguments must be an object"))),
     };
     bridge.call(name, given).map(Ok)
 }

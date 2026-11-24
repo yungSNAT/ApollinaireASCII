@@ -375,9 +375,87 @@ fn live_mode_keeps_every_other_tool_as_it_was() {
         .collect();
     assert_eq!(live, plain);
     let mut session = Session::start(&["mcp", "--live"]);
-    let (text, failed) = session.call("live_connect", json!({"port": 80}));
+    for (name, arguments, error) in [
+        (
+            "live_connect",
+            json!({"port": 80}),
+            "live_connect takes no arguments",
+        ),
+        (
+            "live_read",
+            json!({"frame": 1}),
+            "live_read takes no arguments",
+        ),
+        (
+            "live_write",
+            json!({"revision": "0", "text": "a", "z": 1}),
+            "Unknown argument z",
+        ),
+        ("live_delete", json!({}), "Unknown tool: live_delete"),
+    ] {
+        let reply = session.request("tools/call", json!({"name": name, "arguments": arguments}));
+        let text = reply["result"]["content"][0]["text"]
+            .as_str()
+            .or(reply["error"]["message"].as_str());
+        assert_eq!(text, Some(error), "{reply}");
+    }
+    // Other tools still work in live mode, and a live tool may leave out its arguments.
+    let (text, failed) = session.call("text", json!({"text": "A"}));
+    assert!(!failed, "{text}");
+    let reply = session.request("tools/call", json!({"name": "live_read"}));
+    assert_eq!(reply["result"]["isError"], true, "{reply}");
+    let reply = session.request(
+        "tools/call",
+        json!({"name": "live_connect", "arguments": "x"}),
+    );
+    assert_eq!(reply["error"]["message"], "arguments must be an object");
+}
+
+#[test]
+fn connections_past_the_admission_limit_are_closed_at_once() {
+    let mut session = Session::start(&["mcp", "--live"]);
+    let (port, _) = session.connect();
+    let mut streams: Vec<TcpStream> = (0..40)
+        .map(|_| TcpStream::connect(("127.0.0.1", port)).unwrap())
+        .collect();
+    let last = streams.last_mut().unwrap();
+    last.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+    // Closed (a reset on Windows), not left waiting for its handshake.
+    match last.read(&mut [0; 16]) {
+        Ok(read) => assert_eq!(read, 0),
+        Err(e) => assert!(
+            !matches!(
+                e.kind(),
+                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+            ),
+            "{e}"
+        ),
+    }
+}
+
+#[test]
+fn the_bridge_skips_what_is_not_an_answer_and_notices_a_dropped_editor() {
+    let mut session = Session::start(&["mcp", "--live"]);
+    let (port, token) = session.connect();
+    let mut socket = editor(port, &token);
+    let browser = thread::spawn(move || {
+        let request: Value =
+            serde_json::from_str(socket.read().unwrap().to_text().unwrap()).unwrap();
+        socket.send(Message::binary(vec![1, 2, 3])).unwrap();
+        socket.send(Message::text("not JSON")).unwrap();
+        let reply = json!({"id": request["id"], "result": {"text": "after"}});
+        socket.send(Message::text(reply.to_string())).unwrap();
+        let _ = socket.read();
+        // Gone without a closing handshake.
+        drop(socket);
+    });
+    let (text, failed) = session.call("live_read", json!({}));
+    assert!(!failed, "{text}");
+    assert!(text.contains("after"), "{text}");
+    let (text, failed) = session.call("live_read", json!({}));
     assert!(failed);
-    assert_eq!(text, "live_connect takes no arguments");
+    assert!(text.starts_with("The editor disconnected"), "{text}");
+    browser.join().unwrap();
 }
 
 #[test]

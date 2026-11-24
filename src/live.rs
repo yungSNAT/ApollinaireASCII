@@ -248,24 +248,25 @@ fn exchange(socket: &mut Socket, request: &Value, id: u64) -> Result<Value, Fail
             }
             Ok(Message::Close(_)) => return Err(Failure::Lost("closed".into())),
             Ok(_) => {}
-            Err(tungstenite::Error::Io(e))
-                if matches!(
-                    e.kind(),
-                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
-                ) => {}
+            Err(tungstenite::Error::Io(e)) if timed_out(&e) => {}
             Err(e) => return Err(lost(e)),
         }
     }
 }
 
+fn timed_out(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+    )
+}
+
 fn accept(listener: &TcpListener, port: u16, token: &Arc<str>, slot: &Slot) {
     let admitting = Arc::new(AtomicUsize::new(0));
-    for stream in listener.incoming() {
-        let Ok(stream) = stream else {
-            // Out of file descriptors, say: wait rather than spin.
-            thread::sleep(Duration::from_millis(50));
-            continue;
-        };
+    // Out of file descriptors, say: wait rather than spin.
+    let wait = |_| thread::sleep(Duration::from_millis(50));
+    for stream in listener.incoming().filter_map(|s| s.map_err(wait).ok()) {
+        // Past the limit the connection is dropped, which closes it.
         if admitting.fetch_add(1, Ordering::SeqCst) >= ADMITTING {
             admitting.fetch_sub(1, Ordering::SeqCst);
             continue;
@@ -277,15 +278,13 @@ fn accept(listener: &TcpListener, port: u16, token: &Arc<str>, slot: &Slot) {
                 thread::sleep(REFUSAL_DELAY);
             }
             admitting.fetch_sub(1, Ordering::SeqCst);
-            if let Some(socket) = admitted {
-                let mut slot = slot.lock().unwrap_or_else(PoisonError::into_inner);
-                if let Some(mut old) = slot.replace(socket) {
-                    let _ = old.close(Some(CloseFrame {
-                        code: CloseCode::Normal,
-                        reason: "replaced".into(),
-                    }));
-                    let _ = old.flush();
-                }
+            let lock = || slot.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(mut old) = admitted.and_then(|socket| lock().replace(socket)) {
+                let _ = old.close(Some(CloseFrame {
+                    code: CloseCode::Normal,
+                    reason: "replaced".into(),
+                }));
+                let _ = old.flush();
             }
         });
     }
