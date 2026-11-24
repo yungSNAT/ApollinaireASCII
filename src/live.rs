@@ -11,11 +11,12 @@
 
 use serde_json::{Value, json};
 use std::{
+    collections::VecDeque,
     io,
     net::{Shutdown, TcpListener, TcpStream},
     sync::{
         Arc, Mutex, PoisonError,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicBool, Ordering},
         mpsc::{self, RecvTimeoutError},
     },
     thread,
@@ -33,9 +34,9 @@ const EDITOR: &str = "https://yungsnat.github.io";
 const EDITOR_PAGE: &str = "https://yungsnat.github.io/ApollinaireASCII/";
 /// From accepting a connection to receiving its token.
 const ADMISSION: Duration = Duration::from_secs(5);
-/// How long a failed admission holds its place, which limits how fast tokens can be tried.
+/// How long a thread waits after a failed admission, which slows token guessing.
 const REFUSAL_DELAY: Duration = Duration::from_millis(250);
-/// Connections being admitted at once; more are closed straight away.
+/// Connections being admitted at once; a newer one closes the oldest.
 const ADMITTING: usize = 32;
 /// The longest message read before the token is checked; the token is 64 characters.
 const TOKEN_LIMIT: usize = 128;
@@ -259,22 +260,33 @@ fn timed_out(error: &io::Error) -> bool {
 }
 
 fn accept(listener: &TcpListener, port: u16, token: &Arc<str>, slot: &Slot) {
-    let admitting = Arc::new(AtomicUsize::new(0));
+    // Connections being admitted, oldest first, each with a copy of its stream.
+    let admitting: Arc<Mutex<VecDeque<(u64, TcpStream)>>> = Arc::default();
     // Out of file descriptors, say: wait rather than spin.
     let wait = |_| thread::sleep(Duration::from_millis(50));
-    for stream in listener.incoming().filter_map(|s| s.map_err(wait).ok()) {
-        // Past the limit the connection is dropped, which closes it.
-        if admitting.fetch_add(1, Ordering::SeqCst) >= ADMITTING {
-            admitting.fetch_sub(1, Ordering::SeqCst);
-            continue;
+    for (id, stream) in (0..).zip(listener.incoming().filter_map(|s| s.map_err(wait).ok())) {
+        let Ok(copy) = stream.try_clone() else { continue };
+        {
+            let mut queue = admitting.lock().unwrap_or_else(PoisonError::into_inner);
+            // At the limit the oldest admission is closed, so connections that never sign in
+            // cannot keep a newer one, such as the editor's, out.
+            if queue.len() >= ADMITTING
+                && let Some((_, oldest)) = queue.pop_front()
+            {
+                let _ = oldest.shutdown(Shutdown::Both);
+            }
+            queue.push_back((id, copy));
         }
         let (admitting, token, slot) = (admitting.clone(), token.clone(), slot.clone());
         thread::spawn(move || {
             let admitted = admit(stream, port, &token);
+            admitting
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .retain(|(each, _)| *each != id);
             if admitted.is_none() {
                 thread::sleep(REFUSAL_DELAY);
             }
-            admitting.fetch_sub(1, Ordering::SeqCst);
             let lock = || slot.lock().unwrap_or_else(PoisonError::into_inner);
             if let Some(mut old) = admitted.and_then(|socket| lock().replace(socket)) {
                 let _ = old.close(Some(CloseFrame {
