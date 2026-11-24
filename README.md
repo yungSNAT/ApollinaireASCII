@@ -61,13 +61,13 @@ Download the archive for your platform from [Releases](https://github.com/yungSN
 From v0.3.0, each archive has a signed build provenance attestation. To confirm an archive was built by this repository's release workflow from its release tag, run:
 
 ```sh
-gh attestation verify apollinaire-v0.4.1-x86_64-unknown-linux-musl.tar.gz \
+gh attestation verify apollinaire-v0.4.2-x86_64-unknown-linux-musl.tar.gz \
   --repo yungSNAT/ApollinaireASCII \
   --signer-workflow yungSNAT/ApollinaireASCII/.github/workflows/release.yml \
-  --source-ref refs/tags/v0.4.1
+  --source-ref refs/tags/v0.4.2
 ```
 
-Releases after v0.4.1 also attach the attestation itself as `apollinaire-<tag>.sigstore.json`. Add `--bundle apollinaire-<tag>.sigstore.json` to the command above to check an archive against that file instead of fetching the attestation from GitHub.
+From v0.4.2, each release also attaches the attestation itself as `apollinaire-<tag>.sigstore.json`. Add `--bundle apollinaire-v0.4.2.sigstore.json` to the command above to check an archive against that file instead of fetching the attestation from GitHub.
 
 v0.3.0 was built before the account was renamed, so its attestation names EquityBot, a name this repository no longer holds. The `--source-digest` line pins the commit the v0.3.0 tag points to, so only an archive built from that commit passes:
 
@@ -113,8 +113,6 @@ apollinaire import release.nfo --output release.txt
 ```
 
 The checked toolchain is pinned in `rust-toolchain.toml`. Existing output files are never overwritten. Static artwork defaults to text; animations default to JSON so frames and timings are retained. Use `--format text --frame 0` to deliberately select one animated frame.
-
-The `.cast` and code exports, the `edit`, `table`, `tree`, `diagram`, `model`, `generate` and `mcp` commands, `image --shapes`, `transform ... rotate`, ANSI, binary art and REXPaint input, the bubble, digital and term fonts, 72 of the catalogue pieces, `.cow` files in `say`, box designs (`transform ... border --design` and `--design-file`), video files in `image` (with `--fps`, `--start` and `--end`) and projects with layers or keyframes (versions 2 and 3), `Canvas::gradient_fill`, `Canvas::curve` and the `palette` module are newer than v0.4.1: until the next release, install with `--git` as above to use them. v0.4.1 does not know the `.cast` format and writes JSON under a `.cast` name, it reads an `.ans` file as text, refusing CP437 bytes, and it refuses a project the browser editor saved with layers or keyframes.
 
 ## Use the library
 
