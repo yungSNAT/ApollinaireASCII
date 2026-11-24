@@ -9,9 +9,11 @@ Uses Python 3 stdlib only (zero Node.js, zero third-party packages).
 from __future__ import annotations
 
 import os
+import signal
 import stat
 import subprocess  # nosec B404
 import threading
+import time
 from pathlib import Path
 
 MAX_INPUT_BYTES = 16 * 1024 * 1024
@@ -94,17 +96,40 @@ def _lookup_entry_name(dir_fd: int, wanted: str) -> str:
     raise SafeIoError(f"Cannot safely open {wanted}: no such file or directory")
 
 
+def _open_root_posix(root_real: Path, dir_flags: int, walk_flags: int) -> int:
+    """Open `/` and walk every component of `root_real` with `O_NOFOLLOW` to pin workspace fd."""
+    root_parts = root_real.parts
+    if not root_parts or root_parts[0] != "/":
+        raise SafeIoError(f"Workspace root is not absolute: {root_real}")
+    cur_fd = os.open("/", dir_flags)
+    try:
+        for part in root_parts[1:]:
+            entry = _lookup_entry_name(cur_fd, part)
+            next_fd = os.open(entry, walk_flags, dir_fd=cur_fd)
+            os.close(cur_fd)
+            cur_fd = next_fd
+    except BaseException:
+        os.close(cur_fd)
+        raise
+    return cur_fd
+
+
 def _read_posix_contained(
     root_real: Path, parts: tuple[str, ...], max_bytes: int
 ) -> tuple[str, bytes]:
     dir_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_CLOEXEC", 0)
     walk_flags = dir_flags | getattr(os, "O_NOFOLLOW", 0)
-    file_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    file_flags = (
+        os.O_RDONLY
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NONBLOCK", 0)
+    )
 
     cur_fd = -1
     file_fd = -1
     try:
-        cur_fd = os.open(str(root_real), dir_flags)
+        cur_fd = _open_root_posix(root_real, dir_flags, walk_flags)
         for part in parts[:-1]:
             entry = _lookup_entry_name(cur_fd, part)
             next_fd = os.open(entry, walk_flags, dir_fd=cur_fd)
@@ -216,7 +241,12 @@ def _close_quietly(stream_obj) -> None:
         pass
 
 
-def _kill_quietly(proc: subprocess.Popen[bytes]) -> None:
+def _kill_process_tree(proc: subprocess.Popen[bytes]) -> None:
+    if os.name != "nt":
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
     try:
         proc.kill()
     except OSError:
@@ -240,7 +270,7 @@ def _drain_stream(
     dest: list[bytes],
     limit: int,
     name: str,
-    overflow: list[str],
+    state: dict[str, list[str]],
 ) -> None:
     if stream_obj is None:
         return
@@ -252,22 +282,38 @@ def _drain_stream(
                 break
             total += len(chunk)
             if total > limit:
-                overflow.append(name)
-                _kill_quietly(proc)
+                state["overflow"].append(name)
+                _kill_process_tree(proc)
                 break
             dest.append(chunk)
+    except OSError as exc:
+        state["errors"].append(f"{name}: {exc}")
+        _kill_process_tree(proc)
     finally:
         _close_quietly(stream_obj)
+
+
+def _join_within_deadline(
+    threads: list[threading.Thread], deadline: float, proc: subprocess.Popen[bytes]
+) -> None:
+    for thread in threads:
+        remaining = max(0.0, deadline - time.monotonic())
+        thread.join(timeout=remaining)
+    if any(thread.is_alive() for thread in threads):
+        _kill_process_tree(proc)
+        for thread in threads:
+            thread.join(timeout=0.5)
+        raise SafeIoError("apollinaire I/O did not finish before deadline")
 
 
 def run_bounded_process(
     cmd: list[str],
     input_bytes: bytes,
-    timeout_secs: int,
+    timeout_secs: float,
     max_stdout: int = MAX_INPUT_BYTES,
     max_stderr: int = MAX_STDERR_BYTES,
 ) -> tuple[int, bytes, bytes]:
-    """Run `cmd` with bounded stdin/stdout/stderr streams, killing on overflow or timeout."""
+    """Run `cmd` with bounded streams and one shared deadline across process and I/O threads."""
     try:
         # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- fixed apollinaire argument vector with shell=False and validated width; no shell runs
         proc = subprocess.Popen(  # nosec B603
@@ -277,11 +323,13 @@ def run_bounded_process(
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             shell=False,
+            start_new_session=(os.name != "nt"),
         )
     except OSError as exc:
         raise SafeIoError(f"Cannot run {cmd[0]}: {exc}") from exc
 
-    overflow: list[str] = []
+    deadline = time.monotonic() + timeout_secs
+    state: dict[str, list[str]] = {"overflow": [], "errors": []}
     out_chunks: list[bytes] = []
     err_chunks: list[bytes] = []
     threads = [
@@ -290,12 +338,12 @@ def run_bounded_process(
         ),
         threading.Thread(
             target=_drain_stream,
-            args=(proc, proc.stdout, out_chunks, max_stdout, "stdout", overflow),
+            args=(proc, proc.stdout, out_chunks, max_stdout, "stdout", state),
             daemon=True,
         ),
         threading.Thread(
             target=_drain_stream,
-            args=(proc, proc.stderr, err_chunks, max_stderr, "stderr", overflow),
+            args=(proc, proc.stderr, err_chunks, max_stderr, "stderr", state),
             daemon=True,
         ),
     ]
@@ -303,15 +351,18 @@ def run_bounded_process(
         thread.start()
 
     try:
-        returncode = proc.wait(timeout=timeout_secs)
+        returncode = proc.wait(timeout=max(0.0, deadline - time.monotonic()))
     except subprocess.TimeoutExpired as exc:
-        _kill_quietly(proc)
+        _kill_process_tree(proc)
         proc.wait()
-        raise SafeIoError(f"apollinaire timed out after {timeout_secs} seconds") from exc
-    finally:
         for thread in threads:
-            thread.join(timeout=2)
+            thread.join(timeout=0.5)
+        raise SafeIoError(f"apollinaire timed out after {timeout_secs} seconds") from exc
 
-    if overflow:
-        raise SafeIoError(f"apollinaire {overflow[0]} exceeded byte limit")
+    _join_within_deadline(threads, deadline, proc)
+    if state["overflow"]:
+        _kill_process_tree(proc)
+        raise SafeIoError(f"apollinaire {state['overflow'][0]} exceeded byte limit")
+    if state["errors"]:
+        raise SafeIoError(f"apollinaire I/O error: {state['errors'][0]}")
     return returncode, b"".join(out_chunks), b"".join(err_chunks)

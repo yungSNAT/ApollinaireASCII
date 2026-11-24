@@ -6,6 +6,49 @@
 use crate::{Canvas, Frame, Result, sha256};
 use serde_json::{Value, json};
 
+/// Sign-in handshake state for the browser editor: sends the JSON capability envelope first,
+/// and falls back once to the bare token if a legacy bridge closes the socket before greeting.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SignIn {
+    token: String,
+    greeted: bool,
+    fell_back: bool,
+}
+
+impl SignIn {
+    pub fn new(token: impl Into<String>) -> Self {
+        Self {
+            token: token.into(),
+            greeted: false,
+            fell_back: false,
+        }
+    }
+
+    /// The initial JSON sign-in message advertising `expected_sha256` support.
+    pub fn initial_message(&self) -> String {
+        json!({
+            "token": self.token,
+            "capabilities": ["expected_sha256"],
+        })
+        .to_string()
+    }
+
+    /// Record that the bridge greeted this connection; disables any legacy fallback.
+    pub fn mark_greeted(&mut self) {
+        self.greeted = true;
+    }
+
+    /// On socket close: returns `Some(bare_token)` once if the bridge closed before greeting
+    /// and this editor was not replaced; otherwise `None`.
+    pub fn fallback_message(&mut self, replaced: bool) -> Option<&str> {
+        if self.greeted || self.fell_back || replaced {
+            return None;
+        }
+        self.fell_back = true;
+        Some(&self.token)
+    }
+}
+
 /// The frame on screen: the active layer's selected frame.
 #[derive(Clone, Copy)]
 pub struct View<'a> {
@@ -289,5 +332,23 @@ mod tests {
         assert!(reply["error"].is_string(), "{reply}");
         let (reply, _) = answer(&view(&art), &json!({"id": 2, "op": "delete"}));
         assert_eq!(reply, json!({"id": 2, "error": "Unknown request"}));
+    }
+
+    #[test]
+    fn sign_in_falls_back_once_to_bare_token_before_greeting() {
+        let token = "a".repeat(64);
+        let mut sign_in = SignIn::new(token.clone());
+        let initial: Value = serde_json::from_str(&sign_in.initial_message()).unwrap();
+        assert_eq!(initial["token"], token);
+        assert_eq!(initial["capabilities"], json!(["expected_sha256"]));
+        // Replaced connections never fall back.
+        assert_eq!(sign_in.fallback_message(true), None);
+        // Pre-greeting close falls back once, never a second time.
+        assert_eq!(sign_in.fallback_message(false), Some(token.as_str()));
+        assert_eq!(sign_in.fallback_message(false), None);
+        // Once greeted, closing never triggers fallback.
+        let mut greeted = SignIn::new(token);
+        greeted.mark_greeted();
+        assert_eq!(greeted.fallback_message(false), None);
     }
 }

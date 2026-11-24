@@ -7,7 +7,8 @@
 
 mod live;
 
-use live::{Session, answer, capable_editor, closed, editor};
+use apollinaire_ascii::live_edit::SignIn;
+use live::{EDITOR, Session, answer, capable_editor, closed, editor, open};
 use serde_json::{Value, json};
 use std::thread;
 use tungstenite::Message;
@@ -339,4 +340,55 @@ fn legacy_editor_without_sha256_capability_refuses_guarded_writes_before_forward
     assert!(failed, "{text}");
     assert!(text.contains("expected_sha256"), "{text}");
     drop(legacy_again);
+}
+
+#[test]
+fn updated_browser_sign_in_falls_back_once_to_bare_token_for_legacy_bridge() {
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let token = "c".repeat(64);
+    let expected = token.clone();
+    // Simulate a pre-PR legacy bridge that only accepts the bare 64-char token.
+    let legacy_bridge = thread::spawn(move || {
+        let mut seen = Vec::new();
+        for _ in 0..2 {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = tungstenite::accept(stream).unwrap();
+            let given = ws.read().unwrap().into_text().unwrap().to_string();
+            seen.push(given.clone());
+            if given == expected {
+                ws.send(Message::text(r#"{"hello":"apollinaire"}"#))
+                    .unwrap();
+                let _ = ws.close(None);
+                let _ = ws.flush();
+            } else {
+                let _ = ws.close(None);
+                let _ = ws.flush();
+            }
+        }
+        seen
+    });
+
+    let mut sign_in = SignIn::new(token.clone());
+    // First attempt sends the JSON capability envelope; legacy bridge closes before hello.
+    let mut first = open(port, Some(EDITOR), None).unwrap();
+    first
+        .send(Message::text(sign_in.initial_message()))
+        .unwrap();
+    assert!(closed(&mut first));
+
+    // Bounded single fallback retries with the bare token and succeeds.
+    let bare = sign_in.fallback_message(false).unwrap().to_owned();
+    assert_eq!(bare, token);
+    let mut second = open(port, Some(EDITOR), None).unwrap();
+    second.send(Message::text(bare)).unwrap();
+    let hello: Value = serde_json::from_str(second.read().unwrap().to_text().unwrap()).unwrap();
+    assert_eq!(hello["hello"], "apollinaire");
+    sign_in.mark_greeted();
+    assert_eq!(sign_in.fallback_message(false), None);
+
+    let seen = legacy_bridge.join().unwrap();
+    assert_eq!(seen.len(), 2);
+    assert!(seen[0].starts_with('{'));
+    assert_eq!(seen[1], token);
 }

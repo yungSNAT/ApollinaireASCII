@@ -395,6 +395,22 @@ class HookBehaviourTests(unittest.TestCase):
                 self.assertIn("bad\\x1bname.md", ctx)
                 self.assertNotIn("\x1b", ctx)
 
+                # FIFO at target path must fail closed immediately without blocking.
+                fifo_path = workspace / "pipe.md"
+                os.mkfifo(fifo_path)
+                code, _, stderr = run_hook(
+                    [],
+                    json.dumps(
+                        {
+                            "tool_name": "Write",
+                            "cwd": str(workspace),
+                            "tool_input": {"file_path": str(fifo_path)},
+                        }
+                    ),
+                )
+                self.assertEqual(code, 2)
+                self.assertIn("Path is not a regular file", stderr)
+
     def test_bounded_process_and_file_read_reject_overflow(self) -> None:
         with self.assertRaises(_safe_io.SafeIoError) as cm:
             _safe_io.run_bounded_process(
@@ -415,6 +431,22 @@ class HookBehaviourTests(unittest.TestCase):
                 max_stderr=1024,
             )
         self.assertIn("stderr exceeded byte limit", str(cm.exception))
+
+        # Child that spawns a descendant holding stdout open must fail closed at deadline.
+        holder = (
+            "import subprocess, sys; "
+            "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(3)']); "
+            "sys.stdout.buffer.write(b'partial'); sys.stdout.buffer.flush()"
+        )
+        with self.assertRaises(_safe_io.SafeIoError) as cm:
+            _safe_io.run_bounded_process(
+                [sys.executable, "-c", holder],
+                b"",
+                timeout_secs=0.6,
+                max_stdout=1024,
+                max_stderr=1024,
+            )
+        self.assertIn("did not finish before deadline", str(cm.exception))
 
         with tempfile.TemporaryDirectory() as tmp:
             big = Path(tmp) / "big.md"
