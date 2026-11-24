@@ -56,12 +56,19 @@ fn connect() -> Result<()> {
     socket.set_onmessage(Some(message.as_ref().unchecked_ref()));
     // Each connection's handlers live until the page closes; there are only as many as clicks.
     message.forget();
-    let close = Closure::<dyn FnMut(CloseEvent)>::new(|_: CloseEvent| {
+    let close = Closure::<dyn FnMut(CloseEvent)>::new(|event: CloseEvent| {
         SOCKET.with(|cell| cell.borrow_mut().take());
-        status(
-            "The agent's connection closed. Check the port and token, or call live_connect again.",
-            true,
-        );
+        if event.reason() == "replaced" {
+            status(
+                "Another editor connected to the agent in place of this one.",
+                false,
+            );
+        } else {
+            status(
+                "The agent's connection closed. Check the port and token, or call live_connect again.",
+                true,
+            );
+        }
     });
     socket.set_onclose(Some(close.as_ref().unchecked_ref()));
     close.forget();
@@ -87,6 +94,8 @@ fn reply(text: &str) -> Option<String> {
 }
 
 fn handle(app: &mut App, request: &serde_json::Value) -> Result<serde_json::Value> {
+    // A playing animation would move the frame between a read and the write based on it.
+    app.pause();
     let (reply, written, duration_ms) = {
         let project = app.project();
         let shown = &project.frames()[app.selected];
@@ -100,9 +109,8 @@ fn handle(app: &mut App, request: &serde_json::Value) -> Result<serde_json::Valu
         (reply, written, shown.duration_ms)
     };
     if let Some(frame) = written {
-        if app.dirty {
-            return Err("The editor has unapplied edits: apply or discard them first.".into());
-        }
+        // Refused, as the editor's own controls are, during unapplied edits, a load or a recording.
+        app.clean()?;
         app.update_frame(frame, duration_ms)?;
         status("The agent changed this frame. Undo reverts it.", false);
     }

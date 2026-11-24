@@ -16,6 +16,7 @@ use std::{
     sync::{
         Arc, Mutex, PoisonError,
         atomic::{AtomicBool, AtomicUsize, Ordering},
+        mpsc::{self, RecvTimeoutError},
     },
     thread,
     time::{Duration, Instant},
@@ -24,7 +25,7 @@ use tungstenite::{
     Message, WebSocket,
     handshake::server::{ErrorResponse, Request, Response},
     http::StatusCode,
-    protocol::WebSocketConfig,
+    protocol::{CloseFrame, WebSocketConfig, frame::coding::CloseCode},
 };
 
 /// The published editor; local builds are served from 127.0.0.1 or localhost on any port.
@@ -36,6 +37,8 @@ const ADMISSION: Duration = Duration::from_secs(5);
 const REFUSAL_DELAY: Duration = Duration::from_millis(250);
 /// Connections being admitted at once; more are closed straight away.
 const ADMITTING: usize = 32;
+/// The longest message read before the token is checked; the token is 64 characters.
+const TOKEN_LIMIT: usize = 128;
 /// How long the editor has to answer a request.
 const ANSWER: Duration = Duration::from_secs(10);
 const NOT_OPEN: &str = "The bridge is not open: call live_connect first, then enter its port and token in the editor's Connect an agent box.";
@@ -87,14 +90,14 @@ pub fn tools() -> Vec<Value> {
         ),
         tool(
             "live_read",
-            "The frame open in the connected editor, as JSON: revision, layer, frame, frames, width, height and text.",
+            "The active layer's frame on screen in the connected editor, as JSON: revision, layer, frame, frames, width, height and text. Playback pauses.",
             json!({}),
             &[],
             true,
         ),
         tool(
             "live_write",
-            "Replace the frame open in the editor, or the block at x and y, with printable ASCII text, as one undo step. Refused unless revision is the one live_read gave for the frame as it is now.",
+            "Replace the active layer's frame on screen in the editor, or the block at x and y, with printable ASCII text, as one undo step. Refused unless revision is the one live_read gave for the frame as it is now. Replacing the whole frame can change its size only in a project of one frame and one layer.",
             json!({
                 "revision": {"type": "string", "description": "From live_read."},
                 "text": {"type": "string", "description": "Rows separated by line feeds; shorter rows are padded with spaces."},
@@ -120,7 +123,8 @@ impl Bridge {
         arguments: &serde_json::Map<String, Value>,
     ) -> Option<Value> {
         let outcome = match name {
-            "live_connect" => self.connect(),
+            "live_connect" if arguments.is_empty() => self.connect(),
+            "live_connect" => Err("live_connect takes no arguments".into()),
             "live_read" if arguments.is_empty() => self.ask(json!({"op": "read"})),
             "live_read" => Err("live_read takes no arguments".into()),
             "live_write" => write_request(arguments).and_then(|request| self.ask(request)),
@@ -218,7 +222,7 @@ fn exchange(socket: &mut Socket, request: &Value, id: u64) -> Result<Value, Fail
         let left = deadline.saturating_duration_since(Instant::now());
         if left.is_zero() {
             return Err(Failure::Answer(format!(
-                "The editor did not answer within {} seconds",
+                "The editor did not answer within {} seconds; a write may still apply, so read again before trying it again",
                 ANSWER.as_secs()
             )));
         }
@@ -257,7 +261,11 @@ fn exchange(socket: &mut Socket, request: &Value, id: u64) -> Result<Value, Fail
 fn accept(listener: &TcpListener, port: u16, token: &Arc<str>, slot: &Slot) {
     let admitting = Arc::new(AtomicUsize::new(0));
     for stream in listener.incoming() {
-        let Ok(stream) = stream else { continue };
+        let Ok(stream) = stream else {
+            // Out of file descriptors, say: wait rather than spin.
+            thread::sleep(Duration::from_millis(50));
+            continue;
+        };
         if admitting.fetch_add(1, Ordering::SeqCst) >= ADMITTING {
             admitting.fetch_sub(1, Ordering::SeqCst);
             continue;
@@ -272,7 +280,10 @@ fn accept(listener: &TcpListener, port: u16, token: &Arc<str>, slot: &Slot) {
             if let Some(socket) = admitted {
                 let mut slot = slot.lock().unwrap_or_else(PoisonError::into_inner);
                 if let Some(mut old) = slot.replace(socket) {
-                    let _ = old.close(None);
+                    let _ = old.close(Some(CloseFrame {
+                        code: CloseCode::Normal,
+                        reason: "replaced".into(),
+                    }));
                     let _ = old.flush();
                 }
             }
@@ -283,22 +294,25 @@ fn accept(listener: &TcpListener, port: u16, token: &Arc<str>, slot: &Slot) {
 /// The handshake and the token, within the admission time, or `None`.
 fn admit(stream: TcpStream, port: u16, token: &str) -> Option<Socket> {
     let start = Instant::now();
-    // Closes a connection still not admitted at the deadline, whatever it is waiting on.
+    // Closes a connection still not admitted at the deadline, whatever it is waiting on. It
+    // ends, with its copy of the stream, as soon as this function returns and drops `_stop`.
     let done = Arc::new(AtomicBool::new(false));
+    let (_stop, stopped) = mpsc::channel::<()>();
     let watch = (stream.try_clone().ok()?, done.clone());
     thread::spawn(move || {
-        thread::sleep(ADMISSION);
         // Whichever of the watch and the admission sets the flag first decides.
-        if !watch.1.swap(true, Ordering::SeqCst) {
+        if stopped.recv_timeout(ADMISSION) == Err(RecvTimeoutError::Timeout)
+            && !watch.1.swap(true, Ordering::SeqCst)
+        {
             let _ = watch.0.shutdown(Shutdown::Both);
         }
     });
     stream.set_read_timeout(Some(ADMISSION)).ok()?;
     stream.set_write_timeout(Some(ADMISSION)).ok()?;
-    let limit = crate::mcp::MAX_MESSAGE_BYTES;
+    // Nothing longer than a token is read before the token is checked.
     let config = WebSocketConfig::default()
-        .max_message_size(Some(limit))
-        .max_frame_size(Some(limit));
+        .max_message_size(Some(TOKEN_LIMIT))
+        .max_frame_size(Some(TOKEN_LIMIT));
     // tungstenite's callback type fixes the error as an HTTP response.
     #[allow(clippy::result_large_err)]
     let check = |request: &Request, response: Response| {
@@ -318,6 +332,11 @@ fn admit(stream: TcpStream, port: u16, token: &str) -> Option<Socket> {
         let _ = socket.flush();
         return None;
     }
+    let limit = crate::mcp::MAX_MESSAGE_BYTES;
+    socket.set_config(|config| {
+        config.max_message_size = Some(limit);
+        config.max_frame_size = Some(limit);
+    });
     let hello = json!({"hello": "apollinaire", "version": env!("CARGO_PKG_VERSION")});
     socket.send(Message::text(hello.to_string())).ok()?;
     Some(socket)
