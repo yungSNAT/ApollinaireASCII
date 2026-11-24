@@ -36,6 +36,12 @@ const EDITOR_PAGE: &str = "https://yungsnat.github.io/ApollinaireASCII/";
 const ADMISSION: Duration = Duration::from_secs(5);
 /// Connections being admitted at once; a newer one closes one of them at random.
 const ADMITTING: usize = 32;
+/// What a signed-in editor is sent first.
+const HELLO: &str = concat!(
+    r#"{"hello":"apollinaire","version":""#,
+    env!("CARGO_PKG_VERSION"),
+    r#""}"#
+);
 /// A connection being admitted: its number, a copy of its stream and its admission's flag.
 type Pending = (u64, TcpStream, Arc<AtomicBool>);
 /// The longest message read before the token is checked; the token is 64 characters.
@@ -291,8 +297,14 @@ fn accept(listener: &TcpListener, port: u16, token: &Arc<str>, slot: &Slot) {
             let mut pending = queue.lock().unwrap_or_else(PoisonError::into_inner);
             pending.retain(|(each, ..)| *each != id);
             drop(pending);
-            let lock = || slot.lock().unwrap_or_else(PoisonError::into_inner);
-            if let Some(mut old) = admitted.and_then(|socket| lock().replace(socket)) {
+            // The editor is greeted whilst the slot is held, so no request can reach it first and
+            // a request sent after the greeting finds it in the slot.
+            let take = |mut socket: Socket| {
+                let mut slot = slot.lock().unwrap_or_else(PoisonError::into_inner);
+                socket.send(Message::text(HELLO.to_string())).ok()?;
+                slot.replace(socket)
+            };
+            if let Some(mut old) = admitted.and_then(take) {
                 let _ = old.close(Some(CloseFrame {
                     code: CloseCode::Normal,
                     reason: "replaced".into(),
@@ -352,8 +364,6 @@ fn admit(stream: TcpStream, port: u16, token: &str, done: &Arc<AtomicBool>) -> O
         config.max_message_size = Some(limit);
         config.max_frame_size = Some(limit);
     });
-    let hello = json!({"hello": "apollinaire", "version": env!("CARGO_PKG_VERSION")});
-    socket.send(Message::text(hello.to_string())).ok()?;
     Some(socket)
 }
 

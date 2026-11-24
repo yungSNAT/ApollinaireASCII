@@ -7,18 +7,9 @@
 
 mod live;
 
-use live::{EDITOR, Session, answer, closed, editor, open};
+use live::{Session, answer, closed, editor};
 use serde_json::{Value, json};
-use std::{
-    io::{Read, Write},
-    net::TcpStream,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    thread,
-    time::{Duration, Instant},
-};
+use std::thread;
 use tungstenite::Message;
 
 const LIVE: [&str; 3] = ["live_connect", "live_read", "live_write"];

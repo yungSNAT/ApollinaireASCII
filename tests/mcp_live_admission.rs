@@ -7,7 +7,7 @@
 mod live;
 
 use live::{EDITOR, Session, answer, closed, editor, open};
-use serde_json::{Value, json};
+use serde_json::json;
 use std::{
     io::{Read, Write},
     net::TcpStream,
