@@ -97,4 +97,14 @@ mod tests {
         drop(fresh);
         assert!(!planted.exists());
     }
+
+    /// As `mktemp -d`: only the owner can use the folder, whatever the umask.
+    #[cfg(unix)]
+    #[test]
+    fn the_folder_is_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TempDir::new("apollinaire-shared-mode").unwrap();
+        let mode = fs::metadata(&dir.0).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o700, "{mode:o}");
+    }
 }
