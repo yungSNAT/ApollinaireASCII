@@ -21,7 +21,7 @@ SCRIPT = SCRIPTS_DIR / "render_mermaid.py"
 BIN = os.environ.get("APOLLINAIRE", "apollinaire")
 
 sys.path.insert(0, str(SCRIPTS_DIR))
-import _safe_io  # noqa: E402
+import _safe_io
 
 
 def run_hook(

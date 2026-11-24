@@ -86,6 +86,14 @@ def _read_fd_bounded(fd: int, max_bytes: int, label: str) -> bytes:
     return b"".join(chunks)
 
 
+def _lookup_entry_name(dir_fd: int, wanted: str) -> str:
+    """Resolve `wanted` against actual entries in `dir_fd` so no raw path reaches `os.open`."""
+    for entry in os.listdir(dir_fd):
+        if entry == wanted:
+            return entry
+    raise SafeIoError(f"Cannot safely open {wanted}: no such file or directory")
+
+
 def _read_posix_contained(
     root_real: Path, parts: tuple[str, ...], max_bytes: int
 ) -> tuple[str, bytes]:
@@ -98,16 +106,18 @@ def _read_posix_contained(
     try:
         cur_fd = os.open(str(root_real), dir_flags)
         for part in parts[:-1]:
-            next_fd = os.open(part, walk_flags, dir_fd=cur_fd)
+            entry = _lookup_entry_name(cur_fd, part)
+            next_fd = os.open(entry, walk_flags, dir_fd=cur_fd)
             os.close(cur_fd)
             cur_fd = next_fd
-        file_fd = os.open(parts[-1], file_flags, dir_fd=cur_fd)
+        leaf_entry = _lookup_entry_name(cur_fd, parts[-1])
+        file_fd = os.open(leaf_entry, file_flags, dir_fd=cur_fd)
         st = os.fstat(file_fd)
         if not stat.S_ISREG(st.st_mode):
-            raise SafeIoError(f"Path is not a regular file: {parts[-1]}")
+            raise SafeIoError(f"Path is not a regular file: {leaf_entry}")
         if st.st_size > max_bytes:
-            raise SafeIoError(f"File exceeds the {max_bytes} byte limit: {parts[-1]}")
-        return parts[-1], _read_fd_bounded(file_fd, max_bytes, parts[-1])
+            raise SafeIoError(f"File exceeds the {max_bytes} byte limit: {leaf_entry}")
+        return leaf_entry, _read_fd_bounded(file_fd, max_bytes, leaf_entry)
     except SafeIoError:
         raise
     except OSError as exc:
@@ -197,6 +207,59 @@ def read_contained_utf8(
         raise SafeIoError(f"File is not valid UTF-8 ({leaf_name}): {exc}") from exc
 
 
+def _close_quietly(stream_obj) -> None:
+    if stream_obj is None:
+        return
+    try:
+        stream_obj.close()
+    except OSError:
+        pass
+
+
+def _kill_quietly(proc: subprocess.Popen[bytes]) -> None:
+    try:
+        proc.kill()
+    except OSError:
+        pass
+
+
+def _write_stdin_stream(stdin_stream, input_bytes: bytes) -> None:
+    if stdin_stream is None:
+        return
+    try:
+        stdin_stream.write(input_bytes)
+    except OSError:
+        pass
+    finally:
+        _close_quietly(stdin_stream)
+
+
+def _drain_stream(
+    proc: subprocess.Popen[bytes],
+    stream_obj,
+    dest: list[bytes],
+    limit: int,
+    name: str,
+    overflow: list[str],
+) -> None:
+    if stream_obj is None:
+        return
+    total = 0
+    try:
+        while True:
+            chunk = stream_obj.read(_CHUNK_BYTES)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > limit:
+                overflow.append(name)
+                _kill_quietly(proc)
+                break
+            dest.append(chunk)
+    finally:
+        _close_quietly(stream_obj)
+
+
 def run_bounded_process(
     cmd: list[str],
     input_bytes: bytes,
@@ -221,68 +284,33 @@ def run_bounded_process(
     overflow: list[str] = []
     out_chunks: list[bytes] = []
     err_chunks: list[bytes] = []
-
-    def _write_stdin() -> None:
-        if proc.stdin is None:
-            return
-        try:
-            proc.stdin.write(input_bytes)
-        except OSError:
-            pass
-        finally:
-            try:
-                proc.stdin.close()
-            except OSError:
-                pass
-
-    def _drain(stream_obj, dest: list[bytes], limit: int, name: str) -> None:
-        if stream_obj is None:
-            return
-        total = 0
-        try:
-            while True:
-                chunk = stream_obj.read(_CHUNK_BYTES)
-                if not chunk:
-                    break
-                total += len(chunk)
-                if total > limit:
-                    overflow.append(name)
-                    try:
-                        proc.kill()
-                    except OSError:
-                        pass
-                    break
-                dest.append(chunk)
-        finally:
-            try:
-                stream_obj.close()
-            except OSError:
-                pass
-
-    t_in = threading.Thread(target=_write_stdin, daemon=True)
-    t_out = threading.Thread(
-        target=_drain, args=(proc.stdout, out_chunks, max_stdout, "stdout"), daemon=True
-    )
-    t_err = threading.Thread(
-        target=_drain, args=(proc.stderr, err_chunks, max_stderr, "stderr"), daemon=True
-    )
-    t_in.start()
-    t_out.start()
-    t_err.start()
+    threads = [
+        threading.Thread(
+            target=_write_stdin_stream, args=(proc.stdin, input_bytes), daemon=True
+        ),
+        threading.Thread(
+            target=_drain_stream,
+            args=(proc, proc.stdout, out_chunks, max_stdout, "stdout", overflow),
+            daemon=True,
+        ),
+        threading.Thread(
+            target=_drain_stream,
+            args=(proc, proc.stderr, err_chunks, max_stderr, "stderr", overflow),
+            daemon=True,
+        ),
+    ]
+    for thread in threads:
+        thread.start()
 
     try:
         returncode = proc.wait(timeout=timeout_secs)
     except subprocess.TimeoutExpired as exc:
-        try:
-            proc.kill()
-        except OSError:
-            pass
+        _kill_quietly(proc)
         proc.wait()
         raise SafeIoError(f"apollinaire timed out after {timeout_secs} seconds") from exc
     finally:
-        t_in.join(timeout=2)
-        t_out.join(timeout=2)
-        t_err.join(timeout=2)
+        for thread in threads:
+            thread.join(timeout=2)
 
     if overflow:
         raise SafeIoError(f"apollinaire {overflow[0]} exceeded byte limit")
