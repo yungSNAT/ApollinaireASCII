@@ -613,6 +613,7 @@ impl App {
             self.unlocked()?;
             self.layers
                 .replace_frame(self.active, self.selected, frame)?;
+            self.project_generation = self.project_generation.wrapping_add(1);
             self.modified = true;
             self.recovery.changed();
             self.display(true)?;

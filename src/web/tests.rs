@@ -3428,3 +3428,57 @@ fn live_bridge_targets_layers_frames_batches_dry_runs_and_generations() {
         live(json!({"id": 13, "op": "read", "layer": 0, "frame": 0})).unwrap()["result"].clone();
     assert!(after_redo_00["text"].as_str().unwrap().starts_with("AA"));
 }
+
+#[wasm_bindgen_test]
+fn typing_continuation_advances_project_generation_and_invalidates_reads() {
+    use serde_json::json;
+
+    let live = |request: serde_json::Value| -> super::Result<serde_json::Value> {
+        super::state(|app| super::live::handle(app, &request))
+    };
+
+    blank(4, 1);
+    click("add-frame");
+    seek_frame(0);
+    tool("type");
+    cursor_to((0, 0));
+    keys(&["a"]);
+    assert_eq!(art(), "a   ");
+    let gen_after_first = super::state(|app| Ok(app.project_generation)).unwrap();
+    let read_f0 = live(json!({"id": 1, "op": "read", "frame": 0})).unwrap()["result"].clone();
+    let read_f1 = live(json!({"id": 2, "op": "read", "frame": 1})).unwrap()["result"].clone();
+
+    // Continuation key (`b`) mutates in place; project_generation must still advance.
+    keys(&["b"]);
+    assert_eq!(art(), "ab  ");
+    let gen_after_second = super::state(|app| Ok(app.project_generation)).unwrap();
+    assert_ne!(gen_after_second, gen_after_first);
+    let stale_f1 = live(json!({
+        "id": 3, "op": "write",
+        "frame": 1, "revision": read_f1["revision"], "text": "zzzz"
+    }))
+    .unwrap();
+    assert!(stale_f1["error"].is_string(), "{stale_f1}");
+
+    // Backspace restores identical bytes, yet pre-edit revision must stay refused.
+    keys(&["Backspace"]);
+    assert_eq!(art(), "a   ");
+    let gen_after_backspace = super::state(|app| Ok(app.project_generation)).unwrap();
+    assert_ne!(gen_after_backspace, gen_after_second);
+    let stale_f0 = live(json!({
+        "id": 4, "op": "write",
+        "frame": 0, "revision": read_f0["revision"],
+        "expected_sha256": read_f0["sha256"],
+        "text": "xxxx"
+    }))
+    .unwrap();
+    assert!(stale_f0["error"].is_string(), "{stale_f0}");
+
+    // Undo still reverts the typing run in one step and advances generation.
+    click("undo");
+    assert_eq!(art(), "    ");
+    assert_ne!(
+        super::state(|app| Ok(app.project_generation)).unwrap(),
+        gen_after_backspace
+    );
+}

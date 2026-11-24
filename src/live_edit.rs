@@ -401,7 +401,7 @@ fn preflight_work(state: &State, parsed: &[ParsedWrite<'_>], dry_run: bool) -> R
         * layers[0].art.width()
         * layers[0].art.height();
     let mut work = if dry_run {
-        0usize
+        project_cells
     } else {
         2usize.saturating_mul(project_cells)
     };
@@ -553,9 +553,7 @@ fn apply_writes(
     }
 
     let updated = if dry_run {
-        if delta_json > 0
-            && state.project.json_bound() as isize + delta_json > MAX_INPUT_BYTES as isize
-        {
+        if state.project.json_bound() as isize + delta_json > MAX_INPUT_BYTES as isize {
             let mut scratch = state.project.clone();
             for (&(layer, frame), preview) in &previews {
                 scratch.swap_frame(layer, frame, preview.frame.clone())?;
@@ -1291,10 +1289,46 @@ mod tests {
                 json!({"id": 1, "op": "batch", "writes": [1]}),
                 "Write 1: must be an object",
             ),
+            (
+                json!({"id": 1, "op": "batch", "writes": [{"revision": rt, "text": "ab", "dry_run": true}]}),
+                "Write 1: Unknown argument dry_run",
+            ),
+            (
+                json!({"id": 1, "op": "batch", "writes": [{"revision": rt, "text": "ab", "writes": []}]}),
+                "Write 1: Unknown argument writes",
+            ),
         ] {
             let (reply, _) = answer(&st, &req);
             assert_eq!(reply["error"], expected, "{req}");
         }
+        // Mixed L-shaped resize and shrink changed-cell counts.
+        let rect = make_layered(vec![("L", true, false, vec!["abc\ndef"])]);
+        let sr = state(&rect, 0, 0, 1);
+        let rr = revision(&sr, 0, 0);
+        let (l_resize, _) = answer(
+            &sr,
+            &json!({"id": 1, "op": "write", "revision": rr, "text": "ax\nyz\n12", "dry_run": true}),
+        );
+        assert_eq!(l_resize["result"]["changed"], 7);
+        let (shrink, _) = answer(
+            &sr,
+            &json!({"id": 2, "op": "write", "revision": rr, "text": "ab", "dry_run": true}),
+        );
+        assert_eq!(shrink["result"]["changed"], 4);
+
+        // Length-prefixed layer.name keeps colons and digits collision-free.
+        let colon_a = make_layered(vec![
+            ("L:0:1", true, false, vec!["a"]),
+            ("1:b", true, false, vec!["b"]),
+        ]);
+        let colon_b = make_layered(vec![
+            ("L:0", true, false, vec!["a"]),
+            ("1:1:b", true, false, vec!["b"]),
+        ]);
+        assert_ne!(
+            revision(&state(&colon_a, 0, 0, 1), 0, 0),
+            revision(&state(&colon_b, 0, 0, 1), 0, 0)
+        );
         // Multi-layer/multi-frame out-of-range wording too.
         let multi = make_layered(vec![
             ("A", true, false, vec!["ab", "cd"]),
