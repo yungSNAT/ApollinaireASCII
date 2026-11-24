@@ -1,0 +1,214 @@
+// Copyright 2026 Ryan Duguid
+// SPDX-License-Identifier: MIT
+
+//! The editor's side of `apollinaire mcp --live`: its answers to the bridge's `read` and `write`
+//! requests about the frame on screen. Kept apart from the browser code so it is tested natively.
+use crate::{Canvas, Frame, Result};
+use serde_json::{Value, json};
+
+/// The frame on screen: the active layer's selected frame.
+#[derive(Clone, Copy)]
+pub struct View<'a> {
+    pub layer: usize,
+    pub frame: usize,
+    pub frames: usize,
+    pub art: &'a Frame,
+}
+
+/// Names the frame's position and content, so a write based on an older read is refused.
+pub fn revision(view: &View) -> String {
+    let (width, height) = (view.art.width(), view.art.height());
+    let place = format!("{}:{}:{width}x{height}:", view.layer, view.frame);
+    // 64-bit FNV-1a.
+    let hash = place
+        .bytes()
+        .chain(view.art.cells().iter().copied())
+        .fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
+            (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+        });
+    format!("{hash:016x}")
+}
+
+/// The reply to one request, and the frame a write puts in place of the one on screen.
+pub fn answer(view: &View, request: &Value) -> (Value, Option<Frame>) {
+    let id = request["id"].clone();
+    let outcome = match request["op"].as_str() {
+        Some("read") => Ok((read(view), None)),
+        Some("write") => write(view, request).map(|art| {
+            let revision = revision(&View { art: &art, ..*view });
+            (json!({"revision": revision}), Some(art))
+        }),
+        _ => Err("Unknown request".into()),
+    };
+    match outcome {
+        Ok((result, art)) => (json!({"id": id, "result": result}), art),
+        Err(error) => (json!({"id": id, "error": error}), None),
+    }
+}
+
+fn read(view: &View) -> Value {
+    json!({
+        "revision": revision(view),
+        "layer": view.layer,
+        "frame": view.frame,
+        "frames": view.frames,
+        "width": view.art.width(),
+        "height": view.art.height(),
+        "text": view.art.text(),
+    })
+}
+
+fn write(view: &View, request: &Value) -> Result<Frame> {
+    if request["revision"].as_str() != Some(revision(view).as_str()) {
+        return Err("The frame changed since it was read: read it again".into());
+    }
+    let text = request["text"].as_str().ok_or("text must be a string")?;
+    let block = Frame::from_text_padded(text)?;
+    let place = |name: &str| match &request[name] {
+        Value::Null => Ok(None),
+        value => value
+            .as_u64()
+            .and_then(|v| usize::try_from(v).ok())
+            .map(Some)
+            .ok_or(format!("{name} must be a whole number")),
+    };
+    match (place("x")?, place("y")?) {
+        (None, None) => Ok(block),
+        (Some(x), Some(y)) => {
+            let (width, height) = (view.art.width(), view.art.height());
+            if x.saturating_add(block.width()) > width || y.saturating_add(block.height()) > height
+            {
+                return Err(format!(
+                    "A {}x{} block at {x},{y} does not fit the {width}x{height} frame",
+                    block.width(),
+                    block.height()
+                ));
+            }
+            let mut canvas = Canvas::from_frame(view.art);
+            // Both fit in i32, as the frame's own size does.
+            canvas.overlay(&block, x as i32, y as i32, false)?;
+            Ok(canvas.finish())
+        }
+        _ => Err("Give both x and y to replace a block, or neither to replace the frame".into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn view(art: &Frame) -> View<'_> {
+        View {
+            layer: 0,
+            frame: 1,
+            frames: 3,
+            art,
+        }
+    }
+
+    fn write(art: &Frame, fields: Value) -> (Value, Option<Frame>) {
+        let mut request = json!({"id": 7, "op": "write", "revision": revision(&view(art))});
+        for (key, value) in fields.as_object().unwrap() {
+            request[key] = value.clone();
+        }
+        answer(&view(art), &request)
+    }
+
+    #[test]
+    fn a_read_gives_the_frame_and_its_revision() {
+        let art = Frame::from_text("ab\ncd").unwrap();
+        let (reply, changed) = answer(&view(&art), &json!({"id": 3, "op": "read"}));
+        assert_eq!(changed, None);
+        assert_eq!(
+            reply,
+            json!({"id": 3, "result": {
+                "revision": revision(&view(&art)),
+                "layer": 0, "frame": 1, "frames": 3, "width": 2, "height": 2, "text": "ab\ncd",
+            }})
+        );
+    }
+
+    #[test]
+    fn the_revision_follows_content_and_position() {
+        let art = Frame::from_text("ab\ncd").unwrap();
+        let other = Frame::from_text("ab\nce").unwrap();
+        let base = revision(&view(&art));
+        assert_eq!(base.len(), 16);
+        assert_eq!(base, revision(&view(&art.clone())));
+        assert_ne!(base, revision(&view(&other)));
+        assert_ne!(
+            base,
+            revision(&View {
+                frame: 2,
+                ..view(&art)
+            })
+        );
+        assert_ne!(
+            base,
+            revision(&View {
+                layer: 1,
+                ..view(&art)
+            })
+        );
+    }
+
+    #[test]
+    fn a_write_at_the_read_revision_replaces_a_block() {
+        let art = Frame::from_text("....\n....\n....").unwrap();
+        let (reply, changed) = write(&art, json!({"text": "xy\nz", "x": 1, "y": 1}));
+        let changed = changed.unwrap();
+        assert_eq!(changed.text(), "....\n.xy.\n.z .");
+        assert_eq!(
+            reply,
+            json!({"id": 7, "result": {"revision": revision(&view(&changed))}})
+        );
+    }
+
+    #[test]
+    fn a_write_without_a_place_replaces_the_frame() {
+        let art = Frame::from_text("....").unwrap();
+        let (_, changed) = write(&art, json!({"text": "ab\nc"}));
+        assert_eq!(changed.unwrap().text(), "ab\nc ");
+    }
+
+    #[test]
+    fn a_write_at_an_older_revision_is_refused() {
+        let art = Frame::from_text("ab").unwrap();
+        let request = json!({"id": 1, "op": "write", "revision": "0", "text": "xy"});
+        let (reply, changed) = answer(&view(&art), &request);
+        assert_eq!(changed, None);
+        assert_eq!(
+            reply,
+            json!({"id": 1, "error": "The frame changed since it was read: read it again"})
+        );
+    }
+
+    #[test]
+    fn bad_writes_are_refused_with_the_reason() {
+        let art = Frame::from_text("....\n....").unwrap();
+        for (fields, error) in [
+            (
+                json!({"text": "abc", "x": 2, "y": 0}),
+                "A 3x1 block at 2,0 does not fit the 4x2 frame",
+            ),
+            (
+                json!({"text": "a", "x": 0}),
+                "Give both x and y to replace a block, or neither to replace the frame",
+            ),
+            (
+                json!({"text": "a", "x": -1, "y": 0}),
+                "x must be a whole number",
+            ),
+            (json!({"x": 0, "y": 0}), "text must be a string"),
+        ] {
+            let (reply, changed) = write(&art, fields);
+            assert_eq!(changed, None);
+            assert_eq!(reply["error"], error);
+        }
+        let (reply, changed) = write(&art, json!({"text": "a\u{7}"}));
+        assert_eq!(changed, None);
+        assert!(reply["error"].is_string(), "{reply}");
+        let (reply, _) = answer(&view(&art), &json!({"id": 2, "op": "delete"}));
+        assert_eq!(reply, json!({"id": 2, "error": "Unknown request"}));
+    }
+}

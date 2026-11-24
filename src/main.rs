@@ -2,6 +2,7 @@ mod check;
 mod edit;
 mod fetch;
 mod ffmpeg;
+mod live;
 mod mcp;
 
 use apollinaire_ascii::{
@@ -499,7 +500,12 @@ enum Command {
         input: PathBuf,
     },
     /// Serve the artwork commands to AI agents as Model Context Protocol tools over stdio.
-    Mcp,
+    Mcp {
+        /// Add live_connect, live_read and live_write, which reach the frame open in the browser
+        /// editor over a WebSocket on 127.0.0.1, once the user enters the port and token there.
+        #[arg(long)]
+        live: bool,
+    },
     /// Print a shell completion script, such as `apollinaire completions bash > apollinaire.bash`.
     Completions {
         /// Shell to complete for.
@@ -980,9 +986,9 @@ fn run(args: Args) -> Result<()> {
             };
             return edit::run(file, project);
         }
-        Command::Mcp => {
+        Command::Mcp { live } => {
             no_export(&args.export, "MCP")?;
-            return mcp::serve();
+            return mcp::serve(live);
         }
         Command::Completions { shell } => {
             no_export(&args.export, "Completions")?;

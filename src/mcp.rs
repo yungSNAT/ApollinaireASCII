@@ -594,6 +594,8 @@ fn info() -> Value {
 struct Server {
     /// A client has sent `initialize`, so requests without `_meta` use its version.
     initialized: bool,
+    /// The bridge to the browser editor, with `--live`.
+    live: Option<crate::live::Bridge>,
 }
 
 impl Server {
@@ -692,7 +694,10 @@ impl Server {
             "ping" => json!({}),
             "tools/list" => {
                 let root = commands();
-                let tools: Vec<_> = TOOLS.iter().map(|tool| tool.definition(&root)).collect();
+                let mut tools: Vec<_> = TOOLS.iter().map(|tool| tool.definition(&root)).collect();
+                if self.live.is_some() {
+                    tools.extend(crate::live::tools());
+                }
                 let mut result = json!({"tools": tools});
                 if modern {
                     result["ttlMs"] = json!(TTL_MS);
@@ -700,7 +705,10 @@ impl Server {
                 }
                 result
             }
-            "tools/call" => call(params)?,
+            "tools/call" => match self.live.as_mut().map(|bridge| live_call(bridge, params)) {
+                Some(Some(result)) => result?,
+                _ => call(params)?,
+            },
             _ => return Err(error(METHOD_NOT_FOUND, format!("Unknown method {method}"))),
         };
         if modern {
@@ -709,6 +717,21 @@ impl Server {
         }
         Ok(result)
     }
+}
+
+/// A live tool's result, or `None` for another tool.
+fn live_call(bridge: &mut crate::live::Bridge, params: &Value) -> Option<Result<Value, Value>> {
+    let name = params["name"].as_str()?;
+    let empty = Map::new();
+    let given = match &params["arguments"] {
+        Value::Null => &empty,
+        Value::Object(given) => given,
+        _ if name.starts_with("live_") => {
+            return Some(Err(error(INVALID_PARAMS, "arguments must be an object")));
+        }
+        _ => return None,
+    };
+    bridge.call(name, given).map(Ok)
 }
 
 fn call(params: &Value) -> Result<Value, Value> {
@@ -733,10 +756,13 @@ fn call(params: &Value) -> Result<Value, Value> {
 }
 
 /// Serve requests from stdin until it closes, one JSON-RPC message per line.
-pub fn serve() -> crate::Result<()> {
+pub fn serve(live: bool) -> crate::Result<()> {
     let mut input = io::stdin().lock();
     let mut output = io::stdout().lock();
-    let mut server = Server::default();
+    let mut server = Server {
+        live: live.then(Default::default),
+        ..Server::default()
+    };
     let mut line = Vec::new();
     loop {
         line.clear();
