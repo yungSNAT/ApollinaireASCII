@@ -44,6 +44,8 @@ struct App {
     font: Option<String>,
     undo: Vec<Snapshot>,
     redo: Vec<Snapshot>,
+    /// Per-session project generation, randomly seeded and never restored across undo/redo.
+    project_generation: u64,
     drawing: draw::Drawing,
     camera: Option<media::Camera>,
     recovery: recovery::Recovery,
@@ -243,6 +245,7 @@ impl App {
     /// Make `layers` the project with layer `active` chosen, keeping the old one for undo.
     fn replace_layers(&mut self, layers: Layered, active: usize) {
         self.pause();
+        self.project_generation = self.project_generation.wrapping_add(1);
         let active = active.min(layers.layers().len() - 1);
         self.undo.push(Snapshot {
             layers: std::mem::replace(&mut self.layers, layers),
@@ -409,6 +412,11 @@ pub fn start() -> std::result::Result<(), JsValue> {
         .expect("Browser window")
         .match_media("(prefers-reduced-motion: reduce)")?
         .is_some_and(|q| q.matches());
+    let mut gen_bytes = [0u8; 8];
+    if let Some(crypto) = web_sys::window().and_then(|w| w.crypto().ok()) {
+        let _ = crypto.get_random_values_with_u8_array(&mut gen_bytes);
+    }
+    let project_generation = u64::from_le_bytes(gen_bytes);
     APP.with(|cell| {
         *cell.borrow_mut() = Some(App {
             layers: Layered::single(project),
@@ -425,6 +433,7 @@ pub fn start() -> std::result::Result<(), JsValue> {
             font: None,
             undo: vec![],
             redo: vec![],
+            project_generation,
             drawing: draw::Drawing::default(),
             camera: None,
             recovery: recovery::Recovery::default(),
@@ -900,6 +909,7 @@ fn action(id: &str) -> Result<()> {
                     app.undo.push(current);
                 }
                 app.limit_history();
+                app.project_generation = app.project_generation.wrapping_add(1);
                 app.seek(previous.selected);
                 app.frame_range = previous.frame_range;
                 app.modified = true;

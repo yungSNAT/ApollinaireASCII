@@ -230,7 +230,7 @@
         </details>
         <details id="live-panel">
           <summary>Connect an agent</summary>
-          <p class="hint">An AI agent running <code>apollinaire mcp --live</code> on this computer can read and change the frame on screen. Ask it to call <code>live_connect</code>, then enter the port and token it gives. Each change it makes is one undo step.</p>
+          <p class="hint">An AI agent running <code>apollinaire mcp --live</code> on this computer can read and change frames and layers in this project. Ask it to call <code>live_connect</code>, then enter the port and token it gives. Each write or batch is one undo step.</p>
           <label>Port <input id="live-port" type="text" inputmode="numeric" autocomplete="off" spellcheck="false"></label>
           <label>Token <input id="live-token" type="password" autocomplete="off" spellcheck="false"></label>
           <div class="actions"><button id="live-connect" type="button">Connect</button><button id="live-disconnect" type="button">Disconnect</button></div>

@@ -545,11 +545,115 @@ fn an_agent_reads_and_writes_the_editor_through_mcp_live() {
         json!({"revision": after["revision"], "expected_sha256": before_sha, "text": "No"}),
     );
     assert!(failed, "{text}");
-    // One undo takes the frame back.
+    // One undo takes the frame back and advances project generation so after["revision"] is refused.
     browser.script("document.getElementById('undo').click();");
     let (text, _) = tool(&mut stdin, &mut stdout, 7, "live_read", json!({}));
     let undone: Value = serde_json::from_str(&text).unwrap();
     assert_eq!(undone["text"], before["text"]);
+    let (text, failed) = tool(
+        &mut stdin,
+        &mut stdout,
+        8,
+        "live_write",
+        json!({"revision": after["revision"], "text": "No", "x": 0, "y": 0}),
+    );
+    assert!(failed, "{text}");
+
+    // Add a second layer, switch to frame 1 on Layer 2, and edit Layer 1 frame 0 + Layer 2 frame 1 via live_batch.
+    browser.script(
+        "document.getElementById('layer-add').click();
+         const tl = document.getElementById('timeline');
+         tl.value = '1';
+         tl.dispatchEvent(new Event('input', {bubbles: true}));",
+    );
+    let (text, failed) = tool(
+        &mut stdin,
+        &mut stdout,
+        9,
+        "live_read",
+        json!({"layer": 0, "frame": 0}),
+    );
+    assert!(!failed, "{text}");
+    let l0_f0: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(l0_f0["layer"], 0);
+    assert_eq!(l0_f0["frame"], 0);
+    assert_eq!(l0_f0["active"], 1);
+    assert_eq!(l0_f0["shown"], 1);
+    assert_eq!(l0_f0["layers"].as_array().unwrap().len(), 2);
+
+    let (text, failed) = tool(
+        &mut stdin,
+        &mut stdout,
+        10,
+        "live_read",
+        json!({"composite": true, "frame": 0}),
+    );
+    assert!(!failed, "{text}");
+    let comp: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(comp["composite"], true);
+    assert!(comp.get("revision").is_none());
+
+    let (text, failed) = tool(
+        &mut stdin,
+        &mut stdout,
+        11,
+        "live_write",
+        json!({"layer": 0, "frame": 0, "revision": l0_f0["revision"], "text": "Dr", "x": 0, "y": 0, "dry_run": true}),
+    );
+    assert!(!failed, "{text}");
+    let dry: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(dry["dry_run"], true);
+
+    let (text, failed) = tool(&mut stdin, &mut stdout, 12, "live_read", json!({}));
+    assert!(!failed, "{text}");
+    let l1_f1: Value = serde_json::from_str(&text).unwrap();
+
+    // Rollback check: stale second write leaves Layer 1 frame 0 unchanged.
+    let (text, failed) = tool(
+        &mut stdin,
+        &mut stdout,
+        13,
+        "live_batch",
+        json!({"writes": [
+            {"layer": 0, "frame": 0, "revision": l0_f0["revision"], "text": "AA", "x": 0, "y": 0},
+            {"revision": "stale", "text": "BB", "x": 0, "y": 0}
+        ]}),
+    );
+    assert!(failed, "{text}");
+    assert!(text.starts_with("Write 2:"), "{text}");
+
+    // Atomic batch across non-active Layer 1 frame 0 and active Layer 2 frame 1, then one-step undo.
+    let (text, failed) = tool(
+        &mut stdin,
+        &mut stdout,
+        14,
+        "live_batch",
+        json!({"writes": [
+            {"layer": 0, "frame": 0, "revision": l0_f0["revision"], "expected_sha256": l0_f0["sha256"], "text": "AA", "x": 0, "y": 0},
+            {"revision": l1_f1["revision"], "text": "BB", "x": 0, "y": 0}
+        ]}),
+    );
+    assert!(!failed, "{text}");
+    let (text, _) = tool(
+        &mut stdin,
+        &mut stdout,
+        15,
+        "live_read",
+        json!({"layer": 0, "frame": 0}),
+    );
+    let updated_l0: Value = serde_json::from_str(&text).unwrap();
+    assert!(updated_l0["text"].as_str().unwrap().starts_with("AA"));
+
+    browser.script("document.getElementById('undo').click();");
+    let (text, _) = tool(
+        &mut stdin,
+        &mut stdout,
+        16,
+        "live_read",
+        json!({"layer": 0, "frame": 0}),
+    );
+    let reverted_l0: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(reverted_l0["text"], l0_f0["text"]);
     let _ = server.kill();
     let _ = server.wait();
 }

@@ -4,7 +4,7 @@
 //! Connect an agent: the editor's end of `apollinaire mcp --live`. It connects to the bridge on
 //! 127.0.0.1, sends the token, and answers the bridge's requests through `crate::live_edit`.
 use super::{App, Result, input, listen, report, state, status};
-use crate::live_edit::{SignIn, View, answer};
+use crate::live_edit::{SignIn, State, answer};
 use std::cell::RefCell;
 use std::rc::Rc;
 use wasm_bindgen::{JsCast, prelude::*};
@@ -102,7 +102,7 @@ fn reply(text: &str, sign_in: &RefCell<SignIn>) -> Option<String> {
     if request.get("hello").is_some() {
         sign_in.borrow_mut().mark_greeted();
         status(
-            "Agent connected. It can read and change the frame on screen.",
+            "Agent connected. It can read and change frames and layers in this project.",
             false,
         );
         return None;
@@ -113,26 +113,34 @@ fn reply(text: &str, sign_in: &RefCell<SignIn>) -> Option<String> {
     Some(reply.to_string())
 }
 
-fn handle(app: &mut App, request: &serde_json::Value) -> Result<serde_json::Value> {
-    // A playing animation would move the frame between a read and the write based on it.
+pub(super) fn handle(app: &mut App, request: &serde_json::Value) -> Result<serde_json::Value> {
+    // A playing animation would move default targeting between a read and a write based on it.
+    let was_playing = app.playing;
     app.pause();
-    let (reply, written, duration_ms) = {
-        let project = app.project();
-        let shown = &project.frames()[app.selected];
-        let view = View {
-            layer: app.active,
-            frame: app.selected,
-            frames: project.frames().len(),
-            art: &shown.frame,
+    let (reply, updated) = {
+        let state = State {
+            project: &app.layers,
+            active: app.active,
+            shown: app.selected,
+            generation: app.project_generation,
         };
-        let (reply, written) = answer(&view, request);
-        (reply, written, shown.duration_ms)
+        answer(&state, request)
     };
-    if let Some(frame) = written {
+    if let Some(layers) = updated {
         // Refused, as the editor's own controls are, during unapplied edits, a load or a recording.
         app.clean()?;
-        app.update_frame(frame, duration_ms)?;
-        status("The agent changed this frame. Undo reverts it.", false);
+        app.replace_layers(layers, app.active);
+        input("width")?.set_value(&app.project().width().to_string());
+        input("height")?.set_value(&app.project().height().to_string());
+        app.display(true)?;
+        let note = if request["op"].as_str() == Some("batch") {
+            "The agent changed the project. Undo reverts it."
+        } else {
+            "The agent changed a frame. Undo reverts it."
+        };
+        status(note, false);
+    } else if was_playing {
+        app.display(false)?;
     }
     Ok(reply)
 }

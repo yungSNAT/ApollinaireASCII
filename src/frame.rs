@@ -31,6 +31,26 @@ impl Frame {
     pub fn from_text(text: &str) -> Result<Self> {
         Self::parse_text(text, false)
     }
+    /// Validate printable ASCII and return `(width, height)` after right-padding, without
+    /// allocating a frame buffer.
+    pub(crate) fn padded_dimensions(text: &str) -> Result<(usize, usize)> {
+        if text.len() > MAX_INPUT_BYTES {
+            return Err("Text exceeds the 16 MiB input limit".into());
+        }
+        let text = text.strip_suffix('\n').unwrap_or(text);
+        let mut width = 0usize;
+        let mut rows = 0usize;
+        for row in text.split('\n') {
+            rows += 1;
+            if rows > MAX_HEIGHT {
+                dimensions(width.max(1), rows)?;
+            }
+            printable(row.as_bytes())?;
+            width = width.max(row.len());
+        }
+        dimensions(width, rows)?;
+        Ok((width, rows))
+    }
     /// Explicitly pad shorter rows on the right with spaces.
     pub fn from_text_padded(text: &str) -> Result<Self> {
         Self::parse_text(text, true)

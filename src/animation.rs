@@ -99,6 +99,10 @@ impl Animation {
         *self = Self::new(frames, self.looping)?;
         Ok(())
     }
+    /// Swap one frame in place without cloning the timeline; the caller preserves dimensions.
+    pub(crate) fn swap_frame(&mut self, index: usize, frame: Frame) -> Frame {
+        std::mem::replace(&mut self.frames[index].frame, frame)
+    }
     pub fn insert_frame(&mut self, index: usize, frame: TimedFrame) -> Result<()> {
         if index > self.frames.len() {
             return Err("Frame index is outside the project".into());
