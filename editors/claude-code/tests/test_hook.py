@@ -382,13 +382,13 @@ class HookBehaviourTests(unittest.TestCase):
                 self.assertIn("Path is not a regular file", stderr)
 
                 if hasattr(os, "O_PATH") or hasattr(os, "O_SEARCH"):
-                    # Search-only (0o111) ancestor directory above workspace must still succeed.
+                    # Search-only (0o100) ancestor directory above workspace must still succeed.
                     gated_parent = Path(tmp) / "search_only_parent"
                     gated_work = gated_parent / "repo"
                     gated_work.mkdir(parents=True)
                     gated_md = gated_work / "flow.md"
                     gated_md.write_bytes(sample.encode("utf-8"))
-                    os.chmod(gated_parent, 0o111)
+                    os.chmod(gated_parent, 0o100)
                     try:
                         code, stdout, stderr = run_hook([], write_payload(gated_work, gated_md))
                         self.assertEqual(code, 0, stderr)
