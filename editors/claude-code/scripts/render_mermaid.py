@@ -14,10 +14,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from pathlib import Path
 import shutil
-import subprocess
+import subprocess  # nosec B404
 import sys
+from pathlib import Path
 
 EXIT_OK = 0
 EXIT_FAIL_CLOSED = 2
@@ -39,16 +39,22 @@ def parse_max_width(raw: str | None) -> int:
         return DEFAULT_MAX_WIDTH
     text = raw.strip()
     if not text.isdigit():
-        raise HookError(f"max-width must be an integer between {MIN_WIDTH} and {MAX_WIDTH}: {raw!r}")
+        raise HookError(
+            f"max-width must be an integer between {MIN_WIDTH} and {MAX_WIDTH}: {raw!r}"
+        )
     value = int(text)
     if value < MIN_WIDTH or value > MAX_WIDTH:
-        raise HookError(f"max-width must be between {MIN_WIDTH} and {MAX_WIDTH}, got {value}")
+        raise HookError(
+            f"max-width must be between {MIN_WIDTH} and {MAX_WIDTH}, got {value}"
+        )
     return value
 
 
 def resolve_binary(configured: str | None = None) -> str:
     """Resolve the apollinaire executable or fail closed if it cannot be found."""
-    candidate = (configured if configured is not None else os.environ.get("APOLLINAIRE", "")).strip()
+    candidate = (
+        configured if configured is not None else os.environ.get("APOLLINAIRE", "")
+    ).strip()
     if not candidate:
         found = shutil.which("apollinaire")
         if found:
@@ -111,7 +117,7 @@ def _is_mermaid_info(info: str) -> bool:
 
 
 def collect_fenced_blocks(markdown: str) -> list[tuple[bool, str]]:
-    """Return `(is_mermaid, fenced_block_text)` for each closed top-level fence."""
+    """Return `(is_mermaid, fenced_block_text)` for each top-level fence."""
     blocks: list[tuple[bool, str]] = []
     active: tuple[str, int, bool, list[str]] | None = None
     for raw_line in markdown.splitlines(keepends=True):
@@ -133,24 +139,26 @@ def collect_fenced_blocks(markdown: str) -> list[tuple[bool, str]]:
     return blocks
 
 
-
 def check_printable_ascii(text: str) -> None:
     """Ensure rendered ASCII blocks contain only printable ASCII bytes and newlines."""
     for index, ch in enumerate(text):
         code = ord(ch)
         if code not in (10, 13) and not (32 <= code <= 126):
-            raise HookError(f"Rendered diagram contains non-ASCII byte at offset {index}: 0x{code:02x}")
+            raise HookError(
+                f"Rendered diagram contains non-ASCII byte at offset {index}: 0x{code:02x}"
+            )
 
 
 def render_markdown(binary: str, markdown: str, max_width: int) -> str:
     """Run `apollinaire diagram - --markdown --max-width <cols>` on Markdown text."""
+    cmd = [binary, "diagram", "-", "--markdown", "--max-width", str(max_width)]
     try:
-        completed = subprocess.run(
-            [binary, "diagram", "-", "--markdown", "--max-width", str(max_width)],
-            input=markdown,
+        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit, python.lang.security.audit.dangerous-subprocess-use-tainted-env-args -- fixed apollinaire argument vector with shell=False and validated 1..=512 width; no shell runs
+        completed = subprocess.run(  # nosec B603
+            cmd,
+            input=markdown.encode("utf-8"),
             capture_output=True,
-            text=True,
-            encoding="utf-8",
+            shell=False,
             check=False,
             timeout=RENDER_TIMEOUT_SECS,
         )
@@ -162,9 +170,15 @@ def render_markdown(binary: str, markdown: str, max_width: int) -> str:
         raise HookError(f"Cannot run apollinaire ({binary}): {exc}") from exc
 
     if completed.returncode != 0:
-        detail = completed.stderr.strip() or f"exit status {completed.returncode}"
+        detail = (
+            completed.stderr.decode("utf-8", errors="replace").strip()
+            or f"exit status {completed.returncode}"
+        )
         raise HookError(f"apollinaire diagram failed: {detail}")
-    return completed.stdout
+    try:
+        return completed.stdout.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise HookError(f"apollinaire produced invalid UTF-8: {exc}") from exc
 
 
 def read_bounded_stdin() -> str:
@@ -178,20 +192,39 @@ def read_bounded_stdin() -> str:
         raise HookError(f"Input is not valid UTF-8: {exc}") from exc
 
 
-def read_bounded_file(path: Path) -> str:
-    """Read a UTF-8 file up to MAX_INPUT_BYTES, failing closed on missing or oversized files."""
+def resolve_contained_path(raw_path: str, base_dir: Path) -> Path:
+    """Resolve `raw_path` and verify it stays inside `base_dir` to block traversal."""
     try:
-        stat = path.stat()
+        root = base_dir.resolve(strict=True)
     except OSError as exc:
-        raise HookError(f"Cannot read {path}: {exc}") from exc
-    if not path.is_file():
-        raise HookError(f"Path is not a regular file: {path}")
-    if stat.st_size > MAX_INPUT_BYTES:
-        raise HookError(f"File exceeds the 16 MiB limit: {path}")
+        raise HookError(f"Cannot resolve workspace folder {base_dir}: {exc}") from exc
+    candidate = Path(raw_path)
+    if not candidate.is_absolute():
+        candidate = root / candidate
     try:
-        return path.read_text(encoding="utf-8")
+        resolved = candidate.resolve(strict=True)
+    except OSError as exc:
+        raise HookError(f"Cannot read {raw_path}: {exc}") from exc
+    if not resolved.is_relative_to(root):
+        raise HookError(f"Refused path outside workspace ({root}): {raw_path}")
+    return resolved
+
+
+def read_bounded_file(raw_path: str, base_dir: Path) -> tuple[Path, str]:
+    """Read a UTF-8 file inside `base_dir` up to MAX_INPUT_BYTES, failing closed otherwise."""
+    resolved = resolve_contained_path(raw_path, base_dir)
+    try:
+        stat = resolved.stat()
+    except OSError as exc:
+        raise HookError(f"Cannot read {resolved}: {exc}") from exc
+    if not resolved.is_file():
+        raise HookError(f"Path is not a regular file: {resolved}")
+    if stat.st_size > MAX_INPUT_BYTES:
+        raise HookError(f"File exceeds the 16 MiB limit: {resolved}")
+    try:
+        return resolved, resolved.read_bytes().decode("utf-8")
     except (OSError, UnicodeDecodeError) as exc:
-        raise HookError(f"Cannot read {path}: {exc}") from exc
+        raise HookError(f"Cannot read {resolved}: {exc}") from exc
 
 
 def handle_post_tool_use(payload_text: str, max_width: int) -> str | None:
@@ -215,11 +248,15 @@ def handle_post_tool_use(payload_text: str, max_width: int) -> str | None:
     if not isinstance(file_path, str) or not file_path.strip():
         return None
 
-    target = Path(file_path)
-    if target.suffix.lower() not in MARKDOWN_SUFFIXES:
+    if Path(file_path).suffix.lower() not in MARKDOWN_SUFFIXES:
         return None
 
-    markdown = read_bounded_file(target)
+    raw_cwd = payload.get("cwd")
+    if raw_cwd is not None and (not isinstance(raw_cwd, str) or not raw_cwd.strip()):
+        raise HookError("Hook payload cwd must be a non-empty string.")
+    base_dir = Path(raw_cwd) if isinstance(raw_cwd, str) else Path.cwd()
+
+    target, markdown = read_bounded_file(file_path, base_dir)
     source_blocks = collect_fenced_blocks(markdown)
     mermaid_indices = [idx for idx, (is_m, _) in enumerate(source_blocks) if is_m]
     if not mermaid_indices:
@@ -229,7 +266,9 @@ def handle_post_tool_use(payload_text: str, max_width: int) -> str | None:
     rendered_markdown = render_markdown(binary, markdown, max_width)
     rendered_blocks = collect_fenced_blocks(rendered_markdown)
     if len(rendered_blocks) != len(source_blocks):
-        raise HookError("Rendered Markdown block count did not match source Markdown.")
+        raise HookError(
+            "Rendered Markdown block count did not match source Markdown."
+        )
 
     ascii_blocks = [rendered_blocks[idx][1] for idx in mermaid_indices]
     for block in ascii_blocks:
@@ -262,13 +301,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--file",
-        help="Markdown file to render when --markdown is set.",
+        help="Markdown file inside the current working directory to render when --markdown is set.",
     )
     parser.add_argument(
         "--max-width",
         dest="max_width",
         default=None,
-        help=f"Maximum diagram width in columns ({MIN_WIDTH}..={MAX_WIDTH}; default {DEFAULT_MAX_WIDTH}).",
+        help=(
+            f"Maximum diagram width in columns "
+            f"({MIN_WIDTH}..={MAX_WIDTH}; default {DEFAULT_MAX_WIDTH})."
+        ),
     )
     return parser
 
@@ -277,18 +319,28 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        width_raw = args.max_width if args.max_width is not None else os.environ.get("APOLLINAIRE_MAX_WIDTH")
+        width_raw = (
+            args.max_width
+            if args.max_width is not None
+            else os.environ.get("APOLLINAIRE_MAX_WIDTH")
+        )
         max_width = parse_max_width(width_raw)
         if args.markdown:
-            markdown = read_bounded_file(Path(args.file)) if args.file else read_bounded_stdin()
+            if args.file:
+                _, markdown = read_bounded_file(args.file, Path.cwd())
+            else:
+                markdown = read_bounded_stdin()
             binary = resolve_binary()
-            sys.stdout.write(render_markdown(binary, markdown, max_width))
+            rendered = render_markdown(binary, markdown, max_width)
+            sys.stdout.buffer.write(rendered.encode("utf-8"))
+            sys.stdout.buffer.flush()
             return EXIT_OK
 
         payload_text = read_bounded_stdin()
         reply = handle_post_tool_use(payload_text, max_width)
         if reply is not None:
-            sys.stdout.write(reply + "\n")
+            sys.stdout.buffer.write((reply + "\n").encode("utf-8"))
+            sys.stdout.buffer.flush()
         return EXIT_OK
     except HookError as exc:
         sys.stderr.write(f"apollinaire-mermaid: {exc}\n")
