@@ -3296,3 +3296,189 @@ fn custom_easing_curves_are_drawn_and_checked() {
     click("key-set");
     assert!(status().contains("from -1024 to 1024"), "{}", status());
 }
+
+#[wasm_bindgen_test]
+fn live_bridge_targets_layers_frames_batches_dry_runs_and_generations() {
+    use serde_json::json;
+
+    let live = |request: serde_json::Value| -> super::Result<serde_json::Value> {
+        super::state(|app| super::live::handle(app, &request))
+    };
+
+    // 1x1 resize via live_write updates dimensions and DOM width/height inputs.
+    blank(4, 2);
+    let r1 = live(json!({"id": 1, "op": "read"})).unwrap()["result"].clone();
+    let res = live(json!({
+        "id": 2, "op": "write",
+        "revision": r1["revision"],
+        "expected_sha256": r1["sha256"],
+        "text": "12345\n67890\nabcde"
+    }))
+    .unwrap();
+    assert!(res["result"]["revision"].is_string());
+    assert_eq!(element::<HtmlInputElement>("width").value(), "5");
+    assert_eq!(element::<HtmlInputElement>("height").value(), "3");
+    assert_eq!(grid_size(), (5, 3));
+
+    // Set up 2 frames x 2 layers; active = 1, shown = 1; Layer 0 has motion key.
+    click("add-frame");
+    seek_frame(0);
+    apply_frame(".....\n.....\n.....");
+    click("layer-add");
+    apply_frame("  *  \n     \n     ");
+    set_key("x", "2", "linear");
+    seek_frame(1);
+
+    let gen_before_dirty = super::state(|app| Ok(app.project_generation)).unwrap();
+    // Unapplied draft edits block committing writes, but dry_run still succeeds without touching history.
+    input_event("editor", "draft");
+    let non_active =
+        live(json!({"id": 3, "op": "read", "layer": 0, "frame": 0})).unwrap()["result"].clone();
+    let active_f1 = live(json!({"id": 4, "op": "read"})).unwrap()["result"].clone();
+    assert_eq!(non_active["layer"], 0);
+    assert_eq!(non_active["frame"], 0);
+    assert_eq!(non_active["active"], 1);
+    assert_eq!(non_active["shown"], 1);
+    assert_eq!(non_active["layers"].as_array().unwrap().len(), 2);
+
+    let comp =
+        live(json!({"id": 5, "op": "read", "composite": true, "frame": 0})).unwrap()["result"]
+            .clone();
+    assert_eq!(comp["composite"], true);
+    assert!(comp.get("revision").is_none());
+    assert!(comp.get("sha256").is_none());
+    assert_eq!(comp["text"], "....*\n.....\n.....");
+
+    let dry = live(json!({
+        "id": 6, "op": "write",
+        "layer": 0, "frame": 0,
+        "revision": non_active["revision"],
+        "text": "Hi", "x": 1, "y": 1, "dry_run": true
+    }))
+    .unwrap();
+    assert_eq!(dry["result"]["dry_run"], true);
+    assert_eq!(dry["result"]["changed"], 2);
+    assert_eq!(
+        super::state(|app| Ok(app.project_generation)).unwrap(),
+        gen_before_dirty
+    );
+
+    let blocked = live(json!({
+        "id": 7, "op": "write",
+        "layer": 0, "frame": 0,
+        "revision": non_active["revision"],
+        "text": "Hi", "x": 1, "y": 1
+    }));
+    assert!(blocked.unwrap_err().contains("Apply or discard"));
+    click("discard");
+
+    // Batch rollback on stale second write leaves layer 0 frame 0 untouched.
+    let rollback = live(json!({
+        "id": 8, "op": "batch",
+        "writes": [
+            {"layer": 0, "frame": 0, "revision": non_active["revision"], "text": "AA", "x": 0, "y": 0},
+            {"layer": 1, "frame": 1, "revision": "stale", "text": "BB", "x": 0, "y": 0},
+        ]
+    }))
+    .unwrap();
+    assert!(rollback["error"].as_str().unwrap().starts_with("Write 2:"));
+    let check_00 =
+        live(json!({"id": 9, "op": "read", "layer": 0, "frame": 0})).unwrap()["result"].clone();
+    assert_eq!(check_00["text"], non_active["text"]);
+
+    // Committing batch across non-active (0,0) and active (1,1) is one undo step and advances generation.
+    let gen_pre_batch = super::state(|app| Ok(app.project_generation)).unwrap();
+    let ok = live(json!({
+        "id": 10, "op": "batch",
+        "writes": [
+            {"layer": 0, "frame": 0, "revision": non_active["revision"], "expected_sha256": non_active["sha256"], "text": "AA", "x": 0, "y": 0},
+            {"revision": active_f1["revision"], "text": "ZZ", "x": 0, "y": 0},
+        ]
+    }))
+    .unwrap();
+    let revs = ok["result"]["revisions"].as_array().unwrap();
+    assert_eq!(revs.len(), 2);
+    let gen_post_batch = super::state(|app| Ok(app.project_generation)).unwrap();
+    assert_ne!(gen_post_batch, gen_pre_batch);
+
+    // One undo reverts both (0,0) and (1,1) and advances generation again (never restoring gen_pre_batch).
+    click("undo");
+    let gen_post_undo = super::state(|app| Ok(app.project_generation)).unwrap();
+    assert_ne!(gen_post_undo, gen_pre_batch);
+    assert_ne!(gen_post_undo, gen_post_batch);
+    let after_undo_00 =
+        live(json!({"id": 11, "op": "read", "layer": 0, "frame": 0})).unwrap()["result"].clone();
+    assert_eq!(after_undo_00["text"], non_active["text"]);
+    // Old revision from before the batch is still refused after undo restored identical text!
+    let stale_after_undo = live(json!({
+        "id": 12, "op": "write",
+        "layer": 0, "frame": 0,
+        "revision": non_active["revision"],
+        "text": "XX", "x": 0, "y": 0
+    }))
+    .unwrap();
+    assert!(stale_after_undo["error"].is_string());
+
+    // Redo restores both writes and advances generation again.
+    click("redo");
+    let gen_post_redo = super::state(|app| Ok(app.project_generation)).unwrap();
+    assert_ne!(gen_post_redo, gen_post_undo);
+    assert_ne!(gen_post_redo, gen_post_batch);
+    let after_redo_00 =
+        live(json!({"id": 13, "op": "read", "layer": 0, "frame": 0})).unwrap()["result"].clone();
+    assert!(after_redo_00["text"].as_str().unwrap().starts_with("AA"));
+}
+
+#[wasm_bindgen_test]
+fn typing_continuation_advances_project_generation_and_invalidates_reads() {
+    use serde_json::json;
+
+    let live = |request: serde_json::Value| -> super::Result<serde_json::Value> {
+        super::state(|app| super::live::handle(app, &request))
+    };
+
+    blank(4, 1);
+    click("add-frame");
+    seek_frame(0);
+    tool("type");
+    cursor_to((0, 0));
+    keys(&["a"]);
+    assert_eq!(art(), "a   ");
+    let gen_after_first = super::state(|app| Ok(app.project_generation)).unwrap();
+    let read_f0 = live(json!({"id": 1, "op": "read", "frame": 0})).unwrap()["result"].clone();
+    let read_f1 = live(json!({"id": 2, "op": "read", "frame": 1})).unwrap()["result"].clone();
+
+    // Continuation key (`b`) mutates in place; project_generation must still advance.
+    keys(&["b"]);
+    assert_eq!(art(), "ab  ");
+    let gen_after_second = super::state(|app| Ok(app.project_generation)).unwrap();
+    assert_ne!(gen_after_second, gen_after_first);
+    let stale_f1 = live(json!({
+        "id": 3, "op": "write",
+        "frame": 1, "revision": read_f1["revision"], "text": "zzzz"
+    }))
+    .unwrap();
+    assert!(stale_f1["error"].is_string(), "{stale_f1}");
+
+    // Backspace restores identical bytes, yet pre-edit revision must stay refused.
+    keys(&["Backspace"]);
+    assert_eq!(art(), "a   ");
+    let gen_after_backspace = super::state(|app| Ok(app.project_generation)).unwrap();
+    assert_ne!(gen_after_backspace, gen_after_second);
+    let stale_f0 = live(json!({
+        "id": 4, "op": "write",
+        "frame": 0, "revision": read_f0["revision"],
+        "expected_sha256": read_f0["sha256"],
+        "text": "xxxx"
+    }))
+    .unwrap();
+    assert!(stale_f0["error"].is_string(), "{stale_f0}");
+
+    // Undo still reverts the typing run in one step and advances generation.
+    click("undo");
+    assert_eq!(art(), "    ");
+    assert_ne!(
+        super::state(|app| Ok(app.project_generation)).unwrap(),
+        gen_after_backspace
+    );
+}

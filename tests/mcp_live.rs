@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 use std::thread;
 use tungstenite::Message;
 
-const LIVE: [&str; 3] = ["live_connect", "live_read", "live_write"];
+const LIVE: [&str; 4] = ["live_connect", "live_read", "live_write", "live_batch"];
 
 #[test]
 fn only_live_mode_lists_the_live_tools() {
@@ -160,8 +160,8 @@ fn live_mode_keeps_every_other_tool_as_it_was() {
         ),
         (
             "live_read",
-            json!({"frame": 1}),
-            "live_read takes no arguments",
+            json!({"unknown": 1}),
+            "Unknown argument unknown",
         ),
         (
             "live_write",
@@ -391,4 +391,165 @@ fn updated_browser_sign_in_falls_back_once_to_bare_token_for_legacy_bridge() {
     assert_eq!(seen.len(), 2);
     assert!(seen[0].starts_with('{'));
     assert_eq!(seen[1], token);
+}
+
+#[test]
+fn live_read_and_write_advertise_and_forward_layer_frame_composite_and_dry_run() {
+    let mut session = Session::start(&["mcp", "--live"]);
+    let tools = session.request("tools/list", json!({}))["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .clone();
+    let read_tool = tools.iter().find(|t| t["name"] == "live_read").unwrap();
+    for key in ["layer", "frame", "composite"] {
+        assert!(
+            read_tool["inputSchema"]["properties"].get(key).is_some(),
+            "{read_tool}"
+        );
+    }
+    let write_tool = tools.iter().find(|t| t["name"] == "live_write").unwrap();
+    for key in ["layer", "frame", "dry_run"] {
+        assert!(
+            write_tool["inputSchema"]["properties"].get(key).is_some(),
+            "{write_tool}"
+        );
+    }
+
+    let (port, token) = session.connect();
+    let mut socket = capable_editor(port, &token);
+    let browser = thread::spawn(move || {
+        let targeted_read = answer(
+            &mut socket,
+            json!({"result": {"text": "ab", "layer": 1, "frame": 2}}),
+        );
+        let composite_read = answer(
+            &mut socket,
+            json!({"result": {"composite": true, "frame": 0, "text": "xy"}}),
+        );
+        let dry_write = answer(
+            &mut socket,
+            json!({"result": {"dry_run": true, "text": "cd", "changed": 2, "revision": "0200"}}),
+        );
+        (targeted_read, composite_read, dry_write)
+    });
+
+    let (text, failed) = session.call("live_read", json!({"layer": 1, "frame": 2}));
+    assert!(!failed, "{text}");
+    assert!(text.contains("\"layer\":1"), "{text}");
+    let (text, failed) = session.call("live_read", json!({"composite": true, "frame": 0}));
+    assert!(!failed, "{text}");
+    assert!(text.contains("\"composite\":true"), "{text}");
+    let (text, failed) = session.call(
+        "live_write",
+        json!({"layer": 1, "frame": 2, "revision": "00ff", "text": "cd", "dry_run": true}),
+    );
+    assert!(!failed, "{text}");
+    assert!(text.contains("\"changed\":2"), "{text}");
+
+    let (targeted_read, composite_read, dry_write) = browser.join().unwrap();
+    assert_eq!(
+        (
+            &targeted_read["op"],
+            &targeted_read["layer"],
+            &targeted_read["frame"]
+        ),
+        (&json!("read"), &json!(1), &json!(2))
+    );
+    assert_eq!(
+        (
+            &composite_read["op"],
+            &composite_read["composite"],
+            &composite_read["frame"]
+        ),
+        (&json!("read"), &json!(true), &json!(0))
+    );
+    assert_eq!(
+        (
+            &dry_write["op"],
+            &dry_write["layer"],
+            &dry_write["frame"],
+            &dry_write["dry_run"]
+        ),
+        (&json!("write"), &json!(1), &json!(2), &json!(true))
+    );
+}
+
+#[test]
+fn live_batch_validates_enforces_sha256_capability_and_forwards() {
+    let mut session = Session::start(&["mcp", "--live"]);
+    let tools = session.request("tools/list", json!({}))["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .clone();
+    let batch_tool = tools.iter().find(|t| t["name"] == "live_batch").unwrap();
+    let item_props = &batch_tool["inputSchema"]["properties"]["writes"]["items"]["properties"];
+    assert!(item_props.get("dry_run").is_none());
+    assert!(item_props.get("writes").is_none());
+    assert!(item_props.get("expected_sha256").is_some());
+
+    for (args, needle) in [
+        (json!({"writes": [], "extra": 1}), "Unknown argument extra"),
+        (json!({"writes": "nope"}), "1 to 256"),
+        (json!({"writes": []}), "1 to 256"),
+        (
+            json!({"writes": vec![json!({"revision": "0", "text": "a"}); 257]}),
+            "1 to 256",
+        ),
+        (json!({"writes": [42]}), "Write 1: must be an object"),
+        (
+            json!({"writes": [{"revision": "0", "text": "a", "dry_run": true}]}),
+            "Write 1: Unknown argument dry_run",
+        ),
+        (
+            json!({"writes": [{"revision": "0", "text": "a", "writes": []}]}),
+            "Write 1: Unknown argument writes",
+        ),
+    ] {
+        let (text, failed) = session.call("live_batch", args);
+        assert!(failed, "{text}");
+        assert!(text.contains(needle), "{text}");
+    }
+
+    let (port, token) = session.connect();
+    let mut legacy = editor(port, &token);
+    let legacy_thread = thread::spawn(move || {
+        let seen = answer(
+            &mut legacy,
+            json!({"result": {"revisions": [{"layer": 0, "frame": 0, "revision": "0100", "sha256": "b".repeat(64)}]}}),
+        );
+        (legacy, seen)
+    });
+    let (text, failed) = session.call(
+        "live_batch",
+        json!({"writes": [{"revision": "00ff", "expected_sha256": "a".repeat(64), "text": "no"}]}),
+    );
+    assert!(failed, "{text}");
+    assert!(text.contains("expected_sha256"), "{text}");
+
+    let (text, failed) = session.call(
+        "live_batch",
+        json!({"writes": [{"revision": "00ff", "text": "ok"}]}),
+    );
+    assert!(!failed, "{text}");
+    let (mut legacy, seen) = legacy_thread.join().unwrap();
+    assert_eq!(seen["op"], "batch");
+
+    let mut modern = capable_editor(port, &token);
+    assert!(closed(&mut legacy));
+    let modern_thread = thread::spawn(move || {
+        answer(
+            &mut modern,
+            json!({"result": {"dry_run": true, "revisions": [{"layer": 0, "frame": 0, "revision": "0100", "sha256": "b".repeat(64)}], "frames": [{"layer": 0, "frame": 0, "revision": "0100", "sha256": "b".repeat(64), "width": 2, "height": 1, "text": "ok", "changed": 2}], "changed": 2}}),
+        )
+    });
+    let (text, failed) = session.call(
+        "live_batch",
+        json!({"dry_run": true, "writes": [{"layer": 0, "frame": 0, "revision": "00ff", "expected_sha256": "a".repeat(64), "text": "ok"}]}),
+    );
+    assert!(!failed, "{text}");
+    assert!(text.contains("\"changed\":2"), "{text}");
+    let req = modern_thread.join().unwrap();
+    assert_eq!(req["op"], "batch");
+    assert_eq!(req["dry_run"], json!(true));
+    assert_eq!(req["writes"][0]["expected_sha256"], json!("a".repeat(64)));
 }

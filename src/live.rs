@@ -77,6 +77,38 @@ struct Open {
     slot: Slot,
 }
 
+const WRITE_KEYS: &[&str] = &[
+    "layer",
+    "frame",
+    "revision",
+    "expected_sha256",
+    "text",
+    "x",
+    "y",
+];
+
+fn write_properties(with_dry_run: bool) -> serde_json::Map<String, Value> {
+    let mut props = json!({
+        "layer": {"type": "integer", "minimum": 0, "description": "Target layer index, 0-based (default the active layer)."},
+        "frame": {"type": "integer", "minimum": 0, "description": "Target timeline frame index, 0-based (default the frame on screen)."},
+        "revision": {"type": "string", "description": "From live_read."},
+        "expected_sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$", "description": "Optional 64-character hex SHA-256 digest of the frame text from live_read; refused on mismatch."},
+        "text": {"type": "string", "description": "Rows separated by line feeds; shorter rows are padded with spaces."},
+        "x": {"type": "integer", "minimum": 0, "description": "Column of the block's left edge; give y too."},
+        "y": {"type": "integer", "minimum": 0, "description": "Row of the block's top edge; give x too."},
+    })
+    .as_object()
+    .expect("object")
+    .clone();
+    if with_dry_run {
+        props.insert(
+            "dry_run".into(),
+            json!({"type": "boolean", "description": "Check the write and return the would-be frame and changed cell count without editing the project or undo history."}),
+        );
+    }
+    props
+}
+
 /// The tools `--live` adds, as `tools/list` gives them.
 pub fn tools() -> Vec<Value> {
     let tool = |name: &str, description: &str, properties: Value, required: &[&str], read: bool| {
@@ -107,22 +139,41 @@ pub fn tools() -> Vec<Value> {
         ),
         tool(
             "live_read",
-            "The active layer's frame on screen in the connected editor, as JSON: revision, sha256, layer, frame, frames, width, height and text. Playback pauses.",
-            json!({}),
+            "A frame in the connected editor (default active layer and shown frame), or the stacked visible frame when composite is true, as JSON with layers, active and shown. Playback pauses.",
+            json!({
+                "layer": {"type": "integer", "minimum": 0, "description": "Layer index, 0-based (default the active layer)."},
+                "frame": {"type": "integer", "minimum": 0, "description": "Timeline frame index, 0-based (default the frame on screen)."},
+                "composite": {"type": "boolean", "description": "Read the stacked visible layers through their motion keys at frame, without a layer or revision."},
+            }),
             &[],
             true,
         ),
         tool(
             "live_write",
-            "Replace the active layer's frame on screen in the editor, or the block at x and y, with printable ASCII text, as one undo step. Refused unless revision is the one live_read gave for the frame as it is now, and unless optional expected_sha256 matches the frame text's SHA-256 digest. Replacing the whole frame can change its size only in a project of one frame and one layer.",
-            json!({
-                "revision": {"type": "string", "description": "From live_read."},
-                "expected_sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$", "description": "Optional 64-character hex SHA-256 digest of the frame text from live_read; refused on mismatch."},
-                "text": {"type": "string", "description": "Rows separated by line feeds; shorter rows are padded with spaces."},
-                "x": {"type": "integer", "minimum": 0, "description": "Column of the block's left edge; give y too."},
-                "y": {"type": "integer", "minimum": 0, "description": "Row of the block's top edge; give x too."},
-            }),
+            "Replace a frame in the connected editor, or the block at x and y, with printable ASCII text, as one undo step. Refused unless revision is the one live_read gave for the frame in the current project generation, and unless optional expected_sha256 matches the frame text's SHA-256 digest. Replacing the whole frame can change its size only in a project of one frame and one layer.",
+            Value::Object(write_properties(true)),
             &["revision", "text"],
+            false,
+        ),
+        tool(
+            "live_batch",
+            "Apply 1 to 256 frame or block writes atomically as one undo step, checking every revision and optional expected_sha256 against the pre-batch project. Each write uses the same fields as live_write (without dry_run).",
+            json!({
+                "writes": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 256,
+                    "description": "1 to 256 writes applied in order.",
+                    "items": {
+                        "type": "object",
+                        "properties": Value::Object(write_properties(false)),
+                        "required": ["revision", "text"],
+                        "additionalProperties": false,
+                    },
+                },
+                "dry_run": {"type": "boolean", "description": "Check every write and return the would-be frames and changed cell counts without editing the project or undo history."},
+            }),
+            &["writes"],
             false,
         ),
     ]
@@ -143,12 +194,11 @@ impl Bridge {
         let outcome = match name {
             "live_connect" if arguments.is_empty() => self.connect(),
             "live_connect" => Err("live_connect takes no arguments".into()),
-            "live_read" if arguments.is_empty() => self.ask(json!({"op": "read"}), false),
-            "live_read" => Err("live_read takes no arguments".into()),
-            "live_write" => write_request(arguments).and_then(|request| {
-                let needs_sha256 = request.get("expected_sha256").is_some();
-                self.ask(request, needs_sha256)
-            }),
+            "live_read" => read_request(arguments).and_then(|request| self.ask(request, false)),
+            "live_write" => write_request(arguments)
+                .and_then(|(request, needs_sha256)| self.ask(request, needs_sha256)),
+            "live_batch" => batch_request(arguments)
+                .and_then(|(request, needs_sha256)| self.ask(request, needs_sha256)),
             _ => return None,
         };
         Some(match outcome {
@@ -176,7 +226,7 @@ impl Bridge {
         }
         let open = self.open.as_ref().expect("opened above");
         Ok(format!(
-            "Bridge open on port {}, token {}. Open the editor at {EDITOR_PAGE} or a local build, choose Connect an agent and enter both; then use live_read and live_write.",
+            "Bridge open on port {}, token {}. Open the editor at {EDITOR_PAGE} or a local build, choose Connect an agent and enter both; then use live_read, live_write and live_batch.",
             open.port, open.code
         ))
     }
@@ -202,10 +252,24 @@ impl Bridge {
     }
 }
 
-fn write_request(arguments: &serde_json::Map<String, Value>) -> Result<Value, String> {
+fn read_request(arguments: &serde_json::Map<String, Value>) -> Result<Value, String> {
     if let Some(key) = arguments
         .keys()
-        .find(|key| !["revision", "expected_sha256", "text", "x", "y"].contains(&key.as_str()))
+        .find(|key| !["layer", "frame", "composite"].contains(&key.as_str()))
+    {
+        return Err(format!("Unknown argument {key}"));
+    }
+    let mut request = json!({"op": "read"});
+    for (key, value) in arguments {
+        request[key] = value.clone();
+    }
+    Ok(request)
+}
+
+fn write_request(arguments: &serde_json::Map<String, Value>) -> Result<(Value, bool), String> {
+    if let Some(key) = arguments
+        .keys()
+        .find(|key| !WRITE_KEYS.contains(&key.as_str()) && key.as_str() != "dry_run")
     {
         return Err(format!("Unknown argument {key}"));
     }
@@ -213,7 +277,37 @@ fn write_request(arguments: &serde_json::Map<String, Value>) -> Result<Value, St
     for (key, value) in arguments {
         request[key] = value.clone();
     }
-    Ok(request)
+    let needs_sha256 = arguments.contains_key("expected_sha256");
+    Ok((request, needs_sha256))
+}
+
+fn batch_request(arguments: &serde_json::Map<String, Value>) -> Result<(Value, bool), String> {
+    if let Some(key) = arguments
+        .keys()
+        .find(|key| !["writes", "dry_run"].contains(&key.as_str()))
+    {
+        return Err(format!("Unknown argument {key}"));
+    }
+    let writes = arguments
+        .get("writes")
+        .and_then(Value::as_array)
+        .filter(|items| (1..=256).contains(&items.len()))
+        .ok_or("writes must be an array of 1 to 256 write objects")?;
+    let mut needs_sha256 = false;
+    for (index, item) in writes.iter().enumerate() {
+        let obj = item
+            .as_object()
+            .ok_or_else(|| format!("Write {}: must be an object", index + 1))?;
+        if let Some(key) = obj.keys().find(|key| !WRITE_KEYS.contains(&key.as_str())) {
+            return Err(format!("Write {}: Unknown argument {key}", index + 1));
+        }
+        needs_sha256 |= obj.contains_key("expected_sha256");
+    }
+    let mut request = json!({"op": "batch"});
+    for (key, value) in arguments {
+        request[key] = value.clone();
+    }
+    Ok((request, needs_sha256))
 }
 
 /// 32 bytes from the system's random source, in hexadecimal.

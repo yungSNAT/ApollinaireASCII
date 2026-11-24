@@ -120,7 +120,7 @@ impl Layered {
         }
         Ok(Self { layers })
     }
-    fn fits(&self) -> Result<()> {
+    pub(crate) fn fits(&self) -> Result<()> {
         // The bound is cheap and close; only a project near the limit is serialised to measure.
         if self.json_bound() > MAX_INPUT_BYTES && self.to_json().len() > MAX_INPUT_BYTES {
             return Err("Project JSON would exceed the 16 MiB input limit".into());
@@ -129,7 +129,7 @@ impl Layered {
     }
     /// At least the length of [`to_json`](Self::to_json). In printable ASCII JSON escapes only
     /// `"` and `\`, and each row break is written as `\n`.
-    fn json_bound(&self) -> usize {
+    pub(crate) fn json_bound(&self) -> usize {
         let texts: usize = self
             .layers
             .iter()
@@ -202,25 +202,32 @@ impl Layered {
             _ => None,
         }
     }
-    /// Replace one frame of one layer, keeping the frame's duration. Nothing changes on error.
-    pub fn replace_frame(&mut self, layer: usize, index: usize, frame: Frame) -> Result<()> {
+    /// Replace one frame of one layer without checking [`fits`](Self::fits), returning the old
+    /// frame. Callers applying a batch validate `fits` once at the end.
+    pub(crate) fn swap_frame(&mut self, layer: usize, index: usize, frame: Frame) -> Result<Frame> {
+        let one_by_one = self.layers.len() == 1 && self.layers[0].art.frames().len() == 1;
+        let (width, height) = (self.layers[0].art.width(), self.layers[0].art.height());
+        if !one_by_one && (frame.width() != width || frame.height() != height) {
+            return Err(
+                "Replacing the whole frame can change its size only in a project of one frame and one layer"
+                    .into(),
+            );
+        }
         let art = &mut self
             .layers
             .get_mut(layer)
             .ok_or("Layer index is outside the project")?
             .art;
-        let old = art
-            .frames()
-            .get(index)
-            .ok_or("Frame index is outside the project")?
-            .clone();
-        let duration_ms = old.duration_ms;
-        art.replace_frame(index, TimedFrame { frame, duration_ms })?;
+        if index >= art.frames().len() {
+            return Err("Frame index is outside the project".into());
+        }
+        Ok(art.swap_frame(index, frame))
+    }
+    /// Replace one frame of one layer, keeping the frame's duration. Nothing changes on error.
+    pub fn replace_frame(&mut self, layer: usize, index: usize, frame: Frame) -> Result<()> {
+        let old = self.swap_frame(layer, index, frame)?;
         self.fits().inspect_err(|_| {
-            self.layers[layer]
-                .art
-                .replace_frame(index, old)
-                .expect("The old frame fitted");
+            self.layers[layer].art.swap_frame(index, old);
         })
     }
     /// One frame as shown: the visible layers, each drawn through its motion, stacked.
