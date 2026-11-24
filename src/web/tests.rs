@@ -250,6 +250,18 @@ fn border_style_is_disabled_whilst_the_border_is_off() {
 }
 
 #[wasm_bindgen_test]
+fn the_artwork_is_a_text_box_editable_only_with_a_drawing_tool() {
+    blank(4, 2);
+    let art = element::<Element>("art");
+    assert_eq!(art.get_attribute("role").as_deref(), Some("textbox"));
+    assert_eq!(art.get_attribute("aria-multiline").as_deref(), Some("true"));
+    tool("pencil");
+    assert_eq!(art.get_attribute("aria-readonly").as_deref(), Some("false"));
+    tool("select-text");
+    assert_eq!(art.get_attribute("aria-readonly").as_deref(), Some("true"));
+}
+
+#[wasm_bindgen_test]
 fn pencil_draws_by_pointer_and_keyboard() {
     blank(8, 4);
     tool("pencil");
