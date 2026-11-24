@@ -153,8 +153,9 @@ def render_markdown(binary: str, markdown: str, max_width: int) -> str:
     """Run `apollinaire diagram - --markdown --max-width <cols>` on Markdown text."""
     cmd = [binary, "diagram", "-", "--markdown", "--max-width", str(max_width)]
     try:
-        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit, python.lang.security.audit.dangerous-subprocess-use-tainted-env-args -- fixed apollinaire argument vector with shell=False and validated 1..=512 width; no shell runs
+        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- fixed apollinaire argument vector with shell=False and validated width; no shell runs
         completed = subprocess.run(  # nosec B603
+            # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-tainted-env-args.dangerous-subprocess-use-tainted-env-args -- validated 1..=512 width and resolved apollinaire executable; shell=False
             cmd,
             input=markdown.encode("utf-8"),
             capture_output=True,
