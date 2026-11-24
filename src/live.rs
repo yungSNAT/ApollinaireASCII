@@ -255,10 +255,7 @@ fn exchange(socket: &mut Socket, request: &Value, id: u64) -> Result<Value, Fail
 }
 
 fn timed_out(error: &io::Error) -> bool {
-    matches!(
-        error.kind(),
-        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
-    )
+    [io::ErrorKind::WouldBlock, io::ErrorKind::TimedOut].contains(&error.kind())
 }
 
 fn accept(listener: &TcpListener, port: u16, token: &Arc<str>, slot: &Slot) {

@@ -445,8 +445,8 @@ fn the_bridge_skips_what_is_not_an_answer_and_notices_a_dropped_editor() {
         socket.send(Message::text("not JSON")).unwrap();
         let reply = json!({"id": request["id"], "result": {"text": "after"}});
         socket.send(Message::text(reply.to_string())).unwrap();
-        let _ = socket.read();
-        // Gone without a closing handshake.
+        // The next request, then gone without a closing handshake.
+        socket.read().unwrap();
         drop(socket);
     });
     let (text, failed) = session.call("live_read", json!({}));
