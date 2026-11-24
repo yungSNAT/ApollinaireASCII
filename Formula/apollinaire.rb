@@ -1,27 +1,27 @@
 class Apollinaire < Formula
   desc "Static art, block lettering and animation as real ASCII text"
   homepage "https://yungsnat.github.io/ApollinaireASCII/"
-  version "0.4.1"
+  version "0.4.2"
   license "MIT"
 
   on_macos do
     on_arm do
-      url "https://github.com/yungSNAT/ApollinaireASCII/releases/download/v0.4.1/apollinaire-v0.4.1-aarch64-apple-darwin.tar.gz"
-      sha256 "1acdcf9a475418dc2fcea98ac6fe21854307a0280c9e1378aa162930cf3a350f"
+      url "https://github.com/yungSNAT/ApollinaireASCII/releases/download/v0.4.2/apollinaire-v0.4.2-aarch64-apple-darwin.tar.gz"
+      sha256 "43a43eebde11dd5b3872a055ad2c16988fb3c2907902f574df0f435d1d66ccc4"
     end
     on_intel do
-      url "https://github.com/yungSNAT/ApollinaireASCII/releases/download/v0.4.1/apollinaire-v0.4.1-x86_64-apple-darwin.tar.gz"
-      sha256 "a8bdb1ac6fd6a559ce6670036e39f15c81161ba067ed52eabaeaed8132336727"
+      url "https://github.com/yungSNAT/ApollinaireASCII/releases/download/v0.4.2/apollinaire-v0.4.2-x86_64-apple-darwin.tar.gz"
+      sha256 "804ad2830975ebd572f16f74ef23b6ed1ba3416e0c7f3602ee72a8a6c6ed6bbf"
     end
   end
   on_linux do
     on_arm do
-      url "https://github.com/yungSNAT/ApollinaireASCII/releases/download/v0.4.1/apollinaire-v0.4.1-aarch64-unknown-linux-musl.tar.gz"
-      sha256 "19e036be918fc85b878e635e10336d145cf7acfcd218d848b902524b0d88b1ab"
+      url "https://github.com/yungSNAT/ApollinaireASCII/releases/download/v0.4.2/apollinaire-v0.4.2-aarch64-unknown-linux-musl.tar.gz"
+      sha256 "c917f0a2efe2ce0c7029bed4d3e776c701f83647aaa407eac3104335fe292845"
     end
     on_intel do
-      url "https://github.com/yungSNAT/ApollinaireASCII/releases/download/v0.4.1/apollinaire-v0.4.1-x86_64-unknown-linux-musl.tar.gz"
-      sha256 "68ec4834aff087e6444b4558ad5e14da2670b02adbcc79b9a03b5843da71ef0e"
+      url "https://github.com/yungSNAT/ApollinaireASCII/releases/download/v0.4.2/apollinaire-v0.4.2-x86_64-unknown-linux-musl.tar.gz"
+      sha256 "fcad798f5b61e17c2ee1763133362055ffeec0dc6d4a134bdbb93f327b42cfbf"
     end
   end
 
