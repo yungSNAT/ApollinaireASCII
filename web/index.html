@@ -206,7 +206,7 @@
         <div class="actions">
           <button id="area-copy" type="button" disabled>Copy area</button><button id="area-cut" type="button" disabled>Cut area</button><button id="area-paste" type="button" disabled>Paste at cursor</button><button id="area-clear" type="button" disabled>Clear area</button><button id="area-rotate" type="button" disabled>Rotate area clockwise</button><button id="area-rotate-back" type="button" disabled>Rotate area anticlockwise</button><button id="undo" type="button">Undo</button><button id="redo" type="button">Redo</button>
         </div>
-        <div class="stage"><div class="grid" id="grid"><pre id="onion" aria-hidden="true" hidden></pre><div id="selection" class="selection" aria-hidden="true" hidden></div><pre id="art" tabindex="0" aria-label="Selectable ASCII artwork" aria-describedby="tool-help"></pre><div id="cursor" class="cursor" aria-hidden="true" hidden></div></div></div>
+        <div class="stage"><div class="grid" id="grid"><pre id="onion" aria-hidden="true" hidden></pre><div id="selection" class="selection" aria-hidden="true" hidden></div><pre id="art" tabindex="0" role="textbox" aria-multiline="true" aria-readonly="true" aria-label="Selectable ASCII artwork" aria-describedby="tool-help"></pre><div id="cursor" class="cursor" aria-hidden="true" hidden></div></div></div>
         <div class="transport">
           <button id="previous" type="button" disabled>Previous</button><button id="play" class="primary" type="button" disabled>Play</button><button id="next" type="button" disabled>Next</button>
           <output id="frame-count" for="timeline">Frame 1 / 80</output>
