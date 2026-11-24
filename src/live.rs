@@ -97,16 +97,17 @@ pub fn tools() -> Vec<Value> {
         ),
         tool(
             "live_read",
-            "The active layer's frame on screen in the connected editor, as JSON: revision, layer, frame, frames, width, height and text. Playback pauses.",
+            "The active layer's frame on screen in the connected editor, as JSON: revision, sha256, layer, frame, frames, width, height and text. Playback pauses.",
             json!({}),
             &[],
             true,
         ),
         tool(
             "live_write",
-            "Replace the active layer's frame on screen in the editor, or the block at x and y, with printable ASCII text, as one undo step. Refused unless revision is the one live_read gave for the frame as it is now. Replacing the whole frame can change its size only in a project of one frame and one layer.",
+            "Replace the active layer's frame on screen in the editor, or the block at x and y, with printable ASCII text, as one undo step. Refused unless revision is the one live_read gave for the frame as it is now, and unless optional expected_sha256 matches the frame text's SHA-256 digest. Replacing the whole frame can change its size only in a project of one frame and one layer.",
             json!({
                 "revision": {"type": "string", "description": "From live_read."},
+                "expected_sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$", "description": "Optional 64-character hex SHA-256 digest of the frame text from live_read; refused on mismatch."},
                 "text": {"type": "string", "description": "Rows separated by line feeds; shorter rows are padded with spaces."},
                 "x": {"type": "integer", "minimum": 0, "description": "Column of the block's left edge; give y too."},
                 "y": {"type": "integer", "minimum": 0, "description": "Row of the block's top edge; give x too."},
@@ -188,7 +189,7 @@ impl Bridge {
 fn write_request(arguments: &serde_json::Map<String, Value>) -> Result<Value, String> {
     if let Some(key) = arguments
         .keys()
-        .find(|key| !["revision", "text", "x", "y"].contains(&key.as_str()))
+        .find(|key| !["revision", "expected_sha256", "text", "x", "y"].contains(&key.as_str()))
     {
         return Err(format!("Unknown argument {key}"));
     }

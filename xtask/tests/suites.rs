@@ -23,6 +23,7 @@ line="$name [${here:-/}] $* APOLLINAIRE=${APOLLINAIRE-unset} DOTNET_NOLOGO=${DOT
 printf '%s\n' "$line" | sed -E "s#$ROOT/##g; s#tmp/[^/ ]+#tmp/X#g" >> "$TRACE"
 case "$name $1" in
   "nvim --version" | "emacs --version") printf '%s 9.9\nsecond line\n' "$name" ;;
+  "python3 --version") if [ "$here" = "/editors" ]; then printf '%s 9.9\nsecond line\n' "$name"; fi ;;
   "nvim --headless") if [ -n "${STUB_STDERR:-}" ]; then echo "nvim says $STUB_STDERR" >&2; exit 3; fi ;;
   "gofmt -l") if [ -n "${STUB_GOFMT:-}" ]; then echo main.go; fi ;;
   "apollinaire import") : > "${@: -1}" ;;
@@ -41,6 +42,7 @@ fn fake_root(name: &str) -> PathBuf {
     for dir in [
         "editors/emacs",
         "editors/nvim",
+        "editors/claude-code/tests",
         "tests/code_exports/go",
         "bin",
         "stubs",
@@ -52,6 +54,7 @@ fn fake_root(name: &str) -> PathBuf {
         "editors/emacs/apollinaire.el",
         "editors/emacs/apollinaire-tests.el",
         "editors/nvim/test.lua",
+        "editors/claude-code/tests/test_hook.py",
         "tests/code_exports/once.json",
         "tests/code_exports/loop.json",
     ] {
@@ -119,6 +122,7 @@ fn editors_runs_what_the_shell_script_ran() {
         stdout,
         "nvim 9.9
 emacs 9.9
+python3 9.9
 "
     );
     assert_eq!(trace, golden("editors.trace"));

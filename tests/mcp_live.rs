@@ -236,3 +236,53 @@ fn an_unanswered_request_keeps_the_editor_and_its_late_answer_is_skipped() {
     assert!(text.contains("current"), "{text}");
     let _socket = browser.join().unwrap();
 }
+
+#[test]
+fn live_write_forwards_expected_sha256_and_advertises_it() {
+    let mut session = Session::start(&["mcp", "--live"]);
+    let tools = session.request("tools/list", json!({}))["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .clone();
+    let write_tool = tools
+        .iter()
+        .find(|tool| tool["name"] == "live_write")
+        .unwrap();
+    assert_eq!(
+        write_tool["inputSchema"]["properties"]["expected_sha256"]["type"],
+        "string"
+    );
+
+    let (port, token) = session.connect();
+    let mut socket = editor(port, &token);
+    let digest = "a".repeat(64);
+    let browser = thread::spawn(move || {
+        let accepted = answer(
+            &mut socket,
+            json!({"result": {"revision": "0100", "sha256": "b".repeat(64)}}),
+        );
+        let rejected = answer(
+            &mut socket,
+            json!({"error": "The frame content digest changed since it was read: read it again"}),
+        );
+        (accepted, rejected)
+    });
+    let (text, failed) = session.call(
+        "live_write",
+        json!({"revision": "00ff", "expected_sha256": digest, "text": "ok"}),
+    );
+    assert!(!failed, "{text}");
+    assert!(text.contains(&"b".repeat(64)), "{text}");
+    let (text, failed) = session.call(
+        "live_write",
+        json!({"revision": "0100", "expected_sha256": "0".repeat(64), "text": "no"}),
+    );
+    assert!(failed);
+    assert_eq!(
+        text,
+        "The frame content digest changed since it was read: read it again"
+    );
+    let (accepted, rejected) = browser.join().unwrap();
+    assert_eq!(accepted["expected_sha256"], json!("a".repeat(64)));
+    assert_eq!(rejected["expected_sha256"], json!("0".repeat(64)));
+}

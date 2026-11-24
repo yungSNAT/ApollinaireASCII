@@ -3,7 +3,7 @@
 
 //! Test suites that run outside Cargo against a built apollinaire, from the repository root.
 //! `editors`: the Neovim plugin, then the Emacs package byte-compiled with warnings as errors,
-//! then its tests, all headless. `code-exports`: each code export of once.json and loop.json,
+//! then its tests, then the Claude Code plugin tests, all headless. `code-exports`: each code export of once.json and loop.json,
 //! written and run: React and Ink under Node, OpenTUI under Bun and Bubble Tea under Go at the
 //! versions pinned in tests/code_exports, and the Python, Ruby and C# programs under the python3,
 //! ruby and dotnet on PATH (.NET 10 or later).
@@ -53,6 +53,11 @@ fn remove(path: &Path) -> Result<(), String> {
 /// npm is a batch file on Windows, which Command does not find by its bare name.
 fn npm() -> &'static str {
     if cfg!(windows) { "npm.cmd" } else { "npm" }
+}
+
+/// Python 3 on each platform: `python` on Windows, `python3` elsewhere.
+fn python() -> &'static str {
+    if cfg!(windows) { "python" } else { "python3" }
 }
 
 pub fn editors(bin: &str) -> Result<(), String> {
@@ -110,6 +115,13 @@ pub fn editors(bin: &str) -> Result<(), String> {
         &env,
         "emacs",
         &[&["--batch", "-Q"][..], &tests].concat(),
+    )?;
+    first_line(dir, &env, python(), &["--version"])?;
+    run(
+        dir,
+        &env,
+        python(),
+        &["-B", "claude-code/tests/test_hook.py"],
     )
 }
 

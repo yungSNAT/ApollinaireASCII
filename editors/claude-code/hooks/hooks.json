@@ -1,0 +1,16 @@
+{
+  "description": "Render fenced Mermaid blocks in edited Markdown files to pure printable ASCII via apollinaire.",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/render_mermaid.py\""
+          }
+        ]
+      }
+    ]
+  }
+}

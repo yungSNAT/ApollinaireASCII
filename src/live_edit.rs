@@ -3,7 +3,7 @@
 
 //! The editor's side of `apollinaire mcp --live`: its answers to the bridge's `read` and `write`
 //! requests about the frame on screen. Kept apart from the browser code so it is tested natively.
-use crate::{Canvas, Frame, Result};
+use crate::{Canvas, Frame, Result, sha256};
 use serde_json::{Value, json};
 
 /// The frame on screen: the active layer's selected frame.
@@ -29,6 +29,11 @@ pub fn revision(view: &View) -> String {
     format!("{hash:016x}")
 }
 
+/// Lowercase hexadecimal SHA-256 digest of the frame's text (rows separated by line feeds).
+pub fn content_sha256(art: &Frame) -> String {
+    sha256::hex(art.text().as_bytes())
+}
+
 /// The reply to one request, and the frame a write puts in place of the one on screen.
 pub fn answer(view: &View, request: &Value) -> (Value, Option<Frame>) {
     let id = request["id"].clone();
@@ -36,7 +41,8 @@ pub fn answer(view: &View, request: &Value) -> (Value, Option<Frame>) {
         Some("read") => Ok((read(view), None)),
         Some("write") => write(view, request).map(|art| {
             let revision = revision(&View { art: &art, ..*view });
-            (json!({"revision": revision}), Some(art))
+            let sha256 = content_sha256(&art);
+            (json!({"revision": revision, "sha256": sha256}), Some(art))
         }),
         _ => Err("Unknown request".into()),
     };
@@ -49,6 +55,7 @@ pub fn answer(view: &View, request: &Value) -> (Value, Option<Frame>) {
 fn read(view: &View) -> Value {
     json!({
         "revision": revision(view),
+        "sha256": content_sha256(view.art),
         "layer": view.layer,
         "frame": view.frame,
         "frames": view.frames,
@@ -58,10 +65,34 @@ fn read(view: &View) -> Value {
     })
 }
 
+/// Constant-time comparison of an ASCII hex digest (case-insensitive on `given`).
+fn digest_matches(given: &str, actual: &str) -> bool {
+    let diff = given
+        .bytes()
+        .zip(actual.bytes())
+        .fold(0u8, |acc, (a, b)| acc | (a.to_ascii_lowercase() ^ b));
+    given.len() == actual.len() && std::hint::black_box(diff) == 0
+}
+
+fn check_expected_sha256(art: &Frame, request: &Value) -> Result<()> {
+    let Some(raw) = request.get("expected_sha256") else {
+        return Ok(());
+    };
+    let given = raw
+        .as_str()
+        .filter(|s| s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit()))
+        .ok_or("expected_sha256 must be a 64-character hex SHA-256 digest")?;
+    if !digest_matches(given, &content_sha256(art)) {
+        return Err("The frame content digest changed since it was read: read it again".into());
+    }
+    Ok(())
+}
+
 fn write(view: &View, request: &Value) -> Result<Frame> {
     if request["revision"].as_str() != Some(revision(view).as_str()) {
         return Err("The frame changed since it was read: read it again".into());
     }
+    check_expected_sha256(view.art, request)?;
     let text = request["text"].as_str().ok_or("text must be a string")?;
     let block = Frame::from_text_padded(text)?;
     let place = |name: &str| match &request[name] {
@@ -123,6 +154,7 @@ mod tests {
             reply,
             json!({"id": 3, "result": {
                 "revision": revision(&view(&art)),
+                "sha256": content_sha256(&art),
                 "layer": 0, "frame": 1, "frames": 3, "width": 2, "height": 2, "text": "ab\ncd",
             }})
         );
@@ -160,7 +192,10 @@ mod tests {
         assert_eq!(changed.text(), "....\n.xy.\n.z .");
         assert_eq!(
             reply,
-            json!({"id": 7, "result": {"revision": revision(&view(&changed))}})
+            json!({"id": 7, "result": {
+                "revision": revision(&view(&changed)),
+                "sha256": content_sha256(&changed),
+            }})
         );
     }
 
@@ -181,6 +216,50 @@ mod tests {
             reply,
             json!({"id": 1, "error": "The frame changed since it was read: read it again"})
         );
+    }
+
+    #[test]
+    fn expected_sha256_accepts_a_matching_digest_and_fails_closed_otherwise() {
+        let art = Frame::from_text("ab\ncd").unwrap();
+        let digest = content_sha256(&art);
+        assert_eq!(digest.len(), 64);
+
+        let (reply, changed) = write(&art, json!({"text": "xy", "expected_sha256": digest}));
+        let changed = changed.unwrap();
+        assert_eq!(changed.text(), "xy");
+        assert_eq!(reply["result"]["sha256"], content_sha256(&changed));
+
+        // Uppercase hex is accepted.
+        let (_, upper) = write(
+            &art,
+            json!({"text": "zz", "expected_sha256": digest.to_ascii_uppercase()}),
+        );
+        assert_eq!(upper.unwrap().text(), "zz");
+
+        // Mismatched digest fails closed even when revision matches.
+        let wrong = content_sha256(&Frame::from_text("ab\nce").unwrap());
+        let (reply, changed) = write(&art, json!({"text": "xy", "expected_sha256": wrong}));
+        assert_eq!(changed, None);
+        assert_eq!(
+            reply["error"],
+            "The frame content digest changed since it was read: read it again"
+        );
+
+        // Null, non-string, wrong length or non-hex values fail closed.
+        for bad in [
+            Value::Null,
+            json!(42),
+            json!(""),
+            json!("abcd"),
+            json!("g".repeat(64)),
+        ] {
+            let (reply, changed) = write(&art, json!({"text": "xy", "expected_sha256": bad}));
+            assert_eq!(changed, None);
+            assert_eq!(
+                reply["error"],
+                "expected_sha256 must be a 64-character hex SHA-256 digest"
+            );
+        }
     }
 
     #[test]

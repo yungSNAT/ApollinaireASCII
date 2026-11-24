@@ -3,3 +3,5 @@ nvim [/editors] --headless -u NONE -i NONE -l nvim/test.lua APOLLINAIRE=bin/apol
 emacs [/editors] --version APOLLINAIRE=bin/apollinaire DOTNET_NOLOGO=unset DOTNET_CLI_TELEMETRY_OPTOUT=unset
 emacs [/editors] --batch -Q -L tmp/X --eval (setq byte-compile-error-on-warn t) -f batch-byte-compile tmp/X/apollinaire-tests.el tmp/X/apollinaire.el APOLLINAIRE=bin/apollinaire DOTNET_NOLOGO=unset DOTNET_CLI_TELEMETRY_OPTOUT=unset
 emacs [/editors] --batch -Q -L emacs -l apollinaire-tests -f ert-run-tests-batch-and-exit APOLLINAIRE=bin/apollinaire DOTNET_NOLOGO=unset DOTNET_CLI_TELEMETRY_OPTOUT=unset
+python3 [/editors] --version APOLLINAIRE=bin/apollinaire DOTNET_NOLOGO=unset DOTNET_CLI_TELEMETRY_OPTOUT=unset
+python3 [/editors] -B claude-code/tests/test_hook.py APOLLINAIRE=bin/apollinaire DOTNET_NOLOGO=unset DOTNET_CLI_TELEMETRY_OPTOUT=unset
