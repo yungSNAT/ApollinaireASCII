@@ -7,54 +7,15 @@
 //! written and run: React and Ink under Node, OpenTUI under Bun and Bubble Tea under Go at the
 //! versions pinned in tests/code_exports, and the Python, Ruby and C# programs under the python3,
 //! ruby and dotnet on PATH (.NET 10 or later).
+use crate::shared::{TempDir, exec, fail, first_line};
 use std::{
     fs, io,
-    path::{Path, PathBuf},
+    path::Path,
     process::{Command, Stdio},
 };
 
-/// Run a program in `dir` with extra environment variables, failing on a non-zero exit, and
-/// return its output when `stdout` is piped.
-fn exec(
-    dir: &Path,
-    env: &[(&str, &str)],
-    program: &str,
-    args: &[&str],
-    stdout: Stdio,
-) -> Result<Vec<u8>, String> {
-    let out = Command::new(program)
-        .args(args)
-        .current_dir(dir)
-        .envs(env.iter().copied())
-        .stdout(stdout)
-        .stderr(Stdio::inherit())
-        .output()
-        .map_err(|error| format!("Cannot run {program}: {error}"))?;
-    if !out.status.success() {
-        return Err(format!(
-            "{program} {} failed: {}",
-            args.join(" "),
-            out.status
-        ));
-    }
-    Ok(out.stdout)
-}
-
 fn run(dir: &Path, env: &[(&str, &str)], program: &str, args: &[&str]) -> Result<(), String> {
     exec(dir, env, program, args, Stdio::inherit()).map(drop)
-}
-
-/// Print the first line `<program> --version` writes, as `| head -n 1` does.
-fn first_line(dir: &Path, env: &[(&str, &str)], program: &str) -> Result<(), String> {
-    let out = exec(dir, env, program, &["--version"], Stdio::piped())?;
-    println!(
-        "{}",
-        String::from_utf8_lossy(&out)
-            .lines()
-            .next()
-            .unwrap_or_default()
-    );
-    Ok(())
 }
 
 /// The binary's absolute path. On Windows it has forward slashes and no `\\?\` prefix, as
@@ -76,10 +37,6 @@ fn text(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-fn fail(path: &Path) -> impl Fn(io::Error) -> String + '_ {
-    move |error| format!("{}: {error}", path.display())
-}
-
 /// Remove a file or folder that may not exist.
 fn remove(path: &Path) -> Result<(), String> {
     let removed = if path.is_dir() {
@@ -93,25 +50,6 @@ fn remove(path: &Path) -> Result<(), String> {
     }
 }
 
-/// A folder under the temporary folder, removed when dropped.
-struct TempDir(PathBuf);
-
-impl TempDir {
-    /// Refuses a path that already exists, so a planted folder or link is never used.
-    fn new(name: &str) -> Result<Self, String> {
-        // nosemgrep: rust.lang.security.temp-dir.temp-dir -- create_dir fails on an existing path, so a planted folder or link stops the run
-        let path = std::env::temp_dir().join(format!("{name}-{}", std::process::id()));
-        fs::create_dir(&path).map_err(fail(&path))?;
-        Ok(Self(path))
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
-
 /// npm is a batch file on Windows, which Command does not find by its bare name.
 fn npm() -> &'static str {
     if cfg!(windows) { "npm.cmd" } else { "npm" }
@@ -121,7 +59,7 @@ pub fn editors(bin: &str) -> Result<(), String> {
     let bin = binary(bin)?;
     let env = [("APOLLINAIRE", bin.as_str())];
     let dir = Path::new("editors");
-    first_line(dir, &env, "nvim")?;
+    first_line(dir, &env, "nvim", &["--version"])?;
     run(
         dir,
         &env,
@@ -136,7 +74,7 @@ pub fn editors(bin: &str) -> Result<(), String> {
             "nvim/test.lua",
         ],
     )?;
-    first_line(dir, &env, "emacs")?;
+    first_line(dir, &env, "emacs", &["--version"])?;
     let out = TempDir::new("apollinaire-emacs")?;
     let mut files = Vec::new();
     let emacs = dir.join("emacs");
@@ -257,21 +195,6 @@ pub fn code_exports(bin: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_folder_already_there_is_refused_and_kept() {
-        let name = "apollinaire-suites-test";
-        let planted = std::env::temp_dir().join(format!("{name}-{}", std::process::id()));
-        fs::create_dir_all(&planted).unwrap();
-        fs::write(planted.join("planted.el"), "").unwrap();
-        assert!(TempDir::new(name).is_err());
-        assert!(planted.join("planted.el").exists());
-        fs::remove_dir_all(&planted).unwrap();
-        let fresh = TempDir::new(name).unwrap();
-        assert!(fresh.0.is_dir());
-        drop(fresh);
-        assert!(!planted.exists());
-    }
 
     #[test]
     fn the_binary_path_is_absolute() {

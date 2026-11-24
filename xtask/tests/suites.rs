@@ -35,6 +35,7 @@ const TOOLS: [&str; 10] = [
 
 /// A repository with the files the suites read, stubs for their tools and a temporary folder.
 fn fake_root(name: &str) -> PathBuf {
+    // nosemgrep: rust.lang.security.temp-dir.temp-dir -- a test fixture folder; no security decision rests on it
     let root = std::env::temp_dir().join(format!("xtask-suites-{name}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&root);
     for dir in [

@@ -22,18 +22,9 @@ mod unix {
     use std::{
         fs,
         os::unix::fs::{MetadataExt, PermissionsExt},
-        path::{Path, PathBuf},
+        path::Path,
         process::{Command, Stdio},
     };
-
-    /// A staging folder, removed when dropped.
-    struct Staging(PathBuf);
-
-    impl Drop for Staging {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
 
     fn io(path: &Path) -> impl Fn(std::io::Error) -> String + '_ {
         move |error| format!("{}: {error}", path.display())
@@ -112,11 +103,8 @@ mod unix {
     }
 
     pub fn build(src: &Path, version: &str, arch: &str, out: &Path) -> Result<(), String> {
-        // nosemgrep: rust.lang.security.temp-dir.temp-dir -- create_dir fails on an existing path, so a planted folder or link stops the build
-        let root = std::env::temp_dir().join(format!("apollinaire-deb-{}", std::process::id()));
-        fs::create_dir(&root).map_err(io(&root))?;
         // Only a folder this run created is removed when the build ends.
-        let staging = Staging(root);
+        let staging = crate::shared::TempDir::new("apollinaire-deb")?;
         let root = &staging.0;
         let usr = root.join("usr");
         let share = usr.join("share");

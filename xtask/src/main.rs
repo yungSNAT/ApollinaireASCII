@@ -7,6 +7,7 @@ use std::{path::Path, process::ExitCode};
 
 mod deb;
 mod manifests;
+mod shared;
 mod speed;
 mod suites;
 
