@@ -10,6 +10,10 @@ use std::{
     io::{BufRead, BufReader, Read, Write},
     net::TcpStream,
     process::{Child, ChildStdin, ChildStdout, Command, Stdio},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     thread,
     time::{Duration, Instant},
 };
@@ -412,25 +416,49 @@ fn live_mode_keeps_every_other_tool_as_it_was() {
 }
 
 #[test]
-fn connections_past_the_admission_limit_are_closed_at_once() {
+fn past_the_admission_limit_the_oldest_connection_is_closed_at_once() {
     let mut session = Session::start(&["mcp", "--live"]);
     let (port, _) = session.connect();
     let mut streams: Vec<TcpStream> = (0..40)
         .map(|_| TcpStream::connect(("127.0.0.1", port)).unwrap())
         .collect();
-    let last = streams.last_mut().unwrap();
-    last.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
-    // Closed (a reset on Windows), not left waiting for its handshake.
-    match last.read(&mut [0; 16]) {
+    let first = &mut streams[0];
+    first.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+    // Closed (a reset on Windows) well before the 5 second deadline.
+    match first.read(&mut [0; 16]) {
         Ok(read) => assert_eq!(read, 0),
         Err(e) => assert!(
-            !matches!(
-                e.kind(),
-                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-            ),
+            ![std::io::ErrorKind::WouldBlock, std::io::ErrorKind::TimedOut].contains(&e.kind()),
             "{e}"
         ),
     }
+}
+
+#[test]
+fn connections_that_never_sign_in_cannot_keep_the_editor_out() {
+    let mut session = Session::start(&["mcp", "--live"]);
+    let (port, token) = session.connect();
+    // Hold far more connections than the bridge admits at once and keep opening more.
+    let stop = Arc::new(AtomicBool::new(false));
+    let flood = {
+        let stop = stop.clone();
+        thread::spawn(move || {
+            let mut held = Vec::new();
+            while !stop.load(Ordering::SeqCst) {
+                held.extend(TcpStream::connect(("127.0.0.1", port)).ok());
+                thread::sleep(Duration::from_millis(5));
+            }
+            held.len()
+        })
+    };
+    thread::sleep(Duration::from_secs(1));
+    let mut socket = editor(port, &token);
+    let browser = thread::spawn(move || answer(&mut socket, json!({"result": {"text": "in"}})));
+    let (text, failed) = session.call("live_read", json!({}));
+    stop.store(true, Ordering::SeqCst);
+    assert!(!failed, "{text}");
+    assert!(flood.join().unwrap() > 64);
+    browser.join().unwrap();
 }
 
 #[test]
