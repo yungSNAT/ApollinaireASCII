@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess  # nosec B404
 import sys
 import tempfile
@@ -15,8 +16,12 @@ import unittest
 from pathlib import Path
 
 PLUGIN_DIR = Path(__file__).resolve().parent.parent
-SCRIPT = PLUGIN_DIR / "scripts" / "render_mermaid.py"
+SCRIPTS_DIR = PLUGIN_DIR / "scripts"
+SCRIPT = SCRIPTS_DIR / "render_mermaid.py"
 BIN = os.environ.get("APOLLINAIRE", "apollinaire")
+
+sys.path.insert(0, str(SCRIPTS_DIR))
+import _safe_io  # noqa: E402
 
 
 def run_hook(
@@ -109,7 +114,6 @@ class HookBehaviourTests(unittest.TestCase):
             code, stdout, stderr = run_hook([], payload)
             self.assertEqual(code, 0, stderr)
             self.assertEqual(stderr, "")
-            # Source file stays untouched on disk.
             self.assertEqual(md_path.read_bytes().decode("utf-8"), sample)
 
             parsed = json.loads(stdout)
@@ -121,9 +125,7 @@ class HookBehaviourTests(unittest.TestCase):
             self.assertIn("Service", ctx)
             self.assertIn("Ready", ctx)
             self.assertNotIn("fn main()", ctx)
-            self.assertTrue(
-                all(ch in ("\n", "\r") or 32 <= ord(ch) <= 126 for ch in ctx)
-            )
+            self.assertTrue(all(ch == "\n" or 32 <= ord(ch) <= 126 for ch in ctx))
 
     def test_post_tool_use_respects_max_width_env(self) -> None:
         sample = (
@@ -152,12 +154,19 @@ class HookBehaviourTests(unittest.TestCase):
             for line in code_lines:
                 self.assertLessEqual(len(line), 36, line)
 
-    def test_post_tool_use_ignores_non_markdown_and_mermaid_free_markdown(self) -> None:
+    def test_post_tool_use_ignores_unrelated_tools_and_non_mermaid_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             rs_path = Path(tmp) / "lib.rs"
             rs_path.write_text("fn ok() {}\n", encoding="utf-8")
             code, stdout, stderr = run_hook(
-                [], json.dumps({"cwd": tmp, "tool_input": {"file_path": str(rs_path)}})
+                [],
+                json.dumps(
+                    {
+                        "tool_name": "Write",
+                        "cwd": tmp,
+                        "tool_input": {"file_path": str(rs_path)},
+                    }
+                ),
             )
             self.assertEqual(code, 0, stderr)
             self.assertEqual(stdout, "")
@@ -165,7 +174,20 @@ class HookBehaviourTests(unittest.TestCase):
             plain_md = Path(tmp) / "notes.md"
             plain_md.write_text("# Notes\n\nJust prose and `inline` code.\n", encoding="utf-8")
             code, stdout, stderr = run_hook(
-                [], json.dumps({"cwd": tmp, "tool_input": {"file_path": str(plain_md)}})
+                [],
+                json.dumps(
+                    {
+                        "tool_name": "Edit",
+                        "cwd": tmp,
+                        "tool_input": {"file_path": str(plain_md)},
+                    }
+                ),
+            )
+            self.assertEqual(code, 0, stderr)
+            self.assertEqual(stdout, "")
+
+            code, stdout, stderr = run_hook(
+                [], json.dumps({"tool_name": "Read", "tool_input": {"file_path": "/etc/hosts"}})
             )
             self.assertEqual(code, 0, stderr)
             self.assertEqual(stdout, "")
@@ -174,12 +196,14 @@ class HookBehaviourTests(unittest.TestCase):
             self.assertEqual(code, 0, stderr)
             self.assertEqual(stdout, "")
 
-    def test_fails_closed_when_apollinaire_is_missing(self) -> None:
+    def test_fails_closed_when_apollinaire_is_missing_or_relative_exe_resolved(self) -> None:
         sample = "```mermaid\nflowchart TD\n  A --> B\n```\n"
         with tempfile.TemporaryDirectory() as tmp:
             md_path = Path(tmp) / "flow.md"
             md_path.write_bytes(sample.encode("utf-8"))
-            payload = json.dumps({"cwd": tmp, "tool_input": {"file_path": str(md_path)}})
+            payload = json.dumps(
+                {"tool_name": "Write", "cwd": tmp, "tool_input": {"file_path": str(md_path)}}
+            )
 
             missing_bin = str(Path(tmp) / "no-such-apollinaire")
             code, stdout, stderr = run_hook([], payload, {"APOLLINAIRE": missing_bin})
@@ -199,18 +223,32 @@ class HookBehaviourTests(unittest.TestCase):
             self.assertEqual(stdout, "")
             self.assertIn("apollinaire binary not found", stderr)
 
-    def test_fails_closed_on_path_traversal_and_invalid_inputs(self) -> None:
+            # Relative executable `./apollinaire` must resolve directly without PATH lookup.
+            local_name = Path(BIN).name
+            local_bin = Path(tmp) / local_name
+            shutil.copy2(BIN, local_bin)
+            rel_ref = f".{os.sep}{local_name}"
+            code, stdout, stderr = run_hook(
+                ["--markdown"],
+                sample,
+                {"APOLLINAIRE": rel_ref, "PATH": ""},
+                cwd=tmp,
+            )
+            self.assertEqual(code, 0, stderr)
+            self.assertIn("```text", stdout)
+
+    def test_fails_closed_on_malformed_payloads_widths_and_traversals(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             workspace = Path(tmp) / "work"
             workspace.mkdir()
             outside = Path(tmp) / "outside.md"
             outside.write_text("```mermaid\nflowchart TD\n  A --> B\n```\n", encoding="utf-8")
 
-            # Traversal outside cwd in PostToolUse fails closed.
             code, stdout, stderr = run_hook(
                 [],
                 json.dumps(
                     {
+                        "tool_name": "Write",
                         "cwd": str(workspace),
                         "tool_input": {"file_path": str(outside)},
                     }
@@ -220,30 +258,32 @@ class HookBehaviourTests(unittest.TestCase):
             self.assertEqual(stdout, "")
             self.assertIn("Refused path outside workspace", stderr)
 
-            # Traversal via --file fails closed.
             code, stdout, stderr = run_hook(
                 ["--markdown", "--file", "../outside.md"], "", cwd=workspace
             )
             self.assertEqual(code, 2)
             self.assertEqual(stdout, "")
-            self.assertIn("Refused path outside workspace", stderr)
+            self.assertIn("Refused", stderr)
 
-            bad_md = workspace / "broken.md"
-            bad_md.write_text("```mermaid\nnot a valid diagram\n```\n", encoding="utf-8")
-            code, _, stderr = run_hook(
-                [],
-                json.dumps(
-                    {"cwd": str(workspace), "tool_input": {"file_path": str(bad_md)}}
-                ),
-            )
-            self.assertEqual(code, 2)
-            self.assertIn("apollinaire diagram failed", stderr)
+            for bad_payload in [
+                {"tool_name": "Write"},
+                {"tool_name": "Edit", "tool_input": "not-an-object"},
+                {"tool_name": "MultiEdit", "tool_input": {}},
+                {"tool_name": "Write", "tool_input": {"file_path": ""}},
+                {"tool_name": "Write", "tool_input": {"file_path": 123}},
+                {"tool_name": "Write", "tool_input": {"file_path": "a\x00.md"}},
+                {"tool_name": 42, "tool_input": {}},
+            ]:
+                code, stdout, stderr = run_hook([], json.dumps(bad_payload))
+                self.assertEqual(code, 2, bad_payload)
+                self.assertEqual(stdout, "")
+                self.assertTrue(stderr.startswith("apollinaire-mermaid:"), stderr)
 
-            for bad_width in ("0", "513", "wide", "-5"):
+            for bad_width in ("0", "513", "wide", "-5", "\u00b2", "9" * 5000):
                 code, _, stderr = run_hook(
                     ["--markdown", "--max-width", bad_width], "# ok\n"
                 )
-                self.assertEqual(code, 2, bad_width)
+                self.assertEqual(code, 2, repr(bad_width))
                 self.assertIn("max-width", stderr)
 
             code, _, stderr = run_hook([], "{not json")
@@ -254,11 +294,134 @@ class HookBehaviourTests(unittest.TestCase):
             code, _, stderr = run_hook(
                 [],
                 json.dumps(
-                    {"cwd": str(workspace), "tool_input": {"file_path": str(missing_md)}}
+                    {
+                        "tool_name": "Write",
+                        "cwd": str(workspace),
+                        "tool_input": {"file_path": str(missing_md)},
+                    }
                 ),
             )
             self.assertEqual(code, 2)
-            self.assertIn("Cannot read", stderr)
+            self.assertIn("Cannot safely open", stderr)
+
+            bad_md = workspace / "broken.md"
+            bad_md.write_text("```mermaid\nnot a valid diagram\n```\n", encoding="utf-8")
+            code, _, stderr = run_hook(
+                [],
+                json.dumps(
+                    {
+                        "tool_name": "Write",
+                        "cwd": str(workspace),
+                        "tool_input": {"file_path": str(bad_md)},
+                    }
+                ),
+            )
+            self.assertEqual(code, 2)
+            self.assertIn("apollinaire diagram failed", stderr)
+
+    def test_rejects_symlinks_and_escapes_non_ascii_filenames(self) -> None:
+        sample = "```mermaid\nflowchart TD\n  A --> B\n```\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp) / "work"
+            workspace.mkdir()
+            outside = Path(tmp) / "secret.md"
+            outside.write_bytes(sample.encode("utf-8"))
+
+            cafe = workspace / "caf\u00e9.md"
+            cafe.write_bytes(sample.encode("utf-8"))
+            code, stdout, stderr = run_hook(
+                [],
+                json.dumps(
+                    {
+                        "tool_name": "Write",
+                        "cwd": str(workspace),
+                        "tool_input": {"file_path": str(cafe)},
+                    }
+                ),
+            )
+            self.assertEqual(code, 0, stderr)
+            ctx = json.loads(stdout)["hookSpecificOutput"]["additionalContext"]
+            self.assertIn("caf\\xe9.md", ctx)
+            self.assertTrue(all(ch == "\n" or 32 <= ord(ch) <= 126 for ch in ctx))
+
+            if os.name != "nt":
+                link_file = workspace / "link.md"
+                link_file.symlink_to(outside)
+                code, _, stderr = run_hook(
+                    [],
+                    json.dumps(
+                        {
+                            "tool_name": "Write",
+                            "cwd": str(workspace),
+                            "tool_input": {"file_path": str(link_file)},
+                        }
+                    ),
+                )
+                self.assertEqual(code, 2)
+                self.assertIn("Cannot safely open", stderr)
+
+                outside_dir = Path(tmp) / "outside_dir"
+                outside_dir.mkdir()
+                (outside_dir / "doc.md").write_bytes(sample.encode("utf-8"))
+                link_dir = workspace / "sub"
+                link_dir.symlink_to(outside_dir)
+                code, _, stderr = run_hook(
+                    [],
+                    json.dumps(
+                        {
+                            "tool_name": "Write",
+                            "cwd": str(workspace),
+                            "tool_input": {"file_path": str(link_dir / "doc.md")},
+                        }
+                    ),
+                )
+                self.assertEqual(code, 2)
+                self.assertIn("Cannot safely open", stderr)
+
+                esc_file = workspace / "bad\x1bname.md"
+                esc_file.write_bytes(sample.encode("utf-8"))
+                code, stdout, stderr = run_hook(
+                    [],
+                    json.dumps(
+                        {
+                            "tool_name": "Write",
+                            "cwd": str(workspace),
+                            "tool_input": {"file_path": str(esc_file)},
+                        }
+                    ),
+                )
+                self.assertEqual(code, 0, stderr)
+                ctx = json.loads(stdout)["hookSpecificOutput"]["additionalContext"]
+                self.assertIn("bad\\x1bname.md", ctx)
+                self.assertNotIn("\x1b", ctx)
+
+    def test_bounded_process_and_file_read_reject_overflow(self) -> None:
+        with self.assertRaises(_safe_io.SafeIoError) as cm:
+            _safe_io.run_bounded_process(
+                [sys.executable, "-c", "import sys; sys.stdout.buffer.write(b'x' * 4096)"],
+                b"",
+                timeout_secs=10,
+                max_stdout=1024,
+                max_stderr=1024,
+            )
+        self.assertIn("stdout exceeded byte limit", str(cm.exception))
+
+        with self.assertRaises(_safe_io.SafeIoError) as cm:
+            _safe_io.run_bounded_process(
+                [sys.executable, "-c", "import sys; sys.stderr.buffer.write(b'e' * 4096)"],
+                b"",
+                timeout_secs=10,
+                max_stdout=1024,
+                max_stderr=1024,
+            )
+        self.assertIn("stderr exceeded byte limit", str(cm.exception))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            big = Path(tmp) / "big.md"
+            big.write_bytes(b"a" * 2048)
+            with self.assertRaises(_safe_io.SafeIoError) as cm:
+                _safe_io.read_contained_utf8(str(big), Path(tmp), max_bytes=1024)
+            self.assertIn("exceeds", str(cm.exception))
 
     def test_markdown_cli_mode_replaces_mermaid_blocks_in_place_on_stdout(self) -> None:
         source = (
@@ -276,7 +439,6 @@ class HookBehaviourTests(unittest.TestCase):
         self.assertIn("Ping", stdout)
         self.assertTrue(stdout.endswith("```\n\nTail text.\n"), stdout)
 
-        # CRLF Markdown input also round-trips cleanly without double CR.
         crlf_source = source.replace("\n", "\r\n")
         code, stdout, stderr = run_hook(["--markdown", "--max-width", "60"], crlf_source)
         self.assertEqual(code, 0, stderr)
@@ -306,7 +468,13 @@ class HookBehaviourTests(unittest.TestCase):
             unclosed.write_bytes(b"```mermaid\nflowchart TD\n  A --> B\n")
             code, _, stderr = run_hook(
                 [],
-                json.dumps({"cwd": tmp, "tool_input": {"file_path": str(unclosed)}}),
+                json.dumps(
+                    {
+                        "tool_name": "Write",
+                        "cwd": tmp,
+                        "tool_input": {"file_path": str(unclosed)},
+                    }
+                ),
             )
             self.assertEqual(code, 2)
             self.assertIn("not closed", stderr)

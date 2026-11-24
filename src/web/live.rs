@@ -41,8 +41,13 @@ fn connect() -> Result<()> {
     let socket = WebSocket::new(&format!("ws://127.0.0.1:{port}"))
         .map_err(|_| "Cannot open a connection to the agent.")?;
     let sender = socket.clone();
+    let sign_in = serde_json::json!({
+        "token": token,
+        "capabilities": ["expected_sha256"],
+    })
+    .to_string();
     let open = Closure::once_into_js(move || {
-        let _ = sender.send_with_str(&token);
+        let _ = sender.send_with_str(&sign_in);
     });
     socket.set_onopen(Some(open.unchecked_ref()));
     let sender = socket.clone();

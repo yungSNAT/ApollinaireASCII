@@ -7,7 +7,7 @@
 
 mod live;
 
-use live::{Session, answer, closed, editor};
+use live::{Session, answer, capable_editor, closed, editor};
 use serde_json::{Value, json};
 use std::thread;
 use tungstenite::Message;
@@ -254,7 +254,7 @@ fn live_write_forwards_expected_sha256_and_advertises_it() {
     );
 
     let (port, token) = session.connect();
-    let mut socket = editor(port, &token);
+    let mut socket = capable_editor(port, &token);
     let digest = "a".repeat(64);
     let browser = thread::spawn(move || {
         let accepted = answer(
@@ -285,4 +285,58 @@ fn live_write_forwards_expected_sha256_and_advertises_it() {
     let (accepted, rejected) = browser.join().unwrap();
     assert_eq!(accepted["expected_sha256"], json!("a".repeat(64)));
     assert_eq!(rejected["expected_sha256"], json!("0".repeat(64)));
+}
+
+#[test]
+fn legacy_editor_without_sha256_capability_refuses_guarded_writes_before_forwarding() {
+    let mut session = Session::start(&["mcp", "--live"]);
+    let (port, token) = session.connect();
+    let mut legacy = editor(port, &token);
+    let browser = thread::spawn(move || {
+        // The guarded write must never reach the legacy editor; the very first frame it sees
+        // must be the follow-up live_read.
+        let seen = answer(&mut legacy, json!({"result": {"text": "untouched"}}));
+        (legacy, seen)
+    });
+    let (text, failed) = session.call(
+        "live_write",
+        json!({"revision": "00ff", "expected_sha256": "a".repeat(64), "text": "overwrite"}),
+    );
+    assert!(failed, "{text}");
+    assert!(text.contains("expected_sha256"), "{text}");
+
+    let (text, failed) = session.call("live_read", json!({}));
+    assert!(!failed, "{text}");
+    assert!(text.contains("untouched"), "{text}");
+    let (mut legacy, seen) = browser.join().unwrap();
+    assert_eq!(seen["op"], "read");
+
+    // Replacing with a capable editor enables expected_sha256, and reconnecting a legacy editor
+    // resets the capability back to false.
+    let mut modern = capable_editor(port, &token);
+    assert!(closed(&mut legacy));
+    let modern_thread = thread::spawn(move || {
+        let write = answer(
+            &mut modern,
+            json!({"result": {"revision": "0100", "sha256": "b".repeat(64)}}),
+        );
+        (modern, write)
+    });
+    let (text, failed) = session.call(
+        "live_write",
+        json!({"revision": "00ff", "expected_sha256": "a".repeat(64), "text": "ok"}),
+    );
+    assert!(!failed, "{text}");
+    let (mut modern, write) = modern_thread.join().unwrap();
+    assert_eq!(write["op"], "write");
+
+    let legacy_again = editor(port, &token);
+    assert!(closed(&mut modern));
+    let (text, failed) = session.call(
+        "live_write",
+        json!({"revision": "0100", "expected_sha256": "b".repeat(64), "text": "blocked"}),
+    );
+    assert!(failed, "{text}");
+    assert!(text.contains("expected_sha256"), "{text}");
+    drop(legacy_again);
 }

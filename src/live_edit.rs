@@ -65,7 +65,7 @@ fn read(view: &View) -> Value {
     })
 }
 
-/// Constant-time comparison of an ASCII hex digest (case-insensitive on `given`).
+/// Fixed-length comparison of an ASCII hex digest (case-insensitive on `given`) with no source-level early exit on mismatch.
 fn digest_matches(given: &str, actual: &str) -> bool {
     let diff = given
         .bytes()

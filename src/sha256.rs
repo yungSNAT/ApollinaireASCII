@@ -82,6 +82,11 @@ const ROUND_KEYS: [u32; 64] = [
     0xc671_78f2,
 ];
 
+/// Convert a byte length to a 64-bit SHA-256 bit length, rejecting lengths `>= 2^61` bytes.
+pub(crate) fn checked_bit_len(byte_len: u64) -> Option<u64> {
+    byte_len.checked_mul(8)
+}
+
 /// Compute the 32-byte SHA-256 digest of `data`.
 pub fn digest(data: &[u8]) -> [u8; 32] {
     let mut state = INITIAL;
@@ -96,7 +101,7 @@ pub fn digest(data: &[u8]) -> [u8; 32] {
         compress(&mut state, &tail);
         tail = [0u8; 64];
     }
-    let bit_len = (data.len() as u64).wrapping_mul(8);
+    let bit_len = checked_bit_len(data.len() as u64).expect("slice fits in 64-bit bit length");
     tail[56..64].copy_from_slice(&bit_len.to_be_bytes());
     compress(&mut state, &tail);
 
@@ -181,5 +186,13 @@ mod tests {
             hex(b"abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu"),
             "cf5b16a778af8380036ce59e7b0492370b249b11e8f07a51afac45037afee9d1"
         );
+    }
+
+    #[test]
+    fn checked_bit_len_rejects_lengths_at_and_above_2_to_61() {
+        assert_eq!(checked_bit_len(0), Some(0));
+        assert_eq!(checked_bit_len((1u64 << 61) - 1), Some(u64::MAX - 7));
+        assert_eq!(checked_bit_len(1u64 << 61), None);
+        assert_eq!(checked_bit_len(u64::MAX), None);
     }
 }
