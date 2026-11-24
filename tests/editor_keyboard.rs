@@ -512,12 +512,15 @@ fn an_agent_reads_and_writes_the_editor_through_mcp_live() {
     let (text, failed) = tool(&mut stdin, &mut stdout, 2, "live_read", json!({}));
     assert!(!failed, "{text}");
     let before: Value = serde_json::from_str(&text).unwrap();
+    let before_sha = before["sha256"].as_str().unwrap();
+    assert_eq!(before_sha.len(), 64);
+    assert!(before_sha.bytes().all(|b| b.is_ascii_hexdigit()));
     let (text, failed) = tool(
         &mut stdin,
         &mut stdout,
         3,
         "live_write",
-        json!({"revision": before["revision"], "text": "Hi", "x": 0, "y": 0}),
+        json!({"revision": before["revision"], "expected_sha256": before_sha, "text": "Hi", "x": 0, "y": 0}),
     );
     assert!(!failed, "{text}");
     let (text, _) = tool(&mut stdin, &mut stdout, 4, "live_read", json!({}));
@@ -533,9 +536,18 @@ fn an_agent_reads_and_writes_the_editor_through_mcp_live() {
         json!({"revision": before["revision"], "text": "No"}),
     );
     assert!(failed, "{text}");
+    // A write with the current revision but a mismatched content digest is refused.
+    let (text, failed) = tool(
+        &mut stdin,
+        &mut stdout,
+        6,
+        "live_write",
+        json!({"revision": after["revision"], "expected_sha256": before_sha, "text": "No"}),
+    );
+    assert!(failed, "{text}");
     // One undo takes the frame back.
     browser.script("document.getElementById('undo').click();");
-    let (text, _) = tool(&mut stdin, &mut stdout, 6, "live_read", json!({}));
+    let (text, _) = tool(&mut stdin, &mut stdout, 7, "live_read", json!({}));
     let undone: Value = serde_json::from_str(&text).unwrap();
     assert_eq!(undone["text"], before["text"]);
     let _ = server.kill();

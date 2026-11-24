@@ -133,10 +133,20 @@ pub fn open(
         })
 }
 
-/// The editor at its own address, signed in with `token`.
+/// A legacy editor at its own address, signed in with the bare `token` (no capabilities).
 pub fn editor(port: u16, token: &str) -> WebSocket<TcpStream> {
+    sign_in(port, token)
+}
+
+/// A modern editor advertising `expected_sha256` support during sign-in.
+pub fn capable_editor(port: u16, token: &str) -> WebSocket<TcpStream> {
+    let handshake = json!({"token": token, "capabilities": ["expected_sha256"]}).to_string();
+    sign_in(port, &handshake)
+}
+
+fn sign_in(port: u16, message: &str) -> WebSocket<TcpStream> {
     let mut socket = open(port, Some(EDITOR), None).unwrap();
-    socket.send(Message::text(token)).unwrap();
+    socket.send(Message::text(message)).unwrap();
     let hello: Value = serde_json::from_str(socket.read().unwrap().to_text().unwrap()).unwrap();
     assert_eq!(hello["hello"], "apollinaire", "{hello}");
     socket

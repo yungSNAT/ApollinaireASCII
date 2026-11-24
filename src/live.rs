@@ -51,8 +51,18 @@ const ANSWER: Duration = Duration::from_secs(10);
 const NOT_OPEN: &str = "The bridge is not open: call live_connect first, then enter its port and token in the editor's Connect an agent box.";
 const NO_EDITOR: &str = "No editor is connected: enter the port and token from live_connect in the editor's Connect an agent box.";
 
+/// Capability name advertised by an editor that enforces `expected_sha256` on writes.
+const CAP_EXPECTED_SHA256: &str = "expected_sha256";
+const NO_SHA256_CAPABILITY: &str = "The connected editor does not advertise expected_sha256 support; reload the editor or omit expected_sha256.";
+
 type Socket = WebSocket<TcpStream>;
-type Slot = Arc<Mutex<Option<Socket>>>;
+
+struct Peer {
+    socket: Socket,
+    supports_sha256: bool,
+}
+
+type Slot = Arc<Mutex<Option<Peer>>>;
 
 #[derive(Default)]
 pub struct Bridge {
@@ -97,16 +107,17 @@ pub fn tools() -> Vec<Value> {
         ),
         tool(
             "live_read",
-            "The active layer's frame on screen in the connected editor, as JSON: revision, layer, frame, frames, width, height and text. Playback pauses.",
+            "The active layer's frame on screen in the connected editor, as JSON: revision, sha256, layer, frame, frames, width, height and text. Playback pauses.",
             json!({}),
             &[],
             true,
         ),
         tool(
             "live_write",
-            "Replace the active layer's frame on screen in the editor, or the block at x and y, with printable ASCII text, as one undo step. Refused unless revision is the one live_read gave for the frame as it is now. Replacing the whole frame can change its size only in a project of one frame and one layer.",
+            "Replace the active layer's frame on screen in the editor, or the block at x and y, with printable ASCII text, as one undo step. Refused unless revision is the one live_read gave for the frame as it is now, and unless optional expected_sha256 matches the frame text's SHA-256 digest. Replacing the whole frame can change its size only in a project of one frame and one layer.",
             json!({
                 "revision": {"type": "string", "description": "From live_read."},
+                "expected_sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$", "description": "Optional 64-character hex SHA-256 digest of the frame text from live_read; refused on mismatch."},
                 "text": {"type": "string", "description": "Rows separated by line feeds; shorter rows are padded with spaces."},
                 "x": {"type": "integer", "minimum": 0, "description": "Column of the block's left edge; give y too."},
                 "y": {"type": "integer", "minimum": 0, "description": "Row of the block's top edge; give x too."},
@@ -132,9 +143,12 @@ impl Bridge {
         let outcome = match name {
             "live_connect" if arguments.is_empty() => self.connect(),
             "live_connect" => Err("live_connect takes no arguments".into()),
-            "live_read" if arguments.is_empty() => self.ask(json!({"op": "read"})),
+            "live_read" if arguments.is_empty() => self.ask(json!({"op": "read"}), false),
             "live_read" => Err("live_read takes no arguments".into()),
-            "live_write" => write_request(arguments).and_then(|request| self.ask(request)),
+            "live_write" => write_request(arguments).and_then(|request| {
+                let needs_sha256 = request.get("expected_sha256").is_some();
+                self.ask(request, needs_sha256)
+            }),
             _ => return None,
         };
         Some(match outcome {
@@ -168,13 +182,16 @@ impl Bridge {
     }
 
     /// Send a request to the editor and give its result as JSON text.
-    fn ask(&mut self, mut request: Value) -> Result<String, String> {
+    fn ask(&mut self, mut request: Value, needs_sha256: bool) -> Result<String, String> {
         let open = self.open.as_ref().ok_or(NOT_OPEN)?;
         let mut slot = open.slot.lock().unwrap_or_else(PoisonError::into_inner);
-        let socket = slot.as_mut().ok_or(NO_EDITOR)?;
+        let peer = slot.as_mut().ok_or(NO_EDITOR)?;
+        if needs_sha256 && !peer.supports_sha256 {
+            return Err(NO_SHA256_CAPABILITY.into());
+        }
         self.next += 1;
         request["id"] = json!(self.next);
-        match exchange(socket, &request, self.next) {
+        match exchange(&mut peer.socket, &request, self.next) {
             Ok(result) => Ok(result.to_string()),
             Err(Failure::Answer(error)) => Err(error),
             Err(Failure::Lost(error)) => {
@@ -188,7 +205,7 @@ impl Bridge {
 fn write_request(arguments: &serde_json::Map<String, Value>) -> Result<Value, String> {
     if let Some(key) = arguments
         .keys()
-        .find(|key| !["revision", "text", "x", "y"].contains(&key.as_str()))
+        .find(|key| !["revision", "expected_sha256", "text", "x", "y"].contains(&key.as_str()))
     {
         return Err(format!("Unknown argument {key}"));
     }
@@ -299,17 +316,17 @@ fn accept(listener: &TcpListener, port: u16, token: &Arc<str>, slot: &Slot) {
             drop(pending);
             // The editor is greeted whilst the slot is held, so no request can reach it first and
             // a request sent after the greeting finds it in the slot.
-            let take = |mut socket: Socket| {
+            let take = |mut peer: Peer| {
                 let mut slot = slot.lock().unwrap_or_else(PoisonError::into_inner);
-                socket.send(Message::text(HELLO.to_string())).ok()?;
-                slot.replace(socket)
+                peer.socket.send(Message::text(HELLO.to_string())).ok()?;
+                slot.replace(peer)
             };
             if let Some(mut old) = admitted.and_then(take) {
-                let _ = old.close(Some(CloseFrame {
+                let _ = old.socket.close(Some(CloseFrame {
                     code: CloseCode::Normal,
                     reason: "replaced".into(),
                 }));
-                let _ = old.flush();
+                let _ = old.socket.flush();
             }
         };
         // Out of threads: the connection is dropped (and its queue entry left for eviction).
@@ -317,8 +334,29 @@ fn accept(listener: &TcpListener, port: u16, token: &Arc<str>, slot: &Slot) {
     }
 }
 
+/// Parse the editor's sign-in message: either the bare 64-character token (legacy editor,
+/// `supports_sha256 = false`) or JSON `{"token": "...", "capabilities": [...]}`.
+fn parse_sign_in(given: &str, token: &str) -> Option<bool> {
+    if same(given.as_bytes(), token.as_bytes()) {
+        return Some(false);
+    }
+    let payload: Value = serde_json::from_str(given).ok()?;
+    let supplied = payload.get("token")?.as_str()?;
+    if !same(supplied.as_bytes(), token.as_bytes()) {
+        return None;
+    }
+    let supports_sha256 = payload
+        .get("capabilities")
+        .and_then(Value::as_array)
+        .is_some_and(|caps| {
+            caps.iter()
+                .any(|cap| cap.as_str() == Some(CAP_EXPECTED_SHA256))
+        });
+    Some(supports_sha256)
+}
+
 /// The handshake and the token, within the admission time, or `None`.
-fn admit(stream: TcpStream, port: u16, token: &str, done: &Arc<AtomicBool>) -> Option<Socket> {
+fn admit(stream: TcpStream, port: u16, token: &str, done: &Arc<AtomicBool>) -> Option<Peer> {
     let start = Instant::now();
     // Closes a connection still not admitted at the deadline, whatever it is waiting on. It
     // ends, with its copy of the stream, as soon as this function returns and drops `_stop`.
@@ -353,18 +391,26 @@ fn admit(stream: TcpStream, port: u16, token: &str, done: &Arc<AtomicBool>) -> O
         }
     };
     let mut socket = tungstenite::accept_hdr_with_config(stream, check, Some(config)).ok()?;
-    let signed_in = matches!(socket.read(), Ok(Message::Text(given)) if same(given.as_bytes(), token.as_bytes()));
-    if !signed_in || start.elapsed() >= ADMISSION || done.swap(true, Ordering::SeqCst) {
+    let supports_sha256 = match socket.read() {
+        Ok(Message::Text(given)) => parse_sign_in(&given, token),
+        _ => None,
+    };
+    let Some(supports_sha256) = supports_sha256
+        .filter(|_| start.elapsed() < ADMISSION && !done.swap(true, Ordering::SeqCst))
+    else {
         let _ = socket.close(None);
         let _ = socket.flush();
         return None;
-    }
+    };
     let limit = crate::mcp::MAX_MESSAGE_BYTES;
     socket.set_config(|config| {
         config.max_message_size = Some(limit);
         config.max_frame_size = Some(limit);
     });
-    Some(socket)
+    Some(Peer {
+        socket,
+        supports_sha256,
+    })
 }
 
 /// The bridge's own address, by number or as localhost, so a page on another name that
@@ -452,5 +498,21 @@ mod tests {
         let (a, b) = (fresh_code().unwrap(), fresh_code().unwrap());
         assert_eq!(a.len(), 64);
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn sign_in_parses_legacy_tokens_and_capability_handshakes() {
+        let token = "a".repeat(64);
+        assert_eq!(parse_sign_in(&token, &token), Some(false));
+        let modern = json!({"token": token, "capabilities": ["expected_sha256"]}).to_string();
+        assert!(modern.len() <= TOKEN_LIMIT);
+        assert_eq!(parse_sign_in(&modern, &token), Some(true));
+        let no_caps = json!({"token": token, "capabilities": []}).to_string();
+        assert_eq!(parse_sign_in(&no_caps, &token), Some(false));
+        let wrong =
+            json!({"token": "b".repeat(64), "capabilities": ["expected_sha256"]}).to_string();
+        assert_eq!(parse_sign_in(&wrong, &token), None);
+        assert_eq!(parse_sign_in("{bad", &token), None);
+        assert_eq!(parse_sign_in("{}", &token), None);
     }
 }

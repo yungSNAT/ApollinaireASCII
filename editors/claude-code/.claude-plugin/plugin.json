@@ -1,0 +1,18 @@
+{
+  "name": "apollinaire-mermaid",
+  "version": "0.4.2",
+  "description": "Render fenced Mermaid blocks in Markdown to pure printable ASCII with apollinaire, without Node.js or a browser.",
+  "author": {
+    "name": "Ryan Duguid"
+  },
+  "homepage": "https://yungsnat.github.io/ApollinaireASCII/",
+  "repository": "https://github.com/yungSNAT/ApollinaireASCII",
+  "license": "MIT",
+  "keywords": [
+    "ascii",
+    "mermaid",
+    "diagram",
+    "markdown",
+    "apollinaire"
+  ]
+}

@@ -7,7 +7,8 @@
 
 mod live;
 
-use live::{Session, answer, closed, editor};
+use apollinaire_ascii::live_edit::SignIn;
+use live::{EDITOR, Session, answer, capable_editor, closed, editor, open};
 use serde_json::{Value, json};
 use std::thread;
 use tungstenite::Message;
@@ -235,4 +236,159 @@ fn an_unanswered_request_keeps_the_editor_and_its_late_answer_is_skipped() {
     assert!(!failed, "{text}");
     assert!(text.contains("current"), "{text}");
     let _socket = browser.join().unwrap();
+}
+
+#[test]
+fn live_write_forwards_expected_sha256_and_advertises_it() {
+    let mut session = Session::start(&["mcp", "--live"]);
+    let tools = session.request("tools/list", json!({}))["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .clone();
+    let write_tool = tools
+        .iter()
+        .find(|tool| tool["name"] == "live_write")
+        .unwrap();
+    assert_eq!(
+        write_tool["inputSchema"]["properties"]["expected_sha256"]["type"],
+        "string"
+    );
+
+    let (port, token) = session.connect();
+    let mut socket = capable_editor(port, &token);
+    let digest = "a".repeat(64);
+    let browser = thread::spawn(move || {
+        let accepted = answer(
+            &mut socket,
+            json!({"result": {"revision": "0100", "sha256": "b".repeat(64)}}),
+        );
+        let rejected = answer(
+            &mut socket,
+            json!({"error": "The frame content digest changed since it was read: read it again"}),
+        );
+        (accepted, rejected)
+    });
+    let (text, failed) = session.call(
+        "live_write",
+        json!({"revision": "00ff", "expected_sha256": digest, "text": "ok"}),
+    );
+    assert!(!failed, "{text}");
+    assert!(text.contains(&"b".repeat(64)), "{text}");
+    let (text, failed) = session.call(
+        "live_write",
+        json!({"revision": "0100", "expected_sha256": "0".repeat(64), "text": "no"}),
+    );
+    assert!(failed);
+    assert_eq!(
+        text,
+        "The frame content digest changed since it was read: read it again"
+    );
+    let (accepted, rejected) = browser.join().unwrap();
+    assert_eq!(accepted["expected_sha256"], json!("a".repeat(64)));
+    assert_eq!(rejected["expected_sha256"], json!("0".repeat(64)));
+}
+
+#[test]
+fn legacy_editor_without_sha256_capability_refuses_guarded_writes_before_forwarding() {
+    let mut session = Session::start(&["mcp", "--live"]);
+    let (port, token) = session.connect();
+    let mut legacy = editor(port, &token);
+    let browser = thread::spawn(move || {
+        // The guarded write must never reach the legacy editor; the very first frame it sees
+        // must be the follow-up live_read.
+        let seen = answer(&mut legacy, json!({"result": {"text": "untouched"}}));
+        (legacy, seen)
+    });
+    let (text, failed) = session.call(
+        "live_write",
+        json!({"revision": "00ff", "expected_sha256": "a".repeat(64), "text": "overwrite"}),
+    );
+    assert!(failed, "{text}");
+    assert!(text.contains("expected_sha256"), "{text}");
+
+    let (text, failed) = session.call("live_read", json!({}));
+    assert!(!failed, "{text}");
+    assert!(text.contains("untouched"), "{text}");
+    let (mut legacy, seen) = browser.join().unwrap();
+    assert_eq!(seen["op"], "read");
+
+    // Replacing with a capable editor enables expected_sha256, and reconnecting a legacy editor
+    // resets the capability back to false.
+    let mut modern = capable_editor(port, &token);
+    assert!(closed(&mut legacy));
+    let modern_thread = thread::spawn(move || {
+        let write = answer(
+            &mut modern,
+            json!({"result": {"revision": "0100", "sha256": "b".repeat(64)}}),
+        );
+        (modern, write)
+    });
+    let (text, failed) = session.call(
+        "live_write",
+        json!({"revision": "00ff", "expected_sha256": "a".repeat(64), "text": "ok"}),
+    );
+    assert!(!failed, "{text}");
+    let (mut modern, write) = modern_thread.join().unwrap();
+    assert_eq!(write["op"], "write");
+
+    let legacy_again = editor(port, &token);
+    assert!(closed(&mut modern));
+    let (text, failed) = session.call(
+        "live_write",
+        json!({"revision": "0100", "expected_sha256": "b".repeat(64), "text": "blocked"}),
+    );
+    assert!(failed, "{text}");
+    assert!(text.contains("expected_sha256"), "{text}");
+    drop(legacy_again);
+}
+
+#[test]
+fn updated_browser_sign_in_falls_back_once_to_bare_token_for_legacy_bridge() {
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let token = "c".repeat(64);
+    let expected = token.clone();
+    // Simulate a pre-PR legacy bridge that only accepts the bare 64-char token.
+    let legacy_bridge = thread::spawn(move || {
+        let mut seen = Vec::new();
+        for _ in 0..2 {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = tungstenite::accept(stream).unwrap();
+            let given = ws.read().unwrap().into_text().unwrap().to_string();
+            seen.push(given.clone());
+            if given == expected {
+                ws.send(Message::text(r#"{"hello":"apollinaire"}"#))
+                    .unwrap();
+                let _ = ws.close(None);
+                let _ = ws.flush();
+            } else {
+                let _ = ws.close(None);
+                let _ = ws.flush();
+            }
+        }
+        seen
+    });
+
+    let mut sign_in = SignIn::new(token.clone());
+    // First attempt sends the JSON capability envelope; legacy bridge closes before hello.
+    let mut first = open(port, Some(EDITOR), None).unwrap();
+    first
+        .send(Message::text(sign_in.initial_message()))
+        .unwrap();
+    assert!(closed(&mut first));
+
+    // Bounded single fallback retries with the bare token and succeeds.
+    let bare = sign_in.fallback_message(false).unwrap().to_owned();
+    assert_eq!(bare, token);
+    let mut second = open(port, Some(EDITOR), None).unwrap();
+    second.send(Message::text(bare)).unwrap();
+    let hello: Value = serde_json::from_str(second.read().unwrap().to_text().unwrap()).unwrap();
+    assert_eq!(hello["hello"], "apollinaire");
+    sign_in.mark_greeted();
+    assert_eq!(sign_in.fallback_message(false), None);
+
+    let seen = legacy_bridge.join().unwrap();
+    assert_eq!(seen.len(), 2);
+    assert!(seen[0].starts_with('{'));
+    assert_eq!(seen[1], token);
 }
