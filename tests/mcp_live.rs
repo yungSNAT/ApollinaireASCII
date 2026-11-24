@@ -495,12 +495,21 @@ fn a_connection_trickling_its_handshake_is_closed_at_the_deadline() {
 #[test]
 fn a_message_longer_than_a_token_is_refused_before_it_is_read() {
     let mut session = Session::start(&["mcp", "--live"]);
-    let (port, token) = session.connect();
+    let (port, _) = session.connect();
     let mut socket = open(port, Some(EDITOR), None).unwrap();
+    // Only the header of a masked text frame that declares 1 MiB: a bridge that waited for the
+    // payload would hold the connection until the admission deadline.
+    let mut header = vec![0x81, 0xFF];
+    header.extend_from_slice(&(1u64 << 20).to_be_bytes());
+    header.extend_from_slice(&[1, 2, 3, 4]);
     let start = Instant::now();
-    let _ = socket.send(Message::text(format!("{token}{}", " ".repeat(200))));
+    socket.get_mut().write_all(&header).unwrap();
     assert!(closed(&mut socket));
-    assert!(start.elapsed() < Duration::from_secs(3));
+    assert!(
+        start.elapsed() < Duration::from_secs(3),
+        "{:?}",
+        start.elapsed()
+    );
 }
 
 #[test]
