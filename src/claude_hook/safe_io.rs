@@ -383,7 +383,7 @@ mod tests {
         fs,
         io::read_to_string,
         os::unix::fs::symlink,
-        path::Path,
+        path::{Path, PathBuf},
         sync::{
             Arc,
             atomic::{AtomicBool, Ordering},
@@ -407,14 +407,15 @@ mod tests {
         assert!(err.contains("Cannot resolve workspace folder"), "{err}");
     }
 
-    #[test]
-    fn open_contained_file_rejects_and_races_workspace_root_ancestor_symlink() {
-        let base = std::env::temp_dir().join(format!(
-            "apollinaire-root-ancestor-unix-{}",
-            std::process::id()
-        ));
+    fn setup_unix_race_tree(tag: &str) -> (PathBuf, PathBuf, PathBuf) {
+        let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join(format!(
+                "apollinaire-root-ancestor-{tag}-{}",
+                std::process::id()
+            ));
         let _ = fs::remove_dir_all(&base);
-        let outside_ws = base.join("outside/ws");
+        let outside_ws = base.join("outside").join("ws");
         fs::create_dir_all(&outside_ws).unwrap();
         fs::write(outside_ws.join("doc.md"), "SECRET_OUT").unwrap();
 
@@ -422,7 +423,34 @@ mod tests {
         let real_ws = real_parent.join("ws");
         fs::create_dir_all(&real_ws).unwrap();
         fs::write(real_ws.join("doc.md"), "IN_SAFE").unwrap();
+        (base, real_parent, real_ws)
+    }
 
+    fn spawn_unix_flipper(
+        base: PathBuf,
+        stop: Arc<AtomicBool>,
+        did_swap: Arc<AtomicBool>,
+    ) -> std::thread::JoinHandle<()> {
+        std::thread::spawn(move || {
+            let link_tmp = base.join("real_link");
+            let live = base.join("real");
+            let bak = base.join("real_bak");
+            while !stop.load(Ordering::Relaxed) {
+                let _ = fs::remove_file(&link_tmp);
+                let _ = symlink(base.join("outside"), &link_tmp);
+                if fs::rename(&live, &bak).is_ok() {
+                    let _ = fs::rename(&link_tmp, &live);
+                    let _ = fs::remove_file(&live);
+                    let _ = fs::rename(&bak, &live);
+                    did_swap.store(true, Ordering::Release);
+                }
+            }
+        })
+    }
+
+    #[test]
+    fn open_contained_file_rejects_and_races_workspace_root_ancestor_symlink() {
+        let (base, real_parent, real_ws) = setup_unix_race_tree("unix");
         let link = base.join("link");
         symlink(&real_parent, &link).unwrap();
         let err = open_contained_file(&link.join("ws"), &["doc.md".to_owned()])
@@ -435,24 +463,13 @@ mod tests {
         check_root_race_outcome(open_contained_file(&fixed_root, &["doc.md".to_owned()]));
 
         let stop = Arc::new(AtomicBool::new(false));
-        let stop_bg = stop.clone();
-        let base_bg = base.clone();
-        let flipper = std::thread::spawn(move || {
-            while !stop_bg.load(Ordering::Relaxed) {
-                let link_tmp = base_bg.join("real_link");
-                let live = base_bg.join("real");
-                let bak = base_bg.join("real_bak");
-                let _ = fs::remove_file(&link_tmp);
-                let _ = symlink(base_bg.join("outside"), &link_tmp);
-                if fs::rename(&live, &bak).is_ok() {
-                    let _ = fs::rename(&link_tmp, &live);
-                    let _ = fs::remove_file(&live);
-                    let _ = fs::rename(&bak, &live);
-                }
-            }
-        });
-        for _ in 0..40 {
+        let did_swap = Arc::new(AtomicBool::new(false));
+        let flipper = spawn_unix_flipper(base.clone(), stop.clone(), did_swap.clone());
+        let mut count = 0_usize;
+        while count < 40 || !did_swap.load(Ordering::Acquire) {
             check_root_race_outcome(open_contained_file(&fixed_root, &["doc.md".to_owned()]));
+            count += 1;
+            std::thread::yield_now();
         }
         stop.store(true, Ordering::Relaxed);
         let _ = flipper.join();
@@ -466,6 +483,7 @@ mod tests {
     use std::{
         fs,
         io::read_to_string,
+        path::PathBuf,
         process::{Command, Stdio},
         sync::{
             Arc,
@@ -488,14 +506,15 @@ mod tests {
             .is_ok_and(|s| s.success())
     }
 
-    #[test]
-    fn open_contained_file_rejects_and_races_workspace_root_junction() {
-        let base = std::env::temp_dir().join(format!(
-            "apollinaire-root-ancestor-win-{}",
-            std::process::id()
-        ));
+    fn setup_win_race_tree(tag: &str) -> (PathBuf, PathBuf, PathBuf) {
+        let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join(format!(
+                "apollinaire-root-ancestor-{tag}-{}",
+                std::process::id()
+            ));
         let _ = fs::remove_dir_all(&base);
-        let outside_ws = base.join("outside/ws");
+        let outside_ws = base.join("outside").join("ws");
         fs::create_dir_all(&outside_ws).unwrap();
         fs::write(outside_ws.join("doc.md"), "SECRET_OUT").unwrap();
 
@@ -503,7 +522,35 @@ mod tests {
         let real_ws = real_parent.join("ws");
         fs::create_dir_all(&real_ws).unwrap();
         fs::write(real_ws.join("doc.md"), "IN_SAFE").unwrap();
+        (base, real_parent, real_ws)
+    }
 
+    fn spawn_win_flipper(
+        base: PathBuf,
+        stop: Arc<AtomicBool>,
+        did_swap: Arc<AtomicBool>,
+    ) -> std::thread::JoinHandle<()> {
+        std::thread::spawn(move || {
+            let link_tmp = base.join("real_link");
+            let live = base.join("real");
+            let bak = base.join("real_bak");
+            let outside = base.join("outside");
+            while !stop.load(Ordering::Relaxed) {
+                let _ = fs::remove_dir(&link_tmp);
+                if mk_junction(&link_tmp, &outside) && fs::rename(&live, &bak).is_ok() {
+                    let _ = fs::rename(&link_tmp, &live);
+                    let _ = fs::remove_dir(&live);
+                    let _ = fs::rename(&bak, &live);
+                    did_swap.store(true, Ordering::Release);
+                }
+                let _ = fs::remove_dir(&link_tmp);
+            }
+        })
+    }
+
+    #[test]
+    fn open_contained_file_rejects_and_races_workspace_root_junction() {
+        let (base, real_parent, real_ws) = setup_win_race_tree("win");
         let junction = base.join("junc");
         assert!(mk_junction(&junction, &real_parent));
         let err = open_contained_file(&junction.join("ws"), &["doc.md".to_owned()])
@@ -512,29 +559,16 @@ mod tests {
 
         let fixed_root = fs::canonicalize(&real_ws).unwrap();
         let stop = Arc::new(AtomicBool::new(false));
-        let stop_bg = stop.clone();
-        let base_bg = base.clone();
-        let flipper = std::thread::spawn(move || {
-            while !stop_bg.load(Ordering::Relaxed) {
-                let link_tmp = base_bg.join("real_link");
-                let live = base_bg.join("real");
-                let bak = base_bg.join("real_bak");
-                let _ = fs::remove_dir(&link_tmp);
-                if mk_junction(&link_tmp, &base_bg.join("outside"))
-                    && fs::rename(&live, &bak).is_ok()
-                {
-                    let _ = fs::rename(&link_tmp, &live);
-                    let _ = fs::remove_dir(&live);
-                    let _ = fs::rename(&bak, &live);
-                }
-                let _ = fs::remove_dir(&link_tmp);
-            }
-        });
-        for _ in 0..40 {
+        let did_swap = Arc::new(AtomicBool::new(false));
+        let flipper = spawn_win_flipper(base.clone(), stop.clone(), did_swap.clone());
+        let mut count = 0_usize;
+        while count < 20 || !did_swap.load(Ordering::Acquire) {
             if let Ok((_, file)) = open_contained_file(&fixed_root, &["doc.md".to_owned()]) {
                 let text = read_to_string(file).unwrap_or_default();
                 assert!(!text.contains("SECRET_OUT"), "leaked secret: {text}");
             }
+            count += 1;
+            std::thread::yield_now();
         }
         stop.store(true, Ordering::Relaxed);
         let _ = flipper.join();
