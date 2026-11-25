@@ -1,0 +1,7 @@
+Shopping trip                           
+                                        
+Find item   [#### ] 4 :)  Shopper       
+Pay & leave [##   ] 2 :(                
+Help                                    
+  Ask staff [###  ] 3 :|  Shopper, Staff
+  Wait      [#    ] 1 :(  Shopper       

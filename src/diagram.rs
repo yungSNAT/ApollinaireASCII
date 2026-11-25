@@ -26,21 +26,24 @@ mod class;
 mod er;
 mod flowchart;
 mod graph;
+mod journey;
 mod markdown;
 mod sequence;
 mod state;
 pub use class::class_diagram;
 pub use er::er_diagram;
 pub use flowchart::flowchart;
+pub use journey::journey;
 #[doc(hidden)]
 pub use markdown::fenced_blocks;
 pub use markdown::render_markdown;
 pub use sequence::sequence;
 pub use state::state_diagram;
 
-/// Lay out Mermaid text as a [`flowchart`], [`sequence`], [`state_diagram`], [`class_diagram`]
-/// or [`er_diagram`], chosen by its first statement: `flowchart` or `graph`, `sequenceDiagram`,
-/// `stateDiagram-v2` (or `stateDiagram`), `classDiagram` or `erDiagram`.
+/// Lay out Mermaid text as a [`flowchart`], [`sequence`], [`state_diagram`], [`class_diagram`],
+/// [`er_diagram`] or user [`journey`], chosen by its first statement: `flowchart` or `graph`,
+/// `sequenceDiagram`, `stateDiagram-v2` (or `stateDiagram`), `classDiagram`, `erDiagram` or
+/// `journey`.
 ///
 /// ```
 /// use apollinaire_ascii::diagram::mermaid;
@@ -69,7 +72,7 @@ pub fn mermaid_with_max_width(source: &str, max_width: usize) -> Result<crate::F
 }
 
 pub(crate) fn mermaid_fitted(source: &str, max_width: Option<usize>) -> Result<crate::Frame> {
-    const KINDS: &str = "a Mermaid diagram starts with flowchart, graph, sequenceDiagram, stateDiagram-v2, classDiagram or erDiagram";
+    const KINDS: &str = "a Mermaid diagram starts with flowchart, graph, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram or journey";
     if let Some(limit) = max_width {
         graph::check_max_width(limit)?;
     }
@@ -89,6 +92,7 @@ pub(crate) fn mermaid_fitted(source: &str, max_width: Option<usize>) -> Result<c
         Some("stateDiagram-v2" | "stateDiagram") => state::state_diagram_fitted(source, max_width),
         Some("classDiagram") => class::class_diagram_fitted(source, max_width),
         Some("erDiagram") => er::er_diagram_fitted(source, max_width),
+        Some("journey") => journey::journey_fitted(source, max_width),
         // Another diagram type is named as such; anything else gets the flowchart's own error.
         Some(word)
             if word.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
