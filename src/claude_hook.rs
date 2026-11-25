@@ -279,7 +279,23 @@ fn extract_file_path(payload: &Map<String, Value>) -> Result<Option<&str>> {
 }
 
 fn is_markdown_path(file_path: &str) -> bool {
-    Path::new(file_path)
+    #[cfg(windows)]
+    let check_path = {
+        let rest = if file_path.len() >= 2
+            && file_path.as_bytes()[0].is_ascii_alphabetic()
+            && file_path.as_bytes()[1] == b':'
+        {
+            &file_path[2..]
+        } else {
+            file_path
+        };
+        let leaf = rest.rsplit(['/', '\\']).next().unwrap_or(rest);
+        leaf.split(':').next().unwrap_or(leaf)
+    };
+    #[cfg(not(windows))]
+    let check_path = file_path;
+
+    Path::new(check_path)
         .extension()
         .and_then(|ext| ext.to_str())
         .is_some_and(|ext| {

@@ -113,8 +113,11 @@ pub fn editors(bin: &str) -> Result<(), String> {
     )?;
     let claude = TempDir::new("apollinaire-claude-code")?;
     let sample = claude.0.join("flow.md");
-    fs::write(&sample, "# Flow\n\n```mermaid\nflowchart LR\n  A --> B\n```\n")
-        .map_err(fail(&sample))?;
+    fs::write(
+        &sample,
+        "# Flow\n\n```mermaid\nflowchart LR\n  A --> B\n```\n",
+    )
+    .map_err(fail(&sample))?;
     let md_out = exec(
         &claude.0,
         &env,

@@ -107,6 +107,7 @@ impl TempDir {
     pub fn new(name: &str) -> Result<Self, String> {
         // nosemgrep: rust.lang.security.temp-dir.temp-dir -- create fails on an existing path, so a planted folder or link stops the run
         let path = std::env::temp_dir().join(format!("{name}-{}", std::process::id()));
+        #[cfg_attr(not(unix), allow(unused_mut))]
         let mut builder = fs::DirBuilder::new();
         #[cfg(unix)]
         std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
