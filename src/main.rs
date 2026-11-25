@@ -1,4 +1,5 @@
 mod check;
+mod claude_hook;
 mod edit;
 mod fetch;
 mod ffmpeg;
@@ -507,6 +508,8 @@ enum Command {
         #[arg(long)]
         live: bool,
     },
+    /// Render fenced Mermaid blocks in Markdown for Claude Code hooks and CLI piping.
+    ClaudeHook(claude_hook::ClaudeHookArgs),
     /// Print a shell completion script, such as `apollinaire completions bash > apollinaire.bash`.
     Completions {
         /// Shell to complete for.
@@ -515,10 +518,20 @@ enum Command {
     /// Print this manual page as roff, for `apollinaire man | man -l -`.
     Man,
 }
-fn main() {
-    if let Err(error) = run(Args::parse()) {
-        eprintln!("apollinaire: {error}");
-        std::process::exit(1);
+fn main() -> std::process::ExitCode {
+    let args = Args::parse();
+    let hook = matches!(args.command, Command::ClaudeHook(_));
+    match run(args) {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(error) => {
+            let (prefix, code) = if hook {
+                ("apollinaire-mermaid", 2)
+            } else {
+                ("apollinaire", 1)
+            };
+            eprintln!("{prefix}: {error}");
+            std::process::ExitCode::from(code)
+        }
     }
 }
 fn run(args: Args) -> Result<()> {
@@ -991,6 +1004,10 @@ fn run(args: Args) -> Result<()> {
             no_export(&args.export, "MCP")?;
             return mcp::serve(live);
         }
+        Command::ClaudeHook(hook) => {
+            no_export(&args.export, "Claude hook")?;
+            return claude_hook::run(&hook);
+        }
         Command::Completions { shell } => {
             no_export(&args.export, "Completions")?;
             let mut script = Vec::new();
@@ -1032,7 +1049,7 @@ fn run(args: Args) -> Result<()> {
 }
 /// Write to stdout. A reader that closed the pipe, as `head` does once it has enough, has
 /// what it asked for, so that is no failure; any other error is.
-fn emit(bytes: &[u8]) -> Result<()> {
+pub(crate) fn emit(bytes: &[u8]) -> Result<()> {
     let mut out = io::stdout().lock();
     match out.write_all(bytes).and_then(|()| out.flush()) {
         Err(e) if e.kind() != io::ErrorKind::BrokenPipe => Err(format!("Output failed: {e}")),

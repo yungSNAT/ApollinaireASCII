@@ -3,7 +3,8 @@
 
 //! Helpers the xtask commands share: running a program and a temporary folder.
 use std::{
-    fs, io,
+    fs,
+    io::{self, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
 };
@@ -17,15 +18,53 @@ pub fn exec(
     args: &[&str],
     stdout: Stdio,
 ) -> Result<Vec<u8>, String> {
+    exec_with(dir, env, program, args, None, stdout)
+}
+
+/// Run a program in `dir` with extra environment variables and `input` piped to stdin.
+pub fn exec_stdin(
+    dir: &Path,
+    env: &[(&str, &str)],
+    program: impl AsRef<Path>,
+    args: &[&str],
+    input: &[u8],
+) -> Result<Vec<u8>, String> {
+    exec_with(dir, env, program, args, Some(input), Stdio::piped())
+}
+
+fn exec_with(
+    dir: &Path,
+    env: &[(&str, &str)],
+    program: impl AsRef<Path>,
+    args: &[&str],
+    input: Option<&[u8]>,
+    stdout: Stdio,
+) -> Result<Vec<u8>, String> {
     let program = program.as_ref();
-    let out = Command::new(program)
+    let mut command = Command::new(program);
+    command
         .args(args)
         .current_dir(dir)
         .envs(env.iter().copied())
         .stdout(stdout)
-        .stderr(Stdio::inherit())
-        .output()
-        .map_err(|error| format!("Cannot run {}: {error}", program.display()))?;
+        .stderr(Stdio::inherit());
+    let out = match input {
+        Some(bytes) => {
+            let mut child = command
+                .stdin(Stdio::piped())
+                .spawn()
+                .map_err(|error| format!("Cannot run {}: {error}", program.display()))?;
+            if let Some(mut stdin) = child.stdin.take() {
+                let _ = stdin.write_all(bytes);
+            }
+            child
+                .wait_with_output()
+                .map_err(|error| format!("Cannot run {}: {error}", program.display()))?
+        }
+        None => command
+            .output()
+            .map_err(|error| format!("Cannot run {}: {error}", program.display()))?,
+    };
     if !out.status.success() {
         return Err(format!(
             "{} {} failed: {}",

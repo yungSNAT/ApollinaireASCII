@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/render_mermaid.py\""
+            "command": "apollinaire claude-hook"
           }
         ]
       }

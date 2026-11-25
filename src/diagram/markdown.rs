@@ -61,6 +61,43 @@ fn is_mermaid_info(info: &str) -> bool {
         .is_some_and(|lang| lang.eq_ignore_ascii_case("mermaid"))
 }
 
+fn split_line(raw_line: &str) -> (&str, &'static str) {
+    match raw_line.strip_suffix("\r\n") {
+        Some(body) => (body, "\r\n"),
+        None => match raw_line.strip_suffix('\n') {
+            Some(body) => (body, "\n"),
+            None => (raw_line, ""),
+        },
+    }
+}
+
+/// Collect `(is_mermaid, raw_fenced_block)` for each top-level CommonMark fence using `\n`
+/// line splitting to match [`render_markdown`].
+#[doc(hidden)]
+pub fn fenced_blocks(markdown: &str) -> Vec<(bool, String)> {
+    let mut blocks = Vec::new();
+    let mut active: Option<(Fence, bool, String)> = None;
+    for raw_line in markdown.split_inclusive('\n') {
+        let (body, _) = split_line(raw_line);
+        if let Some((fence, is_mermaid, mut buf)) = active.take() {
+            buf.push_str(raw_line);
+            if is_closing_fence(body, &fence) {
+                blocks.push((is_mermaid, buf.trim_end_matches(['\r', '\n']).to_owned()));
+            } else {
+                active = Some((fence, is_mermaid, buf));
+            }
+            continue;
+        }
+        if let Some((fence, info)) = opening_fence(body) {
+            active = Some((fence, is_mermaid_info(info), raw_line.to_owned()));
+        }
+    }
+    if let Some((_, true, buf)) = active {
+        blocks.push((true, buf.trim_end_matches(['\r', '\n']).to_owned()));
+    }
+    blocks
+}
+
 /// Read a Markdown document and replace every fenced `mermaid` code block in-place with an ASCII
 /// `text` code block, preserving all surrounding Markdown and line endings verbatim.
 ///
@@ -86,13 +123,7 @@ pub fn render_markdown(markdown: &str, max_width: Option<usize>) -> Result<Strin
     let mut active: Option<(Fence, bool, usize, &'static str, String)> = None;
     for (index, raw_line) in markdown.split_inclusive('\n').enumerate() {
         let number = index + 1;
-        let (body, eol) = match raw_line.strip_suffix("\r\n") {
-            Some(b) => (b, "\r\n"),
-            None => match raw_line.strip_suffix('\n') {
-                Some(b) => (b, "\n"),
-                None => (raw_line, ""),
-            },
-        };
+        let (body, eol) = split_line(raw_line);
         if let Some((fence, is_mermaid, open_line, open_eol, mut buffer)) = active.take() {
             if is_closing_fence(body, &fence) {
                 if is_mermaid {

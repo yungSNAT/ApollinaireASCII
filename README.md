@@ -172,7 +172,7 @@ Arguments are split as a shell splits them, quotes included, but nothing is expa
 
 ### Claude Code inline Mermaid plugin
 
-The zero-Node Claude Code plugin in [`editors/claude-code/`](editors/claude-code/README.md) bundles a `mermaid-ascii` skill and a `PostToolUse` hook (`scripts/render_mermaid.py`) that invokes `apollinaire diagram - --markdown --max-width <cols>` on Markdown files containing fenced `mermaid` blocks, returning pure printable ASCII previews without modifying the source file on disk and failing closed if `apollinaire` is missing. Load it with `claude --plugin-dir ~/ApollinaireASCII/editors/claude-code`.
+The zero-Node Claude Code plugin in [`editors/claude-code/`](editors/claude-code/README.md) bundles a `mermaid-ascii` skill and a `PostToolUse` hook (`apollinaire claude-hook`) that renders fenced `mermaid` blocks in Markdown files to pure printable ASCII previews without modifying the source file on disk, failing closed on invalid inputs. Load it with `claude --plugin-dir ~/ApollinaireASCII/editors/claude-code`.
 
 ## Build the browser editor
 

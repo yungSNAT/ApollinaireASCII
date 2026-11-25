@@ -32,6 +32,8 @@ mod state;
 pub use class::class_diagram;
 pub use er::er_diagram;
 pub use flowchart::flowchart;
+#[doc(hidden)]
+pub use markdown::fenced_blocks;
 pub use markdown::render_markdown;
 pub use sequence::sequence;
 pub use state::state_diagram;

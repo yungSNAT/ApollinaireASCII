@@ -35,15 +35,16 @@ Write the rendered Markdown to a new file instead of stdout:
 apollinaire diagram docs/architecture.md --markdown --max-width 80 --output docs/architecture-ascii.md
 ```
 
-Or run the plugin helper directly from stdin:
+Or run the hook subcommand directly in Markdown mode from stdin or a workspace file:
 
 ```sh
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/render_mermaid.py" --markdown --max-width 80 < docs/architecture.md
+apollinaire claude-hook --markdown --max-width 80 < docs/architecture.md
+apollinaire claude-hook --markdown --file docs/architecture.md --max-width 80
 ```
 
 ## Notes
 
-- Set `APOLLINAIRE` if the `apollinaire` binary is not on `PATH`.
+- Ensure `apollinaire` is on `PATH`.
 - Set `APOLLINAIRE_MAX_WIDTH` (1 to 512, default 80) to adjust the hook's default column budget.
 - The `PostToolUse` hook previews fenced `mermaid` blocks after `Write`, `Edit` or `MultiEdit` on `.md`, `.markdown` or `.mdx` files without modifying the source file on disk.
-- If `apollinaire` is missing or a diagram has unsupported syntax, the hook fails closed with exit code 2 and reports the error on stderr.
+- If input JSON is invalid, a path escapes the workspace or a diagram has unsupported syntax, the hook fails closed with exit code 2 and reports the error on stderr.
