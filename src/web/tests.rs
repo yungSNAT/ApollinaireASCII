@@ -2666,7 +2666,7 @@ async fn palettes_fill_the_picker_feed_gradients_and_conversion_and_round_trip()
     assert!(status().contains("repeated"), "{}", status());
     assert_eq!(picker_text(), "-|/\\");
 
-    // An Ascii-Motion file of the same name replaces the added palette; a repeated character
+    // An imported palette file of the same name replaces the added palette; a repeated character
     // keeps its first place and is reported.
     choose(
         "palette-file",

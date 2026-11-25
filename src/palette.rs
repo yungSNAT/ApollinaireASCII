@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: MIT
 
 //! Character palettes: named sets of characters to draw, shade or convert with. A palette file
-//! is one JSON object in Ascii-Motion's character palette export format,
-//! `{"name": "...", "characters": [" ", ".", ...], "category": "ascii"}`, so palettes move
-//! between the 2 editors. Only printable ASCII characters are accepted.
+//! is one JSON object in the character palette export format,
+//! `{"name": "...", "characters": [" ", ".", ...], "category": "ascii"}`.
+//! Only printable ASCII characters are accepted.
 
 use crate::{Result, printable};
 use serde_json::{Value, json};
@@ -58,8 +58,8 @@ impl Palette {
     pub fn characters(&self) -> &[u8] {
         &self.characters
     }
-    /// Read a palette file, with the number of repeated characters dropped. Ascii-Motion's
-    /// editor lets a character be added twice and its import keeps the first; so does this.
+    /// Read a palette file, with the number of repeated characters dropped. When an imported
+    /// palette lists a character twice, this keeps the first occurrence.
     /// The `category` and any other fields are ignored.
     pub fn from_json(text: &str) -> Result<(Self, usize)> {
         let value: Value =

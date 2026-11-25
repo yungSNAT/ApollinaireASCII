@@ -26,7 +26,7 @@ fn a_palette_holds_distinct_printable_characters_under_a_trimmed_name() {
 }
 
 #[test]
-fn palette_files_round_trip_and_read_ascii_motion_exports() {
+fn palette_files_round_trip_and_read_external_exports() {
     let palette = Palette::new("Lines", b"-|/\\\"").unwrap();
     assert_eq!(
         Palette::from_json(&palette.to_json()).unwrap(),
@@ -35,7 +35,7 @@ fn palette_files_round_trip_and_read_ascii_motion_exports() {
     let saved: serde_json::Value = serde_json::from_str(&palette.to_json()).unwrap();
     assert_eq!(saved["category"], "ascii");
     assert_eq!(saved["characters"][4], "\"");
-    // Ascii-Motion's Minimal ASCII preset, as its export dialog writes it.
+    // Minimal ASCII preset in the character palette JSON format.
     let exported = r##"{
   "name": "Minimal ASCII",
   "characters": [" ", ".", ":", ";", "+", "*", "#", "@"],
@@ -45,7 +45,7 @@ fn palette_files_round_trip_and_read_ascii_motion_exports() {
     assert_eq!(read.name(), "Minimal ASCII");
     assert_eq!(read.characters(), b" .:;+*#@");
     assert_eq!(dropped, 0);
-    // Ascii-Motion's palette editor lets a character be added twice, and its import keeps the
+    // External palette editors can let a character be added twice; importing keeps the
     // first and warns; so does this one, counting what it dropped.
     let repeated =
         r#"{"name": "Twice", "characters": ["a", "b", "a", " ", "b"], "category": "custom"}"#;

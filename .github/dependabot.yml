@@ -1,13 +1,13 @@
 version: 2
 updates:
   - package-ecosystem: cargo
-    directories: [/, /fuzz]
+    directories: [/, /fuzz, /apollinaire-ratatui]
     schedule:
       interval: monthly
     cooldown:
       default-days: 7
     groups:
-      # One pull request bumps a crate in both lockfiles, not one per directory.
+      # One pull request bumps a crate across the lockfiles, not one per directory.
       cargo:
         group-by: dependency-name
   # The libraries the code exports are run against.

@@ -61,6 +61,20 @@ fn is_mermaid_info(info: &str) -> bool {
         .is_some_and(|lang| lang.eq_ignore_ascii_case("mermaid"))
 }
 
+fn max_marker_run(text: &str, marker: char) -> usize {
+    let mut best = 0;
+    let mut current = 0;
+    for byte in text.bytes() {
+        if byte == marker as u8 {
+            current += 1;
+            best = best.max(current);
+        } else {
+            current = 0;
+        }
+    }
+    best
+}
+
 fn split_line(raw_line: &str) -> (&str, &'static str) {
     match raw_line.strip_suffix("\r\n") {
         Some(body) => (body, "\r\n"),
@@ -132,12 +146,14 @@ pub fn render_markdown(markdown: &str, max_width: Option<usize>) -> Result<Strin
                 if is_mermaid {
                     let frame = super::mermaid_fitted(&buffer, max_width)
                         .map_err(|err| format!("Line {open_line}: {err}"))?;
-                    let marks: String = std::iter::repeat_n(fence.marker, fence.len).collect();
+                    let text = frame.text();
+                    let fence_len = fence.len.max(max_marker_run(&text, fence.marker) + 1);
+                    let marks: String = std::iter::repeat_n(fence.marker, fence_len).collect();
                     output.push_str(&fence.indent);
                     output.push_str(&marks);
                     output.push_str("text");
                     output.push_str(open_eol);
-                    for drawn_line in frame.text().split('\n') {
+                    for drawn_line in text.split('\n') {
                         output.push_str(&fence.indent);
                         output.push_str(drawn_line);
                         output.push_str(open_eol);
