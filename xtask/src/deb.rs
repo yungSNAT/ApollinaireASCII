@@ -18,7 +18,7 @@ pub fn build(
 pub use unix::build;
 
 #[cfg(unix)]
-mod unix {
+pub(crate) mod unix {
     use crate::shared::fail as io;
     use std::{
         fs,
@@ -28,13 +28,13 @@ mod unix {
     };
 
     /// `install -Dm<mode>`: copy a file, making its folders, and set its mode.
-    fn install(from: &Path, to: &Path, mode: u32) -> Result<(), String> {
+    pub(crate) fn install(from: &Path, to: &Path, mode: u32) -> Result<(), String> {
         fs::create_dir_all(to.parent().expect("A file in a folder")).map_err(io(to))?;
         fs::copy(from, to).map_err(io(from))?;
         fs::set_permissions(to, fs::Permissions::from_mode(mode)).map_err(io(to))
     }
 
-    fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
+    pub(crate) fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
         fs::create_dir_all(to).map_err(io(to))?;
         for entry in fs::read_dir(from).map_err(io(from))? {
             let entry = entry.map_err(io(from))?;
@@ -49,7 +49,7 @@ mod unix {
     }
 
     /// `chmod -R u=rwX,go=rX`: folders and files anyone may run get 755, other files 644.
-    fn normalise(path: &Path) -> Result<(), String> {
+    pub(crate) fn normalise(path: &Path) -> Result<(), String> {
         let meta = fs::symlink_metadata(path).map_err(io(path))?;
         let mode = if meta.is_dir() || meta.mode() & 0o111 != 0 {
             0o755
@@ -99,6 +99,15 @@ mod unix {
         }
     }
 
+    /// `gzip -9n < from > to`, making `to`'s folders.
+    pub(crate) fn gzip(from: &Path, to: &Path) -> Result<(), String> {
+        fs::create_dir_all(to.parent().expect("A file in a folder")).map_err(io(to))?;
+        run(Command::new("gzip")
+            .arg("-9n")
+            .stdin(fs::File::open(from).map_err(io(from))?)
+            .stdout(fs::File::create(to).map_err(io(to))?))
+    }
+
     pub fn build(src: &Path, version: &str, arch: &str, out: &Path) -> Result<(), String> {
         // Only a folder this run created is removed when the build ends.
         let staging = crate::shared::TempDir::new("apollinaire-deb")?;
@@ -110,14 +119,10 @@ mod unix {
             &usr.join("bin/apollinaire"),
             0o755,
         )?;
-        let man = share.join("man/man1");
-        fs::create_dir_all(&man).map_err(io(&man))?;
-        let page = src.join("man/apollinaire.1");
-        let gz = man.join("apollinaire.1.gz");
-        run(Command::new("gzip")
-            .arg("-9n")
-            .stdin(fs::File::open(&page).map_err(io(&page))?)
-            .stdout(fs::File::create(&gz).map_err(io(&gz))?))?;
+        gzip(
+            &src.join("man/apollinaire.1"),
+            &share.join("man/man1/apollinaire.1.gz"),
+        )?;
         let completions = src.join("completions");
         for (from, to) in [
             (
@@ -175,12 +180,12 @@ Description: Static art, block lettering and animation as real ASCII text
 }
 
 #[cfg(all(test, unix))]
-mod tests {
+pub(crate) mod tests {
     use super::unix::{control, installed_kib};
     use std::{fs, path::Path, process::Command, sync::Mutex};
 
     /// `build` stages in one folder per process, so tests that call it take turns.
-    static BUILD: Mutex<()> = Mutex::new(());
+    pub(crate) static BUILD: Mutex<()> = Mutex::new(());
 
     fn write(path: &Path, text: &str) {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -188,7 +193,7 @@ mod tests {
     }
 
     /// A release folder as the release workflow unpacks it, with a stand-in binary.
-    fn release(dir: &Path) {
+    pub(crate) fn release(dir: &Path) {
         write(&dir.join("apollinaire"), "#!/bin/sh\necho apollinaire\n");
         fs::set_permissions(
             dir.join("apollinaire"),
@@ -217,7 +222,7 @@ mod tests {
         write(&dir.join("LICENSES/nested/Apache-2.0.txt"), "Apache");
     }
 
-    fn output(command: &mut Command) -> String {
+    pub(crate) fn output(command: &mut Command) -> String {
         let out = command.output().unwrap();
         assert!(
             out.status.success(),
