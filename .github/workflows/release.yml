@@ -137,6 +137,17 @@ jobs:
             # RPM, like Debian, sorts a ~ prerelease first and refuses a - in a version.
             cargo run --locked --quiet --manifest-path xtask/Cargo.toml -- rpm "$name" "${version/-/\~}" "$rpm_arch" "upload/apollinaire-${version}-1.$rpm_arch.rpm"
           fi
+      - name: Query the .rpm, install it in an empty root and run it
+        if: contains(matrix.target, 'linux')
+        run: |
+          rpm_file=(upload/*.rpm)
+          rpm -qip "${rpm_file[0]}"
+          rpm -qlp "${rpm_file[0]}"
+          root="$RUNNER_TEMP/rpm-root"
+          sudo rpm --root "$root" --initdb
+          sudo rpm --root "$root" -i "${rpm_file[0]}"
+          sudo rpm --root "$root" -V apollinaire
+          "$root/usr/bin/apollinaire" --version
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: upload-${{ matrix.target }}

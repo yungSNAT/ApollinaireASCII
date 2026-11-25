@@ -28,13 +28,13 @@ pub(crate) mod unix {
     };
 
     /// `install -Dm<mode>`: copy a file, making its folders, and set its mode.
-    pub(crate) fn install(from: &Path, to: &Path, mode: u32) -> Result<(), String> {
+    fn install(from: &Path, to: &Path, mode: u32) -> Result<(), String> {
         fs::create_dir_all(to.parent().expect("A file in a folder")).map_err(io(to))?;
         fs::copy(from, to).map_err(io(from))?;
         fs::set_permissions(to, fs::Permissions::from_mode(mode)).map_err(io(to))
     }
 
-    pub(crate) fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
+    fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
         fs::create_dir_all(to).map_err(io(to))?;
         for entry in fs::read_dir(from).map_err(io(from))? {
             let entry = entry.map_err(io(from))?;
@@ -49,7 +49,7 @@ pub(crate) mod unix {
     }
 
     /// `chmod -R u=rwX,go=rX`: folders and files anyone may run get 755, other files 644.
-    pub(crate) fn normalise(path: &Path) -> Result<(), String> {
+    fn normalise(path: &Path) -> Result<(), String> {
         let meta = fs::symlink_metadata(path).map_err(io(path))?;
         let mode = if meta.is_dir() || meta.mode() & 0o111 != 0 {
             0o755
@@ -100,7 +100,7 @@ pub(crate) mod unix {
     }
 
     /// `gzip -9n < from > to`, making `to`'s folders.
-    pub(crate) fn gzip(from: &Path, to: &Path) -> Result<(), String> {
+    fn gzip(from: &Path, to: &Path) -> Result<(), String> {
         fs::create_dir_all(to.parent().expect("A file in a folder")).map_err(io(to))?;
         run(Command::new("gzip")
             .arg("-9n")
@@ -108,10 +108,16 @@ pub(crate) mod unix {
             .stdout(fs::File::create(to).map_err(io(to))?))
     }
 
-    pub fn build(src: &Path, version: &str, arch: &str, out: &Path) -> Result<(), String> {
-        // Only a folder this run created is removed when the build ends.
-        let staging = crate::shared::TempDir::new("apollinaire-deb")?;
-        let root = &staging.0;
+    /// Where a package format puts the files whose place differs, as paths under `/usr/share`.
+    pub(crate) struct Layout {
+        pub(crate) zsh: &'static str,
+        pub(crate) licence: &'static str,
+        pub(crate) licences: &'static str,
+    }
+
+    /// Stage the release under `root/usr` as both packages ship it: the binary, the manual
+    /// page, the completions, the README and notices, and the licence texts.
+    pub(crate) fn stage(src: &Path, root: &Path, layout: &Layout) -> Result<(), String> {
         let usr = root.join("usr");
         let share = usr.join("share");
         install(
@@ -129,7 +135,7 @@ pub(crate) mod unix {
                 "apollinaire.bash",
                 "bash-completion/completions/apollinaire",
             ),
-            ("_apollinaire", "zsh/vendor-completions/_apollinaire"),
+            ("_apollinaire", layout.zsh),
             (
                 "apollinaire.fish",
                 "fish/vendor_completions.d/apollinaire.fish",
@@ -138,7 +144,6 @@ pub(crate) mod unix {
             install(&completions.join(from), &share.join(to), 0o644)?;
         }
         let doc = share.join("doc/apollinaire");
-        install(&src.join("LICENSE.md"), &doc.join("copyright"), 0o644)?;
         for name in [
             "README.md",
             "THIRD_PARTY_NOTICES.md",
@@ -146,9 +151,25 @@ pub(crate) mod unix {
         ] {
             install(&src.join(name), &doc.join(name), 0o644)?;
         }
-        copy_tree(&src.join("LICENSES"), &doc.join("LICENSES"))?;
-        normalise(root)?;
-        let control = control(version, arch, installed_kib(&usr)?);
+        install(&src.join("LICENSE.md"), &share.join(layout.licence), 0o644)?;
+        copy_tree(&src.join("LICENSES"), &share.join(layout.licences))?;
+        normalise(root)
+    }
+
+    pub fn build(src: &Path, version: &str, arch: &str, out: &Path) -> Result<(), String> {
+        // Only a folder this run created is removed when the build ends.
+        let staging = crate::shared::TempDir::new("apollinaire-deb")?;
+        let root = &staging.0;
+        stage(
+            src,
+            root,
+            &Layout {
+                zsh: "zsh/vendor-completions/_apollinaire",
+                licence: "doc/apollinaire/copyright",
+                licences: "doc/apollinaire/LICENSES",
+            },
+        )?;
+        let control = control(version, arch, installed_kib(&root.join("usr"))?);
         let debian = root.join("DEBIAN");
         fs::create_dir(&debian).map_err(io(&debian))?;
         fs::write(debian.join("control"), control).map_err(io(&debian))?;

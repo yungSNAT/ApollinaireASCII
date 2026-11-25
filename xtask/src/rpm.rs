@@ -19,7 +19,7 @@ pub use unix::build;
 
 #[cfg(unix)]
 mod unix {
-    use crate::deb::unix::{copy_tree, gzip, install, normalise};
+    use crate::deb::unix::{Layout, stage};
     use crate::shared::fail as io;
     use std::{fs, path::Path, process::Command};
 
@@ -42,43 +42,15 @@ mod unix {
         // Only a folder this run created is removed when the build ends.
         let staging = crate::shared::TempDir::new("apollinaire-rpm")?;
         let root = staging.0.join("root");
-        let usr = root.join("usr");
-        let share = usr.join("share");
-        install(
-            &src.join("apollinaire"),
-            &usr.join("bin/apollinaire"),
-            0o755,
+        stage(
+            src,
+            &root,
+            &Layout {
+                zsh: "zsh/site-functions/_apollinaire",
+                licence: "licenses/apollinaire/LICENSE.md",
+                licences: "licenses/apollinaire/LICENSES",
+            },
         )?;
-        gzip(
-            &src.join("man/apollinaire.1"),
-            &share.join("man/man1/apollinaire.1.gz"),
-        )?;
-        let completions = src.join("completions");
-        for (from, to) in [
-            (
-                "apollinaire.bash",
-                "bash-completion/completions/apollinaire",
-            ),
-            ("_apollinaire", "zsh/site-functions/_apollinaire"),
-            (
-                "apollinaire.fish",
-                "fish/vendor_completions.d/apollinaire.fish",
-            ),
-        ] {
-            install(&completions.join(from), &share.join(to), 0o644)?;
-        }
-        let doc = share.join("doc/apollinaire");
-        for name in [
-            "README.md",
-            "THIRD_PARTY_NOTICES.md",
-            "DEPENDENCY_NOTICES.txt",
-        ] {
-            install(&src.join(name), &doc.join(name), 0o644)?;
-        }
-        let licences = share.join("licenses/apollinaire");
-        install(&src.join("LICENSE.md"), &licences.join("LICENSE.md"), 0o644)?;
-        copy_tree(&src.join("LICENSES"), &licences.join("LICENSES"))?;
-        normalise(&root)?;
         let spec = staging.0.join("apollinaire.spec");
         fs::write(&spec, spec_text(version, &root)).map_err(io(&spec))?;
         let top = staging.0.join("top");
@@ -100,6 +72,19 @@ mod unix {
         Ok(())
     }
 
+    /// What the package ships: this project (MIT), the bundled FIGlet (BSD-3-Clause) and TOIlet
+    /// (WTFPL) fonts, and the licences of the crates linked into the Linux binary, from
+    /// `cargo metadata --filter-platform x86_64-unknown-linux-musl`. Their texts ship as
+    /// `DEPENDENCY_NOTICES.txt`.
+    pub(crate) const LICENCE: &str = concat!(
+        "MIT AND BSD-3-Clause AND WTFPL AND Apache-2.0 AND ISC AND Unicode-3.0",
+        " AND CDLA-Permissive-2.0 AND Zlib AND (MIT OR Apache-2.0)",
+        " AND (0BSD OR MIT OR Apache-2.0) AND (Apache-2.0 OR ISC OR MIT)",
+        " AND (Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT)",
+        " AND (BSD-3-Clause OR Apache-2.0) AND (MIT OR Apache-2.0 OR Zlib)",
+        " AND (Unlicense OR MIT)"
+    );
+
     /// The spec file: the staged tree copied as it is, with no build step, no stripping and no
     /// automatic dependencies, as the binary is linked statically.
     pub(super) fn spec_text(version: &str, root: &Path) -> String {
@@ -108,7 +93,7 @@ mod unix {
 Version: {version}
 Release: 1
 Summary: Static art, block lettering and animation as real ASCII text
-License: MIT
+License: {LICENCE}
 URL: https://yungsnat.github.io/ApollinaireASCII/
 AutoReqProv: no
 %define __os_install_post %{{nil}}
@@ -170,11 +155,17 @@ mod tests {
                 .args([
                     "-qp",
                     "--queryformat",
-                    "%{NAME} %{VERSION} %{RELEASE} %{ARCH} %{LICENSE}",
+                    "%{NAME} %{VERSION} %{RELEASE} %{ARCH}",
                 ])
                 .arg(&rpm),
         );
-        assert_eq!(fields, "apollinaire 0.5.0~rc.1 1 aarch64 MIT");
+        assert_eq!(fields, "apollinaire 0.5.0~rc.1 1 aarch64");
+        let licence = output(
+            Command::new("rpm")
+                .args(["-qp", "--queryformat", "%{LICENSE}"])
+                .arg(&rpm),
+        );
+        assert_eq!(licence, super::unix::LICENCE);
         let requires = output(Command::new("rpm").args(["-qp", "--requires"]).arg(&rpm));
         assert!(
             requires.lines().all(|line| line.starts_with("rpmlib(")),
