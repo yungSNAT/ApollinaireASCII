@@ -5,11 +5,7 @@
 
 use super::read_bounded_utf8;
 use apollinaire_ascii::Result;
-use std::{
-    fs::File,
-    io,
-    path::{Component, Path, PathBuf},
-};
+use std::path::{Component, Path, PathBuf};
 
 pub(super) fn has_nul(text: &str, label: &str) -> Result<()> {
     if text.contains('\0') {
@@ -106,20 +102,19 @@ fn collect_relative_parts(rel: &Path, raw_path: &str, root_real: &Path) -> Resul
     Ok(parts)
 }
 
-fn relative_parts(raw_path: &str, base_dir: &Path) -> Result<(PathBuf, Vec<String>)> {
+fn root_resolve_err(path: &Path, err: impl std::fmt::Display) -> String {
+    format!("Cannot resolve workspace folder {}: {err}", path.display())
+}
+
+fn relative_parts(raw_path: &str, base_dir: &Path) -> Result<(RootAnchor, PathBuf, Vec<String>)> {
     has_nul(raw_path, "path")?;
     let base_str = base_dir
         .to_str()
         .ok_or_else(|| format!("Workspace path is not valid UTF-8: {}", base_dir.display()))?;
     has_nul(base_str, "workspace path")?;
-    let resolve_err = |e: io::Error| {
-        format!(
-            "Cannot resolve workspace folder {}: {e}",
-            base_dir.display()
-        )
-    };
-    let root_real = std::fs::canonicalize(base_dir).map_err(resolve_err)?;
-    let base_abs = std::path::absolute(base_dir).map_err(resolve_err)?;
+    let root_anchor = anchor_workspace_root(base_dir)?;
+    let root_real = std::fs::canonicalize(base_dir).map_err(|e| root_resolve_err(base_dir, e))?;
+    let base_abs = std::path::absolute(base_dir).map_err(|e| root_resolve_err(base_dir, e))?;
     let candidate = Path::new(raw_path);
     let rel = if candidate.is_absolute() {
         strip_workspace_prefix(candidate, &base_abs, &root_real).ok_or_else(|| {
@@ -132,7 +127,7 @@ fn relative_parts(raw_path: &str, base_dir: &Path) -> Result<(PathBuf, Vec<Strin
         candidate
     };
     let parts = collect_relative_parts(rel, raw_path, &root_real)?;
-    Ok((root_real, parts))
+    Ok((root_anchor, root_real, parts))
 }
 
 fn check_regular_leaf(meta: &std::fs::Metadata, leaf: &str) -> Result<()> {
@@ -143,8 +138,38 @@ fn check_regular_leaf(meta: &std::fs::Metadata, leaf: &str) -> Result<()> {
 }
 
 #[cfg(unix)]
-fn open_contained_file(root_real: &Path, parts: &[String]) -> Result<(String, File)> {
-    use rustix::fs::{CWD, Mode, OFlags, openat};
+use std::{fs::File, io};
+
+#[cfg(unix)]
+struct RootAnchor {
+    _fd: File,
+    id: (u64, u64),
+}
+
+#[cfg(unix)]
+fn anchor_workspace_root(base_dir: &Path) -> Result<RootAnchor> {
+    use rustix::fs::{CWD, Mode, OFlags, fstat, openat};
+
+    #[cfg(target_os = "linux")]
+    let flags = OFlags::PATH | OFlags::DIRECTORY | OFlags::CLOEXEC;
+    #[cfg(not(target_os = "linux"))]
+    let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC;
+    let fd = openat(CWD, base_dir, flags, Mode::empty())
+        .map_err(|e| root_resolve_err(base_dir, io::Error::from(e)))?;
+    let st = fstat(&fd).map_err(|e| root_resolve_err(base_dir, io::Error::from(e)))?;
+    Ok(RootAnchor {
+        _fd: File::from(fd),
+        id: (st.st_dev as u64, st.st_ino as u64),
+    })
+}
+
+#[cfg(unix)]
+fn open_contained_file(
+    root_real: &Path,
+    parts: &[String],
+    expected_root_id: Option<(u64, u64)>,
+) -> Result<(String, File)> {
+    use rustix::fs::{CWD, Mode, OFlags, fstat, openat};
     use rustix::io::Errno;
 
     #[cfg(target_os = "linux")]
@@ -152,13 +177,6 @@ fn open_contained_file(root_real: &Path, parts: &[String]) -> Result<(String, Fi
     #[cfg(not(target_os = "linux"))]
     let ancestor_flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
     let leaf_flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::NONBLOCK;
-    let map_root_err = |err: Errno| -> String {
-        format!(
-            "Cannot resolve workspace folder {}: {}",
-            root_real.display(),
-            io::Error::from(err)
-        )
-    };
     let map_open_err = |label: &str, err: Errno| -> String {
         let detail = if err == Errno::NOTDIR {
             "component is not a real directory or is a symlink".to_string()
@@ -168,11 +186,18 @@ fn open_contained_file(root_real: &Path, parts: &[String]) -> Result<(String, Fi
         format!("Cannot safely open {label}: {detail}")
     };
 
-    let mut dir_fd = openat(CWD, "/", ancestor_flags, Mode::empty()).map_err(map_root_err)?;
+    let mut dir_fd = openat(CWD, "/", ancestor_flags, Mode::empty())
+        .map_err(|e| root_resolve_err(root_real, io::Error::from(e)))?;
     for comp in root_real.components() {
         if let Component::Normal(seg) = comp {
-            dir_fd = openat(&dir_fd, seg, ancestor_flags, Mode::empty()).map_err(map_root_err)?;
+            dir_fd = openat(&dir_fd, seg, ancestor_flags, Mode::empty())
+                .map_err(|e| root_resolve_err(root_real, io::Error::from(e)))?;
         }
+    }
+    let root_stat = fstat(&dir_fd).map_err(|e| root_resolve_err(root_real, io::Error::from(e)))?;
+    let root_id = (root_stat.st_dev as u64, root_stat.st_ino as u64);
+    if expected_root_id.is_some_and(|exp| exp != root_id) {
+        return Err(root_resolve_err(root_real, "root identity changed"));
     }
     let (leaf, ancestors) = parts.split_last().expect("parts is non-empty");
     for part in ancestors {
@@ -185,156 +210,19 @@ fn open_contained_file(root_real: &Path, parts: &[String]) -> Result<(String, Fi
 }
 
 #[cfg(windows)]
-fn check_no_reparse_or_symlink(meta: &std::fs::Metadata, part: &str) -> Result<()> {
-    use std::os::windows::fs::MetadataExt;
-    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
-    if meta.file_type().is_symlink() || (meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0)
-    {
-        return Err(format!("Cannot safely open {part}: reparse point refused"));
-    }
-    Ok(())
-}
+#[path = "safe_io_win.rs"]
+mod win;
 
 #[cfg(windows)]
-fn file_identity(file: &File, label: &str) -> Result<(u64, u64)> {
-    let info = winapi_util::file::information(file)
-        .map_err(|e| format!("Cannot inspect file identity for {label}: {e}"))?;
-    Ok((info.volume_serial_number(), info.file_index()))
-}
-
-#[cfg(windows)]
-fn open_attr_handle(path: &Path, extra_flags: u32, allow_delete_share: bool) -> io::Result<File> {
-    use std::os::windows::fs::OpenOptionsExt;
-    const FILE_READ_ATTRIBUTES: u32 = 0x0080;
-    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
-    const FILE_SHARE_READ: u32 = 0x0000_0001;
-    const FILE_SHARE_WRITE: u32 = 0x0000_0002;
-    const FILE_SHARE_DELETE: u32 = 0x0000_0004;
-
-    let share = if allow_delete_share {
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE
-    } else {
-        FILE_SHARE_READ | FILE_SHARE_WRITE
-    };
-    File::options()
-        .access_mode(FILE_READ_ATTRIBUTES)
-        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | extra_flags)
-        .share_mode(share)
-        .open(path)
-}
-
-#[cfg(windows)]
-fn open_pinned_dir(path: &Path, part: &str, allow_delete_share: bool) -> Result<File> {
-    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
-
-    let dir = open_attr_handle(path, FILE_FLAG_BACKUP_SEMANTICS, allow_delete_share)
-        .map_err(|e| format!("Cannot safely open {part}: {e}"))?;
-    let meta = dir
-        .metadata()
-        .map_err(|e| format!("Cannot safely open {part}: {e}"))?;
-    check_no_reparse_or_symlink(&meta, part)?;
-    if !meta.file_type().is_dir() {
-        return Err(format!("Parent path component is not a directory: {part}"));
-    }
-    Ok(dir)
-}
-
-#[cfg(windows)]
-fn pin_root_ancestors(root_real: &Path) -> Result<(Vec<File>, (u64, u64))> {
-    let mut cur = PathBuf::new();
-    let mut pinned = Vec::new();
-    for comp in root_real.components() {
-        match comp {
-            Component::Prefix(p) => cur.push(p.as_os_str()),
-            Component::RootDir => {
-                cur.push(comp.as_os_str());
-                pinned.push(open_pinned_dir(&cur, ".", true)?);
-            }
-            Component::Normal(seg) => {
-                cur.push(seg);
-                let label = seg.to_string_lossy();
-                pinned.push(open_pinned_dir(&cur, &label, false)?);
-            }
-            Component::CurDir | Component::ParentDir => {}
-        }
-    }
-    let root_handle = pinned
-        .last()
-        .ok_or_else(|| format!("Cannot resolve workspace folder {}", root_real.display()))?;
-    let root_id = file_identity(root_handle, ".")?;
-    Ok((pinned, root_id))
-}
-
-#[cfg(windows)]
-fn verify_handle_containment(
-    root_real: &Path,
-    leaf_path: &Path,
-    root_id: (u64, u64),
-    leaf: &str,
-    leaf_id: (u64, u64),
-) -> Result<()> {
-    let cant_open = |e: io::Error| format!("Cannot safely open {leaf}: {e}");
-    let resolved = std::fs::canonicalize(leaf_path).map_err(cant_open)?;
-    if strip_workspace_prefix(&resolved, root_real, root_real).is_none() {
-        return Err(format!(
-            "Refused path outside workspace ({}).",
-            root_real.display()
-        ));
-    }
-    let check_leaf = open_attr_handle(&resolved, 0, false).map_err(cant_open)?;
-    if file_identity(&check_leaf, leaf)? != leaf_id {
-        return Err(format!(
-            "Cannot safely open {leaf}: path changed during verification"
-        ));
-    }
-    let check_root = open_pinned_dir(root_real, ".", false)?;
-    if file_identity(&check_root, ".")? != root_id {
-        return Err(format!(
-            "Cannot resolve workspace folder {}: root changed during verification",
-            root_real.display()
-        ));
-    }
-    Ok(())
-}
-
-#[cfg(windows)]
-fn open_contained_file(root_real: &Path, parts: &[String]) -> Result<(String, File)> {
-    use std::os::windows::fs::OpenOptionsExt;
-    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
-    const FILE_SHARE_READ: u32 = 0x0000_0001;
-    const FILE_SHARE_WRITE: u32 = 0x0000_0002;
-
-    let (leaf, ancestors) = parts.split_last().expect("parts is non-empty");
-    let (mut pinned, root_id) = pin_root_ancestors(root_real)?;
-    let mut cur = root_real.to_path_buf();
-    for part in ancestors {
-        cur.push(part);
-        pinned.push(open_pinned_dir(&cur, part, false)?);
-    }
-    cur.push(leaf);
-    let cant_open = |e: io::Error| format!("Cannot safely open {leaf}: {e}");
-    let file = File::options()
-        .read(true)
-        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
-        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
-        .open(&cur)
-        .map_err(cant_open)?;
-    let opened_meta = file.metadata().map_err(cant_open)?;
-    check_no_reparse_or_symlink(&opened_meta, leaf)?;
-    check_regular_leaf(&opened_meta, leaf)?;
-    let leaf_id = file_identity(&file, leaf)?;
-    verify_handle_containment(root_real, &cur, root_id, leaf, leaf_id)?;
-    drop(pinned);
-    Ok((leaf.clone(), file))
-}
+use win::{RootAnchor, anchor_workspace_root, open_contained_file};
 
 pub(super) fn read_contained_utf8(
     raw_path: &str,
     base_dir: &Path,
     max_bytes: usize,
 ) -> Result<(String, String)> {
-    let (root_real, parts) = relative_parts(raw_path, base_dir)?;
-    let (leaf, file) = open_contained_file(&root_real, &parts)?;
+    let (_root_anchor, root_real, parts) = relative_parts(raw_path, base_dir)?;
+    let (leaf, file) = open_contained_file(&root_real, &parts, Some(_root_anchor.id))?;
     let opened_meta = file
         .metadata()
         .map_err(|e| format!("Cannot safely open {leaf}: {e}"))?;
