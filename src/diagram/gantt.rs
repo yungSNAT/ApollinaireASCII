@@ -313,87 +313,112 @@ fn resolve(reader: &Reader) -> Result<Vec<(i64, i64)>> {
         let end = task.end.strip_prefix("until ");
         until.push(end.map(|list| indexes(task, list)).transpose()?);
     }
-    let mut times: Vec<Option<(i64, i64)>> = vec![None; reader.tasks.len()];
-    // Each pass resolves at least one task, or the rest refer to each other or to nothing.
-    loop {
-        let mut progress = false;
-        for (index, task) in reader.tasks.iter().enumerate() {
-            if times[index].is_some() {
-                continue;
+    let finish = |task: &Task, start: i64| -> Result<i64> {
+        let Some(length) = parse_length(&task.end) else {
+            return Ok(date(task, &task.end)? + if reader.inclusive_end { DAY } else { 0 });
+        };
+        let end = match length {
+            Length::Fixed(length) => start + length,
+            Length::Months(months) => add_months(start, months),
+        };
+        // As Mermaid does: each excluded day from the day after the start to the end,
+        // inclusive, pushes the end a day later.
+        let (mut at, mut end) = (start + DAY, end);
+        while at <= end && end - start <= MAX_SPAN {
+            if excluded(at) {
+                end += DAY;
             }
-            let start = match &task.start {
-                None if index == 0 => {
-                    return Err(format!(
-                        "Line {}: the first task needs a start date",
-                        task.line
-                    ));
-                }
-                None => times[index - 1].map(|t| t.1),
-                Some(text) => match &after[index] {
-                    Some(list) => {
-                        let mut latest = Some(i64::MIN);
-                        for &other in list {
-                            let at = times[other].map(|t| t.1);
-                            latest = latest.zip(at).map(|(a, b)| a.max(b));
-                        }
-                        latest.filter(|&at| at != i64::MIN)
-                    }
-                    None => Some(date(task, text)?),
-                },
-            };
-            let Some(start) = start else { continue };
-            let end = if let Some(list) = &until[index] {
-                let mut earliest = Some(i64::MAX);
-                for &other in list {
-                    let at = times[other].map(|t| t.0);
-                    earliest = earliest.zip(at).map(|(a, b)| a.min(b));
-                }
-                earliest.filter(|&at| at != i64::MAX)
-            } else if let Some(length) = parse_length(&task.end) {
-                let end = match length {
-                    Length::Fixed(length) => start + length,
-                    Length::Months(months) => add_months(start, months),
-                };
-                // As Mermaid does: each excluded day from the day after the start to the end,
-                // inclusive, pushes the end a day later.
-                let (mut at, mut end) = (start + DAY, end);
-                while at <= end && end - start <= MAX_SPAN {
-                    if excluded(at) {
-                        end += DAY;
-                    }
-                    at += DAY;
-                }
-                Some(end)
-            } else {
-                Some(date(task, &task.end)? + if reader.inclusive_end { DAY } else { 0 })
-            };
-            let Some(end) = end else { continue };
-            if end < start {
-                return Err(format!(
-                    "Line {}: the task ends before it starts",
-                    task.line
-                ));
-            }
-            if end - start > MAX_SPAN {
-                return Err(format!(
-                    "Line {}: a task lasts at most 100 years",
-                    task.line
-                ));
-            }
-            times[index] = Some((start, end));
-            progress = true;
+            at += DAY;
         }
-        if !progress {
-            break;
-        }
+        Ok(end)
+    };
+    let links = Links { after, until };
+    let mut walk = Walk {
+        times: vec![None; reader.tasks.len()],
+        visiting: vec![false; reader.tasks.len()],
+    };
+    for index in 0..reader.tasks.len() {
+        visit(index, &reader.tasks, &links, &mut walk, &date, &finish)?;
     }
-    match times.iter().position(Option::is_none) {
-        Some(index) => Err(format!(
+    Ok(walk.times.into_iter().flatten().collect())
+}
+
+/// Each task's `after` and `until` tasks, by index.
+struct Links {
+    after: Vec<Option<Vec<usize>>>,
+    until: Vec<Option<Vec<usize>>>,
+}
+
+/// Times resolved so far, and the tasks being resolved now.
+struct Walk {
+    times: Vec<Option<(i64, i64)>>,
+    visiting: Vec<bool>,
+}
+
+/// Resolve task `index`, first resolving each task it refers to, so each task is resolved once.
+fn visit(
+    index: usize,
+    tasks: &[Task],
+    links: &Links,
+    walk: &mut Walk,
+    date: &dyn Fn(&Task, &str) -> Result<i64>,
+    finish: &dyn Fn(&Task, i64) -> Result<i64>,
+) -> Result<(i64, i64)> {
+    if let Some(times) = walk.times[index] {
+        return Ok(times);
+    }
+    let task = &tasks[index];
+    if walk.visiting[index] {
+        return Err(format!(
             "Line {}: the task's start or end refers to tasks in a loop",
-            reader.tasks[index].line
-        )),
-        None => Ok(times.into_iter().flatten().collect()),
+            task.line
+        ));
     }
+    walk.visiting[index] = true;
+    let mut times_of = |other: usize| visit(other, tasks, links, walk, date, finish);
+    let start = match (&task.start, &links.after[index]) {
+        (None, _) if index == 0 => {
+            return Err(format!(
+                "Line {}: the first task needs a start date",
+                task.line
+            ));
+        }
+        (None, _) => times_of(index - 1)?.1,
+        (Some(_), Some(list)) => {
+            let mut latest = None;
+            for &other in list {
+                let end = times_of(other)?.1;
+                latest = Some(latest.map_or(end, |at: i64| at.max(end)));
+            }
+            latest.ok_or_else(|| format!("Line {}: after needs a task id", task.line))?
+        }
+        (Some(text), None) => date(task, text)?,
+    };
+    let end = match &links.until[index] {
+        Some(list) => {
+            let mut earliest = None;
+            for &other in list {
+                let begin = times_of(other)?.0;
+                earliest = Some(earliest.map_or(begin, |at: i64| at.min(begin)));
+            }
+            earliest.ok_or_else(|| format!("Line {}: until needs a task id", task.line))?
+        }
+        None => finish(task, start)?,
+    };
+    if end < start {
+        return Err(format!(
+            "Line {}: the task ends before it starts",
+            task.line
+        ));
+    }
+    if end - start > MAX_SPAN {
+        return Err(format!(
+            "Line {}: a task lasts at most 100 years",
+            task.line
+        ));
+    }
+    walk.times[index] = Some((start, end));
+    Ok((start, end))
 }
 
 fn draw(reader: &Reader, times: &[(i64, i64)], max_width: Option<usize>) -> Result<Frame> {

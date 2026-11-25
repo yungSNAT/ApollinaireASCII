@@ -342,3 +342,27 @@ fn gantt_draws_tabs_as_spaces_and_adds_calendar_months() {
         );
     }
 }
+
+#[test]
+fn gantt_resolves_each_task_once_however_long_its_lists() {
+    // 250 tasks in a reverse chain, each `after` every later task: about 31,000 references.
+    let mut source = String::from("gantt\n");
+    for i in 0..250 {
+        let later: Vec<String> = (i + 1..250).map(|j| format!("t{j}")).collect();
+        let start = if later.is_empty() {
+            "2026-01-01".to_owned()
+        } else {
+            format!("after {}", later.join(" "))
+        };
+        source.push_str(&format!("  T{i} :t{i}, {start}, 1d\n"));
+    }
+    let drawn = rows(&source);
+    assert_eq!(drawn.len(), 253);
+    // Each task starts the day after the one below it ends, so T0 is the last bar.
+    assert!(drawn[0].ends_with('='));
+    assert!(drawn[249].starts_with("T249 ="));
+    assert_eq!(
+        gantt("gantt\n  A :a, 2026-01-01, 1d\n  B :after , 1d").unwrap_err(),
+        "Line 3: 'after' is neither a date in the dateFormat YYYY-MM-DD nor a length in ms, s, m, h, d, w, M or y"
+    );
+}
