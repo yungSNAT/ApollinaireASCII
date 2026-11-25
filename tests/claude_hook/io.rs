@@ -310,6 +310,50 @@ fn unix_allows_search_only_parent_and_lazy_width_env() {
     assert!(text(&bad_env.stderr).contains("APOLLINAIRE_MAX_WIDTH"));
 }
 
+#[cfg(windows)]
+fn make_junction(link: &std::path::Path, target: &std::path::Path) {
+    let status = std::process::Command::new("cmd")
+        .args([
+            "/C",
+            "mklink",
+            "/J",
+            &link.display().to_string(),
+            &target.display().to_string(),
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .unwrap();
+    assert!(status.success(), "mklink /J failed for {}", link.display());
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_rejects_junction_inside_workspace() {
+    let tmp = Scratch::new("win-junction");
+    let sample_outside = "```mermaid\ngraph LR\n  SECRET_OUT --> SECRET_2\n```\n";
+    let outside_dir = tmp.0.join("outside_dir");
+    fs::create_dir_all(&outside_dir).unwrap();
+    fs::write(outside_dir.join("secret.md"), sample_outside).unwrap();
+
+    let workspace = tmp.0.join("work");
+    fs::create_dir_all(&workspace).unwrap();
+    let sub_junc = workspace.join("sub");
+    make_junction(&sub_junc, &outside_dir);
+    let out = run_hook(
+        &[],
+        &write_payload("Write", &workspace, &sub_junc.join("secret.md")),
+        &[],
+        None,
+    );
+    assert_eq!(out.status.code(), Some(2));
+    assert!(
+        text(&out.stderr).contains("reparse point refused"),
+        "{}",
+        text(&out.stderr)
+    );
+}
+
 #[cfg(unix)]
 fn spawn_symlink_flipper(
     race_ws: &std::path::Path,
