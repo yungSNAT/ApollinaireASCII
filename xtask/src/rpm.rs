@@ -117,7 +117,7 @@ cp -a '{}'/. %{{buildroot}}/
 /usr/share/zsh/site-functions/_apollinaire
 /usr/share/fish/vendor_completions.d/apollinaire.fish
 /usr/share/doc/apollinaire
-/usr/share/licenses/apollinaire
+%license /usr/share/licenses/apollinaire
 ",
             root.display()
         )
@@ -166,6 +166,13 @@ mod tests {
                 .arg(&rpm),
         );
         assert_eq!(licence, super::unix::LICENCE);
+        // Marked %license, so an install with tsflags=nodocs keeps them.
+        let licences = output(Command::new("rpm").args(["-qLp"]).arg(&rpm));
+        for file in ["DEPENDENCY_NOTICES.txt", "LICENSE.md", "LICENSES/MIT.txt"] {
+            let path = format!("/usr/share/licenses/apollinaire/{file}");
+            assert!(licences.lines().any(|line| line == path), "{licences}");
+        }
+        assert!(!licences.contains("/usr/share/doc/"), "{licences}");
         let requires = output(Command::new("rpm").args(["-qp", "--requires"]).arg(&rpm));
         assert!(
             requires.lines().all(|line| line.starts_with("rpmlib(")),
@@ -193,6 +200,7 @@ mod tests {
                 "-rw-r--r-- root/root /usr/share/doc/apollinaire/THIRD_PARTY_NOTICES.md",
                 "-rw-r--r-- root/root /usr/share/fish/vendor_completions.d/apollinaire.fish",
                 "drwxr-xr-x root/root /usr/share/licenses/apollinaire",
+                "-rw-r--r-- root/root /usr/share/licenses/apollinaire/DEPENDENCY_NOTICES.txt",
                 "-rw-r--r-- root/root /usr/share/licenses/apollinaire/LICENSE.md",
                 "drwxr-xr-x root/root /usr/share/licenses/apollinaire/LICENSES",
                 "-rw-r--r-- root/root /usr/share/licenses/apollinaire/LICENSES/MIT.txt",

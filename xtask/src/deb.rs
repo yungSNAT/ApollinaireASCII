@@ -152,6 +152,16 @@ pub(crate) mod unix {
             install(&src.join(name), &doc.join(name), 0o644)?;
         }
         install(&src.join("LICENSE.md"), &share.join(layout.licence), 0o644)?;
+        // The dependency licence texts also sit with the licences, which an install that skips
+        // documentation keeps; for the .deb this is the same file again.
+        let licence_folder = Path::new(layout.licence)
+            .parent()
+            .expect("A file in a folder");
+        install(
+            &src.join("DEPENDENCY_NOTICES.txt"),
+            &share.join(licence_folder).join("DEPENDENCY_NOTICES.txt"),
+            0o644,
+        )?;
         copy_tree(&src.join("LICENSES"), &share.join(layout.licences))?;
         normalise(root)
     }
