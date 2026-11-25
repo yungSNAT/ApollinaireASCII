@@ -282,3 +282,47 @@ fn markdown_cli_mode_handles_crlf_file_and_oversize_stdin() {
     assert_eq!(out.status.code(), Some(2));
     assert!(text(&out.stderr).contains("16 MiB"));
 }
+
+/// The general skill names only commands the CLI has, and its stdin recipes run.
+#[test]
+fn general_skill_names_real_commands_and_its_recipes_run() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("editors/claude-code/skills/apollinaire/SKILL.md");
+    let skill = fs::read_to_string(path).unwrap();
+    assert!(skill.starts_with("---\nname: apollinaire\ndescription: "));
+    let exe = env!("CARGO_BIN_EXE_apollinaire");
+    let mut commands: Vec<&str> = skill
+        .split("apollinaire ")
+        .skip(1)
+        .filter_map(|rest| rest.split([' ', '`', '\n']).next())
+        .filter(|word| !word.is_empty() && word.bytes().all(|b| b.is_ascii_lowercase()))
+        .collect();
+    commands.sort_unstable();
+    commands.dedup();
+    assert!(commands.len() >= 14, "{commands:?}");
+    for command in commands {
+        let out = std::process::Command::new(exe)
+            .args([command, "--help"])
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "apollinaire {command} --help failed");
+    }
+    for (input, needle) in [
+        ("graph LR\n  A[Client] --> B[API]\n", "Client"),
+        (
+            "gantt\n  Design :d, 2026-03-02, 5d\n  Build :after d, 10d\n",
+            "Design",
+        ),
+    ] {
+        assert!(skill.contains(&input.replace('\n', "\n")), "{input}");
+        let mut child = std::process::Command::new(exe)
+            .args(["diagram", "-", "--max-width", "80"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        std::io::Write::write_all(&mut child.stdin.take().unwrap(), input.as_bytes()).unwrap();
+        let out = child.wait_with_output().unwrap();
+        assert!(out.status.success() && String::from_utf8_lossy(&out.stdout).contains(needle));
+    }
+}
