@@ -197,8 +197,8 @@ fn render_markdown_widens_fences_past_backtick_and_tilde_runs_in_diagram() {
     assert!(rendered_four.ends_with("\n`````\n"), "{rendered_four}");
     assert_eq!(fenced_blocks(&rendered_four).len(), 1);
 
-    let five_ticks_already_wide = "``````mermaid\ngraph TD\n  A -->|#96;#96;#96;| B\n``````\n";
-    let rendered_wide = render_markdown(five_ticks_already_wide, None).unwrap();
+    let six_ticks_already_wide = "``````mermaid\ngraph TD\n  A -->|#96;#96;#96;| B\n``````\n";
+    let rendered_wide = render_markdown(six_ticks_already_wide, None).unwrap();
     assert!(rendered_wide.starts_with("``````text\n"), "{rendered_wide}");
     assert!(rendered_wide.ends_with("\n``````\n"), "{rendered_wide}");
     assert_eq!(fenced_blocks(&rendered_wide).len(), 1);
