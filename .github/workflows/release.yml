@@ -148,6 +148,14 @@ jobs:
           sudo rpm --root "$root" -i "${rpm_file[0]}"
           sudo rpm --root "$root" -V apollinaire
           "$root/usr/bin/apollinaire" --version
+          # An image that installs without documentation still carries every licence text.
+          bare="$RUNNER_TEMP/rpm-root-nodocs"
+          sudo rpm --root "$bare" --initdb
+          sudo rpm --root "$bare" -i --excludedocs "${rpm_file[0]}"
+          test ! -e "$bare/usr/share/doc/apollinaire/README.md"
+          for file in LICENSE.md DEPENDENCY_NOTICES.txt LICENSES/FIGlet-BSD-3-Clause.txt LICENSES/TOIlet-WTFPL-2.txt LICENSES/figlet.js-MIT.txt; do
+            test -s "$bare/usr/share/licenses/apollinaire/$file"
+          done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: upload-${{ matrix.target }}
