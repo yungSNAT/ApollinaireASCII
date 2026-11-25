@@ -103,21 +103,9 @@ The last GIF is within 0.4% of the 64 million decoded pixel budget and at the 60
 
 **Worker: no, not now.** The largest accepted input held the page for under 0.85 seconds, below the 1-second limit for keeping a user's flow of thought ([Nielsen Norman Group](https://www.nngroup.com/articles/response-times-3-important-limits/)), and opening or saving the largest project took under 40 ms. A device about 20% slower would pass 1 second on the largest GIF, so the decision should be revisited if a measurement on slower hardware does.
 
-## CLI conversion speed
-
-On 13 November 2026 the conversion speed script (now `xtask speed`) timed the CLI against 2 command-line converters that can print plain ASCII: [ascii-image-converter](https://github.com/TheZoraiz/ascii-image-converter) v1.13.1 (its Linux amd64 release binary) and [chafa](https://hpjansson.org/chafa/) 1.18.3 (its static Linux build, with `--symbols ascii --colors none`). Each converted 3 ImageMagick 7.1.2-35 plasma fractals to 200 columns and printed the result to `/dev/null`; each time is the fastest of 5 runs, including process start. apollinaire 0.4.0 was built with `cargo install --locked apollinaire-ascii` and Rust 1.100.0. The machine ran Linux 7.3.3 on an AMD Ryzen 7 4800H, limited to 4 CPUs and shared with other jobs (load average about 5), so the times are indicative.
-
-| Picture | apollinaire | apollinaire `--dither` | ascii-image-converter | chafa |
-|---|--:|--:|--:|--:|
-| 4000 x 3000 JPEG, 3.1 MiB | 131 ms | 130 ms | 321 ms | 148 ms |
-| 1920 x 1080 PNG, 10.2 MiB | 56 ms | 57 ms | 169 ms | 129 ms |
-| 4000 x 3000 PNG, 58.6 MiB | refused | refused | 901 ms | 646 ms |
-
-chafa came closest, within 17 ms on the JPEG. The CLI refused the large PNG with 'Input exceeds 16 MiB', its input limit then; the other 2 converted it, and Image input limit below covers the change that followed. The script also checked one output of each conversion: none held a byte outside line feeds and printable ASCII. The fractals differ slightly between runs despite the fixed seed. To rerun, pass the 3 programs' paths: `cargo run --manifest-path xtask/Cargo.toml -- speed <apollinaire> <ascii-image-converter> <chafa>`; ImageMagick 7 draws the pictures.
-
 ## Image input limit
 
-The 16 MiB input limit arrived with the first build on 1 November 2026 as one budget for every input, with no recorded reason or measurement; the decoded image was already held to 4096 x 4096 pixels and a 128 MiB allocation. On 14 November 2026 release builds (Rust 1.99.1) converted large pictures up to 125.1 MiB to 200 columns on the same machine (load average 3 to 7): peak memory was 2.1 to 3.5 times the file's size, 263 MiB at most (444 ms and 263 MiB for an uncompressed 4096 x 4000 16-bit RGBA PNG of 125.1 MiB, or 596 ms and 263 MiB on stdin; 1,244 ms and 222 MiB for 4 frames of 4096 x 3900 8-bit noise GIF of 63.8 MiB), and every output was printable ASCII. So `image` files and stdin now take up to 128 MiB, matching the decoder's allocation limit; text and project inputs, URL downloads and the browser editor keep 16 MiB. A 128 MiB + 1 byte file was refused with 'Input exceeds 128 MiB' only after reading it, in 183 ms and 132 MiB. A file is now refused from its size before any of it is read: in a later run that day the same refusal took 2 ms and 12.5 MiB, against 74 ms and 132 MiB for the build before.
+The 16 MiB input limit arrived with the first build on 1 November 2026 as one budget for every input, with no recorded reason or measurement; the decoded image was already held to 4096 x 4096 pixels and a 128 MiB allocation. On 14 November 2026 release builds (Rust 1.99.1) converted large pictures up to 125.1 MiB to 200 columns on a shared Linux machine (Linux 7.3.3, an AMD Ryzen 7 4800H limited to 4 CPUs, load average 3 to 7): peak memory was 2.1 to 3.5 times the file's size, 263 MiB at most (444 ms and 263 MiB for an uncompressed 4096 x 4000 16-bit RGBA PNG of 125.1 MiB, or 596 ms and 263 MiB on stdin; 1,244 ms and 222 MiB for 4 frames of 4096 x 3900 8-bit noise GIF of 63.8 MiB), and every output was printable ASCII. So `image` files and stdin now take up to 128 MiB, matching the decoder's allocation limit; text and project inputs, URL downloads and the browser editor keep 16 MiB. A 128 MiB + 1 byte file was refused with 'Input exceeds 128 MiB' only after reading it, in 183 ms and 132 MiB. A file is now refused from its size before any of it is read: in a later run that day the same refusal took 2 ms and 12.5 MiB, against 74 ms and 132 MiB for the build before.
 
 ## Shape-matched characters
 
@@ -136,7 +124,7 @@ Every conversion succeeded. So shape matching at the largest size holds the edit
 
 ## Speech bubbles against cowsay
 
-On 14 November 2026 a release build of `apollinaire say` (Rust 1.99.1) and [cowsay](https://github.com/cowsay-org/cowsay) 3.8.4 (its source release, run with Perl 5.44.0 in a UTF-8 locale) were given the same messages at each program's default width of 40. Each time is the fastest and the median of 20 runs, including process start, on the same shared Linux machine as the conversion timings (load average about 7), so the times are indicative.
+On 14 November 2026 a release build of `apollinaire say` (Rust 1.99.1) and [cowsay](https://github.com/cowsay-org/cowsay) 3.8.4 (its source release, run with Perl 5.44.0 in a UTF-8 locale) were given the same messages at each program's default width of 40. Each time is the fastest and the median of 20 runs, including process start, on the same shared Linux machine as the image timings above (load average about 7), so the times are indicative.
 
 | Message | `say` fastest (median) | cowsay fastest (median) |
 |---|--:|--:|
