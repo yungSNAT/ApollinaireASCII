@@ -12,7 +12,7 @@ Critical tasks
   Future task in critical line                                !!!!!!!!!!!!!!!!!!!                
   Create tests for renderer                                                     ======           
   Add to mermaid                                                                      ===        
-  Functionality added                                                                      *     
+  Functionality added                                                                   *        
 Documentation                                                                                    
   Describe gantt syntax                    >>>>>>>>>>>>>>                                        
   Add gantt diagram to demo page                        ===                                      
