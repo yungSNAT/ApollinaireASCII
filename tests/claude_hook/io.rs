@@ -1,99 +1,10 @@
 // Copyright 2026 Ryan Duguid
 // SPDX-License-Identifier: MIT
 
-//! Security, workspace-containment and error-handling tests for `apollinaire claude-hook`.
-#![cfg(feature = "cli")]
-
+use super::harness::{Scratch, parse_context, run_hook, text, write_payload};
 use apollinaire_ascii::MAX_INPUT_BYTES;
-use serde_json::{Value, json};
-use std::{
-    fs,
-    io::Write,
-    path::{Path, PathBuf},
-    process::{Command, Output, Stdio},
-};
-
-const BIN: &str = env!("CARGO_BIN_EXE_apollinaire");
-
-struct Scratch(PathBuf);
-
-impl Scratch {
-    fn new(name: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!(
-            "apollinaire-claude-io-{name}-{}",
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        Self(dir)
-    }
-}
-
-impl Drop for Scratch {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
-
-fn run_hook(
-    args: &[&str],
-    stdin_bytes: &[u8],
-    envs: &[(&str, Option<&str>)],
-    cwd: Option<&Path>,
-) -> Output {
-    let mut command = Command::new(BIN);
-    command.arg("claude-hook");
-    command.args(args);
-    command.env_remove("APOLLINAIRE_MAX_WIDTH");
-    for &(key, val) in envs {
-        match val {
-            Some(v) => command.env(key, v),
-            None => command.env_remove(key),
-        };
-    }
-    if let Some(dir) = cwd {
-        command.current_dir(dir);
-    }
-    command
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let mut child = command.spawn().unwrap();
-    let mut stdin = child.stdin.take().unwrap();
-    let input = stdin_bytes.to_vec();
-    let writer = std::thread::spawn(move || {
-        let _ = stdin.write_all(&input);
-    });
-    let output = child.wait_with_output().unwrap();
-    let _ = writer.join();
-    output
-}
-
-fn write_payload(tool: &str, cwd: &Path, file_path: &Path) -> Vec<u8> {
-    json!({
-        "hook_event_name": "PostToolUse",
-        "tool_name": tool,
-        "cwd": cwd.to_str().unwrap(),
-        "tool_input": {"file_path": file_path.to_str().unwrap()},
-    })
-    .to_string()
-    .into_bytes()
-}
-
-fn text(bytes: &[u8]) -> String {
-    String::from_utf8_lossy(bytes).into_owned()
-}
-
-fn parse_context(output: &Output) -> String {
-    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
-    assert!(output.stderr.is_empty(), "{}", text(&output.stderr));
-    let raw = std::str::from_utf8(&output.stdout).unwrap();
-    let parsed: Value = serde_json::from_str(raw).unwrap();
-    parsed["hookSpecificOutput"]["additionalContext"]
-        .as_str()
-        .unwrap()
-        .to_owned()
-}
+use serde_json::json;
+use std::fs;
 
 #[test]
 fn fails_closed_on_malformed_payloads_widths_exports_and_traversals() {
@@ -296,6 +207,7 @@ fn windows_handles_case_mismatch_trailing_slash_reparse_pin_and_ads() {
 #[test]
 fn unix_rejects_symlinks_and_fifo() {
     use std::os::unix::fs::symlink;
+    use std::process::Command;
 
     let tmp = Scratch::new("unix-symlink");
     let workspace = tmp.0.join("work");
@@ -350,9 +262,12 @@ fn unix_rejects_symlinks_and_fifo() {
 #[cfg(unix)]
 #[test]
 fn unix_allows_search_only_parent_and_lazy_width_env() {
+    use super::harness::BIN;
     use std::ffi::OsStr;
+    use std::io::Write;
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::PermissionsExt;
+    use std::process::{Command, Stdio};
 
     let tmp = Scratch::new("unix-perms");
     let sample = "```mermaid\nflowchart TD\n  A --> B\n```\n";
@@ -397,8 +312,8 @@ fn unix_allows_search_only_parent_and_lazy_width_env() {
 
 #[cfg(unix)]
 fn spawn_symlink_flipper(
-    race_ws: &Path,
-    outside_dir: &Path,
+    race_ws: &std::path::Path,
+    outside_dir: &std::path::Path,
     stop: &std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) -> std::thread::JoinHandle<()> {
     use std::os::unix::fs::symlink;

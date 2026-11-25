@@ -290,3 +290,19 @@ pub(super) fn is_markdown_path(file_path: &str) -> bool {
                 || ext.eq_ignore_ascii_case("mdx")
         })
 }
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::open_contained_file;
+    use std::path::Path;
+
+    #[test]
+    fn open_contained_file_reports_unopenable_workspace_root() {
+        let err = open_contained_file(
+            Path::new("/definitely_missing_apollinaire_root"),
+            &["doc.md".to_owned()],
+        )
+        .expect_err("missing root must fail");
+        assert!(err.contains("Cannot resolve workspace folder"), "{err}");
+    }
+}
