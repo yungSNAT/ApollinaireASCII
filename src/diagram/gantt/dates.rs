@@ -9,7 +9,7 @@ pub(super) const SECOND: i64 = 1_000;
 pub(super) const MINUTE: i64 = 60 * SECOND;
 pub(super) const HOUR: i64 = 60 * MINUTE;
 pub(super) const DAY: i64 = 24 * HOUR;
-/// The longest task and the longest chart: 100 years.
+/// The longest task: 100 years.
 pub(super) const MAX_SPAN: i64 = 36_525 * DAY;
 
 pub(super) const WEEKDAYS: [&str; 7] = [
@@ -108,10 +108,23 @@ pub(super) fn parse_date(format: &str, text: &str) -> Option<i64> {
     Some(days_from_civil(year, month, day) * DAY + hour * HOUR + minute * MINUTE + second * SECOND)
 }
 
-/// A length such as `3d`, `1.5h` or `2w` in milliseconds.
-pub(super) fn parse_length(text: &str) -> Option<i64> {
-    let digits = text.find(|c: char| !c.is_ascii_digit() && c != '.')?;
-    let (number, unit) = text.split_at(digits);
+/// A task's length: milliseconds, or calendar months.
+#[derive(Clone, Copy)]
+pub(super) enum Length {
+    Fixed(i64),
+    Months(i64),
+}
+
+/// A length as Mermaid writes one: a number (`3`, `1.5`) and `ms`, `s`, `m`, `h`, `d`, `w`, `M`
+/// (calendar months) or `y` (12 months). Months and years are whole numbers. A length over 100
+/// years is kept just over, so the task is refused for its length.
+pub(super) fn parse_length(text: &str) -> Option<Length> {
+    let split = text.find(|c: char| !c.is_ascii_digit() && c != '.')?;
+    let (number, unit) = text.split_at(split);
+    let (whole, fraction) = number.split_once('.').unwrap_or((number, "0"));
+    if whole.is_empty() || fraction.is_empty() || fraction.contains('.') {
+        return None;
+    }
     let unit = match unit {
         "ms" => 1,
         "s" => SECOND,
@@ -119,13 +132,27 @@ pub(super) fn parse_length(text: &str) -> Option<i64> {
         "h" => HOUR,
         "d" => DAY,
         "w" => 7 * DAY,
+        "M" | "y" if number.contains('.') => return None,
+        "M" | "y" => {
+            let per = if unit == "y" { 12 } else { 1 };
+            let count = whole.parse::<i64>().unwrap_or(i64::MAX).min(1201);
+            return Some(Length::Months((count * per).min(1201)));
+        }
         _ => return None,
     };
-    let number: f64 = number.parse().ok().filter(|n: &f64| n.is_finite())?;
+    let number: f64 = number.parse().ok()?;
     #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
-    let length = (number * unit as f64).round();
-    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
-    (length <= MAX_SPAN as f64).then_some(length as i64)
+    let length = (number * unit as f64).round().min((MAX_SPAN + DAY) as f64) as i64;
+    Some(Length::Fixed(length))
+}
+
+/// `at` plus `months` calendar months, the day held to the new month's last day as Mermaid's
+/// date library does.
+pub(super) fn add_months(at: i64, months: i64) -> i64 {
+    let (year, month, day) = civil_from_days(at.div_euclid(DAY));
+    let total = year * 12 + month - 1 + months;
+    let (year, month) = (total.div_euclid(12), total.rem_euclid(12) + 1);
+    days_from_civil(year, month, day.min(days_in_month(year, month))) * DAY + at.rem_euclid(DAY)
 }
 
 /// `at` written in a d3-style `axisFormat`.
@@ -171,4 +198,18 @@ pub(super) fn format_axis(line: usize, format: &str, at: i64) -> Result<String> 
         }
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DAY, add_months, days_from_civil};
+
+    #[test]
+    fn adds_calendar_months_holding_the_day_to_the_month_end() {
+        let at = |y, m, d| days_from_civil(y, m, d) * DAY + 5;
+        assert_eq!(add_months(at(2024, 2, 29), 12), at(2025, 2, 28));
+        assert_eq!(add_months(at(2026, 1, 31), 1), at(2026, 2, 28));
+        assert_eq!(add_months(at(2026, 11, 15), 3), at(2027, 2, 15));
+        assert_eq!(add_months(at(1969, 12, 31), 2), at(1970, 2, 28));
+    }
 }

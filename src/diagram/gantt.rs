@@ -8,10 +8,14 @@ mod dates;
 use super::graph::wrap_lines;
 use super::{decode, split_statements};
 use crate::{Frame, MAX_HEIGHT, MAX_INPUT_BYTES, MAX_WIDTH, Result};
-use dates::{DAY, HOUR, MAX_SPAN, MINUTE, SECOND, WEEKDAYS, format_axis, parse_date, parse_length};
+use dates::{
+    DAY, HOUR, Length, MAX_SPAN, MINUTE, SECOND, WEEKDAYS, add_months, format_axis, parse_date,
+    parse_length,
+};
 use std::collections::{HashMap, HashSet};
 
-const MAX_TASKS: usize = 1024;
+/// Each task takes a row, so no more can be drawn.
+const MAX_TASKS: usize = MAX_HEIGHT;
 /// Width of a chart drawn without `--max-width`, unless its labels need more.
 const DEFAULT_WIDTH: usize = 100;
 
@@ -22,7 +26,7 @@ const DEFAULT_WIDTH: usize = 100;
 ///
 /// - `title`, `section` and tasks written `Name : metadata`, where the metadata is optional
 ///   tags (`done`, `active`, `crit`, `milestone`), then an optional id, an optional start (a date
-///   or `after id ...`) and an end (a date, a length such as `3d`, `20h` or `2w`, or
+///   or `after id ...`) and an end (a date, a length such as `3d`, `20h`, `2w` or `1M`, or
 ///   `until id ...`). A task without a start begins where the task before it ends.
 /// - `dateFormat` reads dates written with `YYYY`, `MM`, `DD`, `HH`, `mm` and `ss` (default
 ///   `YYYY-MM-DD`); `axisFormat` labels the axis with `%Y`, `%y`, `%m`, `%d`, `%e`, `%H`, `%M`,
@@ -104,13 +108,15 @@ impl Reader {
         if line.trim_start().starts_with("%%") {
             return Ok(());
         }
-        for raw in split_statements(line) {
+        // A tab inside a name, title or format is drawn as a space.
+        let line = line.replace('\t', " ");
+        for raw in split_statements(&line) {
             let stmt = raw.trim();
             if stmt.is_empty() {
                 continue;
             }
             if self.in_block {
-                self.in_block = !stmt.ends_with('}');
+                self.in_block = !stmt.contains('}');
                 continue;
             }
             if !self.started {
@@ -284,11 +290,29 @@ fn resolve(reader: &Reader) -> Result<Vec<(i64, i64)>> {
     let date = |task: &Task, text: &str| {
         parse_date(format, text).ok_or_else(|| {
             format!(
-                "Line {}: '{text}' is neither a date in the dateFormat {format} nor a length such as 3d",
+                "Line {}: '{text}' is neither a date in the dateFormat {format} nor a length in ms, s, m, h, d, w, M or y",
                 task.line
             )
         })
     };
+    // Each `after` and `until` list as task indexes, once, without repeats.
+    let indexes = |task: &Task, list: &str| -> Result<Vec<usize>> {
+        let mut found = list
+            .split_whitespace()
+            .map(|id| lookup(task, id))
+            .collect::<Result<Vec<_>>>()?;
+        found.sort_unstable();
+        found.dedup();
+        Ok(found)
+    };
+    let mut after = Vec::with_capacity(reader.tasks.len());
+    let mut until = Vec::with_capacity(reader.tasks.len());
+    for task in &reader.tasks {
+        let start = task.start.as_deref().and_then(|t| t.strip_prefix("after "));
+        after.push(start.map(|list| indexes(task, list)).transpose()?);
+        let end = task.end.strip_prefix("until ");
+        until.push(end.map(|list| indexes(task, list)).transpose()?);
+    }
     let mut times: Vec<Option<(i64, i64)>> = vec![None; reader.tasks.len()];
     // Each pass resolves at least one task, or the rest refer to each other or to nothing.
     loop {
@@ -305,11 +329,11 @@ fn resolve(reader: &Reader) -> Result<Vec<(i64, i64)>> {
                     ));
                 }
                 None => times[index - 1].map(|t| t.1),
-                Some(text) => match text.strip_prefix("after ") {
+                Some(text) => match &after[index] {
                     Some(list) => {
                         let mut latest = Some(i64::MIN);
-                        for id in list.split_whitespace() {
-                            let at = times[lookup(task, id)?].map(|t| t.1);
+                        for &other in list {
+                            let at = times[other].map(|t| t.1);
                             latest = latest.zip(at).map(|(a, b)| a.max(b));
                         }
                         latest.filter(|&at| at != i64::MIN)
@@ -318,17 +342,21 @@ fn resolve(reader: &Reader) -> Result<Vec<(i64, i64)>> {
                 },
             };
             let Some(start) = start else { continue };
-            let end = if let Some(list) = task.end.strip_prefix("until ") {
+            let end = if let Some(list) = &until[index] {
                 let mut earliest = Some(i64::MAX);
-                for id in list.split_whitespace() {
-                    let at = times[lookup(task, id)?].map(|t| t.0);
+                for &other in list {
+                    let at = times[other].map(|t| t.0);
                     earliest = earliest.zip(at).map(|(a, b)| a.min(b));
                 }
                 earliest.filter(|&at| at != i64::MAX)
             } else if let Some(length) = parse_length(&task.end) {
-                // As Mermaid does: each excluded day from the start to the end, inclusive,
-                // pushes the end a day later.
-                let (mut at, mut end) = (start, start + length);
+                let end = match length {
+                    Length::Fixed(length) => start + length,
+                    Length::Months(months) => add_months(start, months),
+                };
+                // As Mermaid does: each excluded day from the day after the start to the end,
+                // inclusive, pushes the end a day later.
+                let (mut at, mut end) = (start + DAY, end);
                 while at <= end && end - start <= MAX_SPAN {
                     if excluded(at) {
                         end += DAY;

@@ -170,15 +170,15 @@ fn gantt_refuses_invalid_charts() {
         ),
         (
             "gantt\n  A :2026-01-01, after b",
-            "Line 2: 'after b' is neither a date in the dateFormat YYYY-MM-DD nor a length such as 3d",
+            "Line 2: 'after b' is neither a date in the dateFormat YYYY-MM-DD nor a length in ms, s, m, h, d, w, M or y",
         ),
         (
             "gantt\n  A :2026-02-30, 1d",
-            "Line 2: '2026-02-30' is neither a date in the dateFormat YYYY-MM-DD nor a length such as 3d",
+            "Line 2: '2026-02-30' is neither a date in the dateFormat YYYY-MM-DD nor a length in ms, s, m, h, d, w, M or y",
         ),
         (
-            "gantt\n  A :2026-01-01, 3y",
-            "Line 2: '3y' is neither a date in the dateFormat YYYY-MM-DD nor a length such as 3d",
+            "gantt\n  A :2026-01-01, 3q",
+            "Line 2: '3q' is neither a date in the dateFormat YYYY-MM-DD nor a length in ms, s, m, h, d, w, M or y",
         ),
         ("gantt\n  A :after b, 1d", "Line 2: no task has the id 'b'"),
         (
@@ -195,7 +195,7 @@ fn gantt_refuses_invalid_charts() {
         ),
         (
             "gantt\n  A :2026-01-01, 36526d",
-            "Line 2: '36526d' is neither a date in the dateFormat YYYY-MM-DD nor a length such as 3d",
+            "Line 2: a task lasts at most 100 years",
         ),
         (
             "gantt\n  excludes monday,tuesday,wednesday,thursday,friday,saturday,sunday\n  A :2026-01-01, 1d",
@@ -230,19 +230,20 @@ fn gantt_refuses_invalid_charts() {
         mermaid_with_max_width("gantt\n  A :2026-01-01, 1d", 2).unwrap_err(),
         "A Gantt chart needs a --max-width of at least 3 columns"
     );
-    let many: String = std::iter::once("gantt\n  A :2026-01-01, 1d\n".to_owned())
-        .chain((0..300).map(|i| format!("  T{i} :1d\n")))
+    // 200 tasks, each under its own section, need 403 rows.
+    let many: String = std::iter::once("gantt\n  section S\n  A :2026-01-01, 1d\n".to_owned())
+        .chain((0..199).map(|i| format!("  section S{i}\n  T{i} :1d\n")))
         .collect();
     assert_eq!(
         gantt(&many).unwrap_err(),
-        "The Gantt chart needs 304 rows; a drawing has at most 256"
+        "The Gantt chart needs 403 rows; a drawing has at most 256"
     );
     let too_many: String = std::iter::once("gantt\n  A :2026-01-01, 1d\n".to_owned())
-        .chain((0..1024).map(|i| format!("  T{i} :1d\n")))
+        .chain((0..256).map(|i| format!("  T{i} :1d\n")))
         .collect();
     assert_eq!(
         gantt(&too_many).unwrap_err(),
-        "Line 1026: a Gantt chart has at most 1024 tasks"
+        "Line 258: a Gantt chart has at most 256 tasks"
     );
     let huge = "gantt\n".to_owned() + &" ".repeat(MAX_INPUT_BYTES);
     assert_eq!(
@@ -272,7 +273,7 @@ fn gantt_reads_times_and_writes_every_axis_field() {
     );
     let not_read = |text: &str| {
         format!(
-            "Line 2: '{text}' is neither a date in the dateFormat YYYY-MM-DD nor a length such as 3d"
+            "Line 2: '{text}' is neither a date in the dateFormat YYYY-MM-DD nor a length in ms, s, m, h, d, w, M or y"
         )
     };
     for (source, message) in [
@@ -293,10 +294,51 @@ fn gantt_reads_times_and_writes_every_axis_field() {
         assert_eq!(gantt(source).unwrap_err(), message, "{source}");
     }
     let sections: String = std::iter::once("gantt\n".to_owned())
-        .chain((0..1025).map(|i| format!("  section S{i}\n")))
+        .chain((0..257).map(|i| format!("  section S{i}\n")))
         .collect();
     assert_eq!(
         gantt(&sections).unwrap_err(),
-        "Line 1026: a Gantt chart has at most 1024 sections"
+        "Line 258: a Gantt chart has at most 256 sections"
     );
+}
+
+#[test]
+fn gantt_walks_exclusions_from_the_day_after_the_start() {
+    // B starts on Saturday 3 January: only Sunday pushes its end, to Monday.
+    let saturday = rows("gantt\n  excludes weekends\n  A :2026-01-02, 2026-01-03\n  B :1d");
+    assert_eq!(saturday[..2], ["A =", "B  =="]);
+    // An excluded start date does not push the end.
+    let excluded = rows("gantt\n  excludes 2026-01-05\n  A :2026-01-05, 2d");
+    assert_eq!(excluded[0], "A ==");
+    // A 0d milestone on an excluded Saturday stays on Saturday.
+    let milestone = rows(
+        "gantt\n  excludes weekends\n  A :2026-01-01, 2026-01-05\n  M :milestone, 2026-01-03, 0d",
+    );
+    assert_eq!(milestone[..2], ["A ====", "M   *"]);
+}
+
+#[test]
+fn gantt_draws_tabs_as_spaces_and_adds_calendar_months() {
+    let tabs = rows("gantt\n  title X\tY\n  section S\tT\n  A\tB :2026-01-01, 1d");
+    assert_eq!(tabs[..4], ["X Y", "", "S T", "  A B ="]);
+    // A month from 31 January ends on 28 February, where B starts.
+    let month = rows("gantt\n  A :a, 2026-01-31, 1M\n  B :after a, 1d\n  C :2026-02-28, 1d");
+    assert_eq!(month[1][1..], month[2][1..]);
+    for source in [
+        "gantt\n  A :2026-01-01, 1201M",
+        "gantt\n  A :2026-01-01, 101y",
+        "gantt\n  A :2026-01-01, 99999999999999999999999d",
+    ] {
+        assert_eq!(
+            gantt(source).unwrap_err(),
+            "Line 2: a task lasts at most 100 years"
+        );
+    }
+    for length in [".5d", "5.d", "1.5M", "1.2.3d"] {
+        let message = gantt(&format!("gantt\n  A :2026-01-01, {length}")).unwrap_err();
+        assert!(
+            message.contains("nor a length in ms, s, m, h, d, w, M or y"),
+            "{message}"
+        );
+    }
 }
