@@ -3,11 +3,11 @@
 
 //! Test suites that run outside Cargo against a built apollinaire, from the repository root.
 //! `editors`: the Neovim plugin, then the Emacs package byte-compiled with warnings as errors,
-//! then its tests, then the Claude Code plugin tests, all headless. `code-exports`: each code export of once.json and loop.json,
+//! then its tests, then `apollinaire claude-hook` checks, all headless. `code-exports`: each code export of once.json and loop.json,
 //! written and run: React and Ink under Node, OpenTUI under Bun and Bubble Tea under Go at the
 //! versions pinned in tests/code_exports, and the Python, Ruby and C# programs under the python3,
 //! ruby and dotnet on PATH (.NET 10 or later).
-use crate::shared::{TempDir, exec, fail, first_line};
+use crate::shared::{TempDir, exec, exec_stdin, fail, first_line};
 use std::{
     fs, io,
     path::Path,
@@ -53,11 +53,6 @@ fn remove(path: &Path) -> Result<(), String> {
 /// npm is a batch file on Windows, which Command does not find by its bare name.
 fn npm() -> &'static str {
     if cfg!(windows) { "npm.cmd" } else { "npm" }
-}
-
-/// Python 3 on each platform: `python` on Windows, `python3` elsewhere.
-fn python() -> &'static str {
-    if cfg!(windows) { "python" } else { "python3" }
 }
 
 pub fn editors(bin: &str) -> Result<(), String> {
@@ -116,13 +111,47 @@ pub fn editors(bin: &str) -> Result<(), String> {
         "emacs",
         &[&["--batch", "-Q"][..], &tests].concat(),
     )?;
-    first_line(dir, &env, python(), &["--version"])?;
-    run(
-        dir,
-        &env,
-        python(),
-        &["-B", "claude-code/tests/test_hook.py"],
+    let claude = TempDir::new("apollinaire-claude-code")?;
+    let sample = claude.0.join("flow.md");
+    fs::write(
+        &sample,
+        "# Flow\n\n```mermaid\nflowchart LR\n  A --> B\n```\n",
     )
+    .map_err(fail(&sample))?;
+    let md_out = exec(
+        &claude.0,
+        &env,
+        &bin,
+        &[
+            "claude-hook",
+            "--markdown",
+            "--file",
+            "flow.md",
+            "--max-width",
+            "60",
+        ],
+        Stdio::piped(),
+    )?;
+    let md_text = String::from_utf8_lossy(&md_out);
+    if !md_text.contains("```text") {
+        return Err(format!(
+            "claude-hook --markdown did not emit a text block: {md_text}"
+        ));
+    }
+    let hook_out = exec_stdin(
+        &claude.0,
+        &env,
+        &bin,
+        &["claude-hook"],
+        br#"{"hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"flow.md"}}"#,
+    )?;
+    let hook_text = String::from_utf8_lossy(&hook_out);
+    if !hook_text.contains("PostToolUse") || !hook_text.contains("additionalContext") {
+        return Err(format!(
+            "claude-hook PostToolUse did not emit expected JSON: {hook_text}"
+        ));
+    }
+    Ok(())
 }
 
 pub fn code_exports(bin: &str) -> Result<(), String> {

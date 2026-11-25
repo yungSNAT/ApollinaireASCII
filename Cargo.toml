@@ -32,7 +32,7 @@ required-features = ["cli"]
 
 [features]
 default = ["cli"]
-cli = ["dep:base64", "dep:clap", "dep:clap_complete", "dep:clap_mangen", "dep:crossterm", "dep:getrandom", "dep:rustix", "dep:signal-hook", "dep:tungstenite", "dep:ureq"]
+cli = ["dep:base64", "dep:clap", "dep:clap_complete", "dep:clap_mangen", "dep:crossterm", "dep:getrandom", "dep:rustix", "dep:signal-hook", "dep:tungstenite", "dep:ureq", "dep:winapi-util"]
 web = ["dep:wasm-bindgen", "dep:web-sys", "dep:js-sys", "dep:wasm-bindgen-futures"]
 
 [dependencies]
@@ -55,10 +55,13 @@ tungstenite = { version = "0.30.0", optional = true }
 ureq = { version = "3.5.0", default-features = false, features = ["rustls"], optional = true }
 weezl = "0.2.1"
 
-# crossterm's own Unix dependencies, for the editor's controlling-terminal check and hangup handling.
+# Unix dependencies for editor controlling-terminal checks, hangups, and safe openat containment.
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1.1.6", default-features = false, features = ["std", "termios", "process"], optional = true }
+rustix = { version = "1.1.6", default-features = false, features = ["std", "termios", "process", "fs"], optional = true }
 signal-hook = { version = "0.3.18", optional = true }
+
+[target.'cfg(windows)'.dependencies]
+winapi-util = { version = "0.1.11", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rayon = "1"

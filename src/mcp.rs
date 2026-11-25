@@ -823,7 +823,8 @@ mod tests {
     use super::*;
 
     /// Commands that are no tool: interactive ones, ones that print no artwork, and ones that
-    /// need a file name (whose extension picks the format) or 2 files, which a tool cannot pass.
+    /// need a file name (whose extension picks the format) or 2 files, which a tool cannot pass,
+    /// plus `claude-hook` (reads workspace files for Claude Code hooks; `diagram` serves Markdown).
     const NOT_TOOLS: &[&str] = &[
         "import",
         "model",
@@ -833,6 +834,7 @@ mod tests {
         "completions",
         "man",
         "mcp",
+        "claude-hook",
     ];
     /// Arguments no tool takes: files and directories, which the server never names.
     const NOT_TAKEN: &[&str] = &[
