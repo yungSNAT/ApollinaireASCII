@@ -46,7 +46,7 @@ Every frame contains bytes 32 through 126. Line feeds separate rows when saved a
 | Text effects | Reveal, typewriter, decrypt, scatter, wipes in 4 directions, rain, wave and burn, applied to any art or lettering, forwards or in reverse; set duration, FPS and seed |
 | Media conversion | PNG, JPEG, GIF, WebP, BMP and PNM input; animated GIF timing; custom character ramps, aspect correction, transparency, inversion, gamma, contrast, dithering and edges, optionally drawn as `|`, `/`, `-` and `\` along their direction; characters matched to each cell's shape from all 95; presets in the browser editor; CLI batches and `https://` URLs; ANSI and CP437 art (`.ans`, `.asc`, `.nfo`, `.diz`, and UTF-8 ANSI as `.utf8.ans`) and XBIN, Artworx, iCE Draw, TundraDraw and BIN art (`.xb`, `.adf`, `.idf`, `.tnd`, and `.bin` on request) read as ASCII, with box drawing and shading mapped to ASCII characters, colour dropped and the SAUCE width kept; `.stl` (binary or text) and `.obj` 3D models drawn turning a full circle about one or 2 axes, shaded from a chosen light side with any ramp (`apollinaire model` and the browser editor's converter); REXPaint images (`.xp`) read the same way, each of their layers a layer in the browser editor |
 | Video and camera | In the browser editor: any video the browser plays, sampled at 1 to 60 frames per second between chosen start and end times; a live text preview from the camera and timed recordings of 1 to 60 seconds. From the CLI: MP4, MOV, WebM, MKV, AVI, Ogg and MPEG files sampled at the same rates and times through an installed ffmpeg, which can pick a neighbouring frame in a video with a variable frame rate (`apollinaire image clip.mp4`) |
-| Browser editor | Pencil, eraser, line, rectangle, ellipse, Bezier curve, fill, linear, radial and dithered character gradients, typing, area select/move/copy/paste/rotate and reusable art stamps on the character grid, each usable by keyboard; a character picker showing any of 5 built-in palettes or palettes added in the session, read from and saved as Ascii-Motion character palette JSON and usable as gradient or conversion characters; an option that keeps rectangles square and ellipses round; optional directional ASCII mirrors; diagram mode for joined `+-|` boxes, labels and arrows; up to 16 layers that share the frames, with show, hide, lock, show-only, reorder and merge, and named groups of neighbouring layers that show, hide, lock, show alone, move and delete together, saved in JSON and flattened in text and player exports; keyframes that move, stretch and turn a layer about an anchor, eased by 8 presets or a custom cubic curve drawn in ASCII, with line characters turning as the layer turns, shown in every export and CLI command; onion skin; select/copy text, timeline, frame-range timing/duplication/deletion/reordering, undo/redo, local file imports and opt-in local recovery |
+| Browser editor | Pencil, eraser, line, rectangle, ellipse, Bezier curve, fill, linear, radial and dithered character gradients, typing, area select/move/copy/paste/rotate and reusable art stamps on the character grid, each usable by keyboard; a character picker showing any of 5 built-in palettes or palettes added in the session, read from and saved as character palette JSON and usable as gradient or conversion characters; an option that keeps rectangles square and ellipses round; optional directional ASCII mirrors; diagram mode for joined `+-|` boxes, labels and arrows; up to 16 layers that share the frames, with show, hide, lock, show-only, reorder and merge, and named groups of neighbouring layers that show, hide, lock, show alone, move and delete together, saved in JSON and flattened in text and player exports; keyframes that move, stretch and turn a layer about an anchor, eased by 8 presets or a custom cubic curve drawn in ASCII, with line characters turning as the layer turns, shown in every export and CLI command; onion skin; select/copy text, timeline, frame-range timing/duplication/deletion/reordering, undo/redo, local file imports and opt-in local recovery |
 | Export | Plain `.txt`, timed `.json` projects and standalone `.html` text players; code that plays the artwork as a React or Ink component, in OpenTUI, as a Bubble Tea program or as a Python, Ruby or C# program; from the CLI, asciicast v2 `.cast` recordings for asciinema's terminal and web players |
 | Terminal | `apollinaire edit`: an interactive editor for `.txt` and `.json` files, with typing, mouse drawing, a chosen brush, frames, playback and undo, on Windows, macOS and Linux; `apollinaire play` for playback. Escape codes only move the cursor; saved artwork remains plain text |
 | Neovim and Emacs | A Neovim plugin and an Emacs package that insert what any command prints, pass lines through `table`, `tree`, `diagram`, `say` or `transform` in place, and list what `check` finds where the editor's error list visits each problem; in Neovim, a live preview of each fenced Mermaid block below its source |
@@ -198,16 +198,16 @@ Under **Local project recovery**, enable **Keep applied project edits in this br
 
 ## When to choose something else
 
-ApollinaireASCII keeps every output to printable ASCII and shares one Rust core between the CLI, library and browser editor. These projects suit other needs better; [the research notes](docs/RESEARCH.md) compare most of them:
+ApollinaireASCII keeps every output to printable ASCII and shares one Rust core between the CLI, library and browser editor. Choose a comparable tool instead if you need:
 
-- Colour, ANSI, Unicode or CP437 art: [durdraw](https://github.com/durdraw/durdraw), [chafa](https://github.com/hpjansson/chafa) or [libcaca](https://github.com/cacalabs/libcaca).
-- Banner lettering alone: [FIGlet](http://www.figlet.org/), whose font format ApollinaireASCII reads.
-- Diagrams alone: [ASCIIFlow](https://github.com/lewish/asciiflow) in a browser or [ASCII Draw](https://github.com/Nokse22/ascii-draw) on the GNOME desktop.
-- Image conversion alone: [artem](https://github.com/FineFindus/artem) (Rust) or [ascii-image-converter](https://github.com/TheZoraiz/ascii-image-converter) (Go).
-- Terminal animation and effects in Python: [asciimatics](https://github.com/peterbrittain/asciimatics) or [terminaltexteffects](https://github.com/ChrisBuilds/terminaltexteffects).
-- Video playback in a terminal through FFmpeg: [tplay](https://github.com/maxcurzi/tplay).
-- Colour and image or video export in a browser editor: [Ascii-Motion](https://github.com/CameronFoxly/Ascii-Motion) (2.2.9, README read 16 November 2026).
-- Ready-made animated pieces to drop into a page: [ascii.rest](https://ascii.rest/) or [ascii-magic-art](https://www.npmjs.com/package/ascii-magic-art) (1.1.0, 734 pieces by its npm description, read 13 November 2026).
+- Colour, ANSI, Unicode or CP437 output: a comparable terminal-graphics library or colour ASCII editor.
+- Banner lettering alone: a standalone FIGlet renderer (whose font format ApollinaireASCII reads).
+- Diagrams alone: a comparable browser or desktop ASCII diagram editor.
+- Image conversion alone: a comparable standalone image-to-ASCII converter.
+- Terminal animation and effects in Python: a comparable Python animation framework or effect library.
+- Video playback in a terminal through FFmpeg: a comparable terminal media player.
+- Colour and image or video export in a browser editor: a comparable browser ASCII editor with colour and media export.
+- Ready-made animated pieces to drop into a page: a comparable hosted snippet catalogue or package.
 
 ## Development
 
@@ -232,7 +232,7 @@ The integration tests cover the ASCII contract, whitespace, drawing, all bundled
 
 ApollinaireASCII retains the history of [orhnk/RASCII](https://github.com/orhnk/RASCII), starting at `8d33a3670e51298d530ab202090b212501310cdd`. Its MIT image-conversion approach is the foundation of the converter. The shared frame model, drawing, scenes, project format, editor and exporters are new Rust code.
 
-[Research](docs/RESEARCH.md) records 1,164 discovered repositories across 27 multilingual searches, the shortlist and why this foundation was selected. Discovery metadata is not a source audit of every result. No Ghostty animation artwork was copied.
+[Research](docs/RESEARCH.md) records 1,164 discovered repositories across 27 multilingual searches, the shortlist and why this foundation was selected. Discovery metadata is not a source audit of every result. No external animation artwork was copied.
 
 The banner's lettering and emblem are drawn from Cascadia Mono and Besley glyphs (SIL OFL 1.1).
 

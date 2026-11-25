@@ -5,7 +5,7 @@
 //! buttons, 16 to a row. Choosing one puts it in the Character field, so every tool that draws
 //! with it uses it. One button is in the tab order; the arrow keys, Home and End move between
 //! them. Palettes added or opened stay for the session, up to 16; a palette file is
-//! Ascii-Motion's character palette JSON (see [`crate::palette`]).
+//! character palette JSON (see [`crate::palette`]).
 use super::{document, download, input, listen, node, report, status};
 use crate::{Result, image_renderer::RAMPS, palette::Palette};
 use std::cell::RefCell;

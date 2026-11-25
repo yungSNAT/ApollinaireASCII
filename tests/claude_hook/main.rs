@@ -84,6 +84,31 @@ fn post_tool_use_renders_mermaid_blocks_without_mutating_file() {
 }
 
 #[test]
+fn post_tool_use_preserves_block_count_when_diagram_contains_fence_runs() {
+    let tmp = Scratch::new("fence-widen");
+    let sample = concat!(
+        "```mermaid\n",
+        "flowchart TD\n",
+        "  A -->|```| B\n",
+        "```\n\n",
+        "~~~mermaid\n",
+        "flowchart TD\n",
+        "  C -->|~~~| D\n",
+        "~~~\n",
+    );
+    let md_path = tmp.0.join("fences.md");
+    fs::write(&md_path, sample).unwrap();
+    let out = run_hook(&[], &write_payload("Write", &tmp.0, &md_path), &[], None);
+    let ctx = parse_context(&out);
+    assert!(
+        ctx.contains("2 fenced Mermaid diagrams in fences.md"),
+        "{ctx}"
+    );
+    assert!(ctx.contains("````text\n"), "{ctx}");
+    assert!(ctx.contains("~~~~text\n"), "{ctx}");
+}
+
+#[test]
 fn post_tool_use_uses_fallback_cwd_for_relative_path() {
     let tmp = Scratch::new("fallback-cwd");
     let sample = "```mermaid\nflowchart LR\n  A[Client] --> B[Service]\n```\n";

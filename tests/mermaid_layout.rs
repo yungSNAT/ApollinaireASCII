@@ -3,7 +3,7 @@
 
 use apollinaire_ascii::{
     Frame, MAX_INPUT_BYTES, MAX_WIDTH,
-    diagram::{mermaid, mermaid_with_max_width, render_markdown},
+    diagram::{fenced_blocks, mermaid, mermaid_with_max_width, render_markdown},
 };
 
 fn assert_ascii(frame: &Frame) {
@@ -175,4 +175,64 @@ fn render_markdown_replaces_mermaid_blocks_and_preserves_surrounding_text() {
     );
     let huge = " ".repeat(MAX_INPUT_BYTES + 1);
     assert!(render_markdown(&huge, None).unwrap_err().contains("16 MiB"));
+}
+
+#[test]
+fn render_markdown_widens_fences_past_backtick_and_tilde_runs_in_diagram() {
+    // 3-backtick edge label rendered on its own indented line must widen ``` to ````.
+    let three_ticks = "```mermaid\ngraph TD\n  A -->|```| B\n```\n";
+    let rendered_three = render_markdown(three_ticks, None).unwrap();
+    assert!(rendered_three.starts_with("````text\n"), "{rendered_three}");
+    assert!(rendered_three.ends_with("\n````\n"), "{rendered_three}");
+    assert_eq!(fenced_blocks(&rendered_three).len(), 1);
+    assert_eq!(
+        render_markdown(&rendered_three, None).unwrap(),
+        rendered_three
+    );
+
+    // 4+ backticks (via Mermaid HTML entities or wider input fence) widen to max_run + 1.
+    let four_ticks = "```mermaid\ngraph TD\n  A -->|#96;#96;#96;#96;| B\n```\n";
+    let rendered_four = render_markdown(four_ticks, None).unwrap();
+    assert!(rendered_four.starts_with("`````text\n"), "{rendered_four}");
+    assert!(rendered_four.ends_with("\n`````\n"), "{rendered_four}");
+    assert_eq!(fenced_blocks(&rendered_four).len(), 1);
+
+    let six_ticks_already_wide = "``````mermaid\ngraph TD\n  A -->|#96;#96;#96;| B\n``````\n";
+    let rendered_wide = render_markdown(six_ticks_already_wide, None).unwrap();
+    assert!(rendered_wide.starts_with("``````text\n"), "{rendered_wide}");
+    assert!(rendered_wide.ends_with("\n``````\n"), "{rendered_wide}");
+    assert_eq!(fenced_blocks(&rendered_wide).len(), 1);
+
+    // 3-tilde and 4-tilde runs inside tilde-fenced diagrams widen tilde fences symmetrically.
+    let three_tildes = "  ~~~mermaid\n  graph TD\n    A -->|~~~| B\n  ~~~\n";
+    let rendered_tildes = render_markdown(three_tildes, None).unwrap();
+    assert!(
+        rendered_tildes.starts_with("  ~~~~text\n"),
+        "{rendered_tildes}"
+    );
+    assert!(rendered_tildes.ends_with("\n  ~~~~\n"), "{rendered_tildes}");
+    assert_eq!(fenced_blocks(&rendered_tildes).len(), 1);
+    assert_eq!(
+        render_markdown(&rendered_tildes, None).unwrap(),
+        rendered_tildes
+    );
+
+    let four_tildes = "~~~mermaid\ngraph TD\n  A -->|~~~~| B\n~~~\n";
+    let rendered_four_tildes = render_markdown(four_tildes, None).unwrap();
+    assert!(
+        rendered_four_tildes.starts_with("~~~~~text\n"),
+        "{rendered_four_tildes}"
+    );
+    assert!(
+        rendered_four_tildes.ends_with("\n~~~~~\n"),
+        "{rendered_four_tildes}"
+    );
+    assert_eq!(fenced_blocks(&rendered_four_tildes).len(), 1);
+
+    // Tildes inside a backtick fence cannot close a backtick fence in CommonMark.
+    let tildes_in_ticks = "```mermaid\ngraph TD\n  A -->|~~~| B\n```\n";
+    let rendered_mixed = render_markdown(tildes_in_ticks, None).unwrap();
+    assert!(rendered_mixed.starts_with("```text\n"), "{rendered_mixed}");
+    assert!(rendered_mixed.ends_with("\n```\n"), "{rendered_mixed}");
+    assert_eq!(fenced_blocks(&rendered_mixed).len(), 1);
 }
