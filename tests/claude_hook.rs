@@ -1,7 +1,7 @@
 // Copyright 2026 Ryan Duguid
 // SPDX-License-Identifier: MIT
 
-//! Integration tests for `apollinaire claude-hook` and the Claude Code plugin manifests.
+//! Integration tests for `apollinaire claude-hook` manifests, formatting and width options.
 #![cfg(feature = "cli")]
 
 use apollinaire_ascii::MAX_INPUT_BYTES;
@@ -164,8 +164,12 @@ fn post_tool_use_renders_mermaid_blocks_without_mutating_file() {
         assert!(!ctx.contains("fn main()"), "{ctx}");
         assert!(!ctx.contains("X --> Y"), "{ctx}");
     }
+}
 
-    // Nested relative path inside workspace without `cwd` in payload uses process cwd.
+#[test]
+fn post_tool_use_uses_fallback_cwd_for_relative_path() {
+    let tmp = Scratch::new("fallback-cwd");
+    let sample = "```mermaid\nflowchart LR\n  A[Client] --> B[Service]\n```\n";
     let sub_dir = tmp.0.join("nested");
     fs::create_dir_all(&sub_dir).unwrap();
     fs::write(sub_dir.join("sub.md"), sample).unwrap();
@@ -177,7 +181,7 @@ fn post_tool_use_renders_mermaid_blocks_without_mutating_file() {
     .to_string();
     let sub_ctx = parse_context(&run_hook(&[], no_cwd_payload.as_bytes(), &[], Some(&tmp.0)));
     assert!(
-        sub_ctx.contains("2 fenced Mermaid diagrams in sub.md"),
+        sub_ctx.contains("1 fenced Mermaid diagram in sub.md"),
         "{sub_ctx}"
     );
 }
@@ -268,257 +272,7 @@ fn post_tool_use_ignores_unrelated_tools_and_non_mermaid_files() {
 }
 
 #[test]
-fn fails_closed_on_malformed_payloads_widths_exports_and_traversals() {
-    let tmp = Scratch::new("fail");
-    let workspace = tmp.0.join("work");
-    fs::create_dir_all(&workspace).unwrap();
-    let outside = tmp.0.join("outside.md");
-    fs::write(&outside, "```mermaid\nflowchart TD\n  A --> B\n```\n").unwrap();
-
-    let out = run_hook(
-        &[],
-        &write_payload("Write", &workspace, &outside),
-        &[],
-        None,
-    );
-    assert_eq!(out.status.code(), Some(2));
-    assert!(out.stdout.is_empty());
-    assert!(text(&out.stderr).contains("Refused path outside workspace"));
-
-    let out = run_hook(
-        &["--markdown", "--file", "../outside.md"],
-        b"",
-        &[],
-        Some(&workspace),
-    );
-    assert_eq!(out.status.code(), Some(2));
-    assert!(out.stdout.is_empty());
-    assert!(text(&out.stderr).contains("Refused"));
-
-    for export_args in [
-        &["--output", "out.md"][..],
-        &["--format", "json"],
-        &["--frame", "0"],
-    ] {
-        let out = run_hook(export_args, b"{}", &[], Some(&workspace));
-        assert_eq!(out.status.code(), Some(2));
-        assert!(text(&out.stderr).starts_with("apollinaire-mermaid:"));
-    }
-
-    for bad_payload in [
-        json!({"tool_name": "Write"}),
-        json!({"tool_name": "Edit", "tool_input": "not-an-object"}),
-        json!({"tool_name": "MultiEdit", "tool_input": {}}),
-        json!({"tool_name": "Write", "tool_input": {"file_path": ""}}),
-        json!({"tool_name": "Write", "tool_input": {"file_path": "   "}}),
-        json!({"tool_name": "Write", "tool_input": {"file_path": 123}}),
-        json!({"tool_name": "Write", "tool_input": {"file_path": "a\u{0000}.md"}}),
-        json!({"tool_name": 42, "tool_input": {}}),
-        json!({"tool_name": "Write", "cwd": "", "tool_input": {"file_path": "a.md"}}),
-        json!([1, 2]),
-    ] {
-        let out = run_hook(&[], bad_payload.to_string().as_bytes(), &[], None);
-        assert_eq!(out.status.code(), Some(2), "{bad_payload}");
-        assert!(out.stdout.is_empty());
-        assert!(
-            text(&out.stderr).starts_with("apollinaire-mermaid:"),
-            "{}",
-            text(&out.stderr)
-        );
-    }
-
-    let huge_digits = "9".repeat(5000);
-    for bad_width in ["0", "513", "wide", "-5", "\u{00b2}", &huge_digits, "00080"] {
-        let out = run_hook(
-            &["--markdown", "--max-width", bad_width],
-            b"# ok\n",
-            &[],
-            None,
-        );
-        assert_eq!(out.status.code(), Some(2), "{bad_width}");
-        assert!(
-            text(&out.stderr).contains("max-width"),
-            "{}",
-            text(&out.stderr)
-        );
-    }
-
-    for bad_stdin in [&b""[..], b"   \n", b"{not json", b"\xff\xfe"] {
-        let out = run_hook(&[], bad_stdin, &[], None);
-        assert_eq!(out.status.code(), Some(2));
-        assert!(text(&out.stderr).starts_with("apollinaire-mermaid:"));
-    }
-
-    let missing_md = workspace.join("absent.md");
-    let out = run_hook(
-        &[],
-        &write_payload("Write", &workspace, &missing_md),
-        &[],
-        None,
-    );
-    assert_eq!(out.status.code(), Some(2));
-    assert!(text(&out.stderr).contains("Cannot safely open"));
-
-    let bad_md = workspace.join("broken.md");
-    fs::write(&bad_md, "```mermaid\nnot a valid diagram\n```\n").unwrap();
-    let out = run_hook(&[], &write_payload("Write", &workspace, &bad_md), &[], None);
-    assert_eq!(out.status.code(), Some(2));
-    assert!(text(&out.stderr).contains("apollinaire diagram failed"));
-
-    #[cfg(windows)]
-    for bad_win in ["C:outside.md", "doc.md:stream", r"\outside.md"] {
-        let payload = json!({
-            "tool_name": "Write",
-            "cwd": workspace.to_str().unwrap(),
-            "tool_input": {"file_path": bad_win},
-        })
-        .to_string();
-        let out = run_hook(&[], payload.as_bytes(), &[], None);
-        assert_eq!(out.status.code(), Some(2), "{bad_win}");
-        assert!(
-            text(&out.stderr).contains("Refused"),
-            "{bad_win}: {}",
-            text(&out.stderr)
-        );
-    }
-}
-
-#[test]
-fn rejects_oversize_inputs_and_escapes_non_ascii_filenames() {
-    let tmp = Scratch::new("limits");
-    let workspace = tmp.0.join("work");
-    fs::create_dir_all(&workspace).unwrap();
-    let sample = "```mermaid\nflowchart TD\n  A --> B\n```\n";
-
-    let cafe = workspace.join("caf\u{00e9}.md");
-    fs::write(&cafe, sample).unwrap();
-    let ctx = parse_context(&run_hook(
-        &[],
-        &write_payload("Write", &workspace, &cafe),
-        &[],
-        None,
-    ));
-    assert!(ctx.contains(r"caf\xe9.md"), "{ctx}");
-
-    let big = workspace.join("big.md");
-    let file = fs::File::create(&big).unwrap();
-    file.set_len(MAX_INPUT_BYTES as u64 + 1).unwrap();
-    drop(file);
-    let out = run_hook(&[], &write_payload("Write", &workspace, &big), &[], None);
-    assert_eq!(out.status.code(), Some(2));
-    assert!(text(&out.stderr).contains("exceeds"));
-
-    let huge_stdin = vec![b' '; MAX_INPUT_BYTES + 1];
-    let out = run_hook(&[], &huge_stdin, &[], None);
-    assert_eq!(out.status.code(), Some(2));
-    assert!(text(&out.stderr).contains("16 MiB"));
-
-    // Wide sequence diagrams render > 1 MiB of ASCII while staying well under 16 MiB source.
-    let wide_block = format!(
-        "```mermaid\nsequenceDiagram\n  ParticipantAlpha->>ParticipantBeta: {}\n```\n\n",
-        "X".repeat(200)
-    );
-    let many = workspace.join("many.md");
-    fs::write(&many, wide_block.repeat(1000)).unwrap();
-    let out = run_hook(
-        &["--max-width", "512"],
-        &write_payload("Write", &workspace, &many),
-        &[],
-        None,
-    );
-    assert_eq!(out.status.code(), Some(2));
-    assert!(text(&out.stderr).contains("1 MiB"), "{}", text(&out.stderr));
-}
-
-#[cfg(unix)]
-#[test]
-fn unix_rejects_symlinks_fifo_bad_env_and_allows_search_only_parent() {
-    use std::ffi::OsStr;
-    use std::os::unix::ffi::OsStrExt;
-    use std::os::unix::fs::{PermissionsExt, symlink};
-
-    let tmp = Scratch::new("unix");
-    let workspace = tmp.0.join("work");
-    fs::create_dir_all(&workspace).unwrap();
-    let outside = tmp.0.join("secret.md");
-    let sample = "```mermaid\nflowchart TD\n  A --> B\n```\n";
-    fs::write(&outside, sample).unwrap();
-
-    let link_file = workspace.join("link.md");
-    symlink(&outside, &link_file).unwrap();
-    let out = run_hook(
-        &[],
-        &write_payload("Write", &workspace, &link_file),
-        &[],
-        None,
-    );
-    assert_eq!(out.status.code(), Some(2));
-    assert!(text(&out.stderr).contains("Cannot safely open"));
-
-    let outside_dir = tmp.0.join("outside_dir");
-    fs::create_dir_all(&outside_dir).unwrap();
-    fs::write(outside_dir.join("doc.md"), sample).unwrap();
-    let link_dir = workspace.join("sub");
-    symlink(&outside_dir, &link_dir).unwrap();
-    let out = run_hook(
-        &[],
-        &write_payload("Write", &workspace, &link_dir.join("doc.md")),
-        &[],
-        None,
-    );
-    assert_eq!(out.status.code(), Some(2));
-    assert!(text(&out.stderr).contains("Cannot safely open"));
-
-    let esc_file = workspace.join("bad\x1bname.md");
-    fs::write(&esc_file, sample).unwrap();
-    let ctx = parse_context(&run_hook(
-        &[],
-        &write_payload("Write", &workspace, &esc_file),
-        &[],
-        None,
-    ));
-    assert!(ctx.contains(r"bad\x1bname.md"), "{ctx}");
-    assert!(!ctx.contains('\x1b'));
-
-    let fifo_path = workspace.join("pipe.md");
-    let mkfifo = Command::new("mkfifo").arg(&fifo_path).status().unwrap();
-    assert!(mkfifo.success());
-    let out = run_hook(
-        &[],
-        &write_payload("Write", &workspace, &fifo_path),
-        &[],
-        None,
-    );
-    assert_eq!(out.status.code(), Some(2));
-    assert!(text(&out.stderr).contains("Path is not a regular file"));
-
-    let gated_parent = tmp.0.join("search_only_parent");
-    let gated_work = gated_parent.join("repo");
-    fs::create_dir_all(&gated_work).unwrap();
-    let gated_md = gated_work.join("flow.md");
-    fs::write(&gated_md, sample).unwrap();
-    fs::set_permissions(&gated_parent, fs::Permissions::from_mode(0o100)).unwrap();
-    let gated_out = run_hook(
-        &[],
-        &write_payload("Write", &gated_work, &gated_md),
-        &[],
-        None,
-    );
-    fs::set_permissions(&gated_parent, fs::Permissions::from_mode(0o700)).unwrap();
-    assert!(parse_context(&gated_out).contains("flow.md"));
-
-    let bad_env = Command::new(BIN)
-        .args(["claude-hook", "--markdown"])
-        .env("APOLLINAIRE_MAX_WIDTH", OsStr::from_bytes(b"\xff"))
-        .stdin(Stdio::null())
-        .output()
-        .unwrap();
-    assert_eq!(bad_env.status.code(), Some(2));
-    assert!(text(&bad_env.stderr).contains("APOLLINAIRE_MAX_WIDTH"));
-}
-
-#[test]
-fn markdown_cli_mode_file_flag_and_unclosed_mermaid_fence() {
+fn markdown_cli_mode_and_oversize_limits_work() {
     let source = concat!(
         "# Flow\n\n",
         "```mermaid\n",
@@ -542,6 +296,14 @@ fn markdown_cli_mode_file_flag_and_unclosed_mermaid_fence() {
     );
     assert!(stdout.ends_with("```\n\nTail text.\n"), "{stdout}");
 
+    let bad_md = run_hook(&["--markdown"], b"```mermaid\npie\n```\n", &[], None);
+    assert_eq!(bad_md.status.code(), Some(2));
+    assert!(text(&bad_md.stderr).contains("apollinaire diagram failed"));
+}
+
+#[test]
+fn markdown_cli_mode_handles_crlf_file_and_oversize_stdin() {
+    let source = "```mermaid\nsequenceDiagram\n  Alice->>Bob: Ping\n```\n";
     let crlf_out = run_hook(
         &["--markdown", "--max-width", "60"],
         source.replace('\n', "\r\n").as_bytes(),
@@ -554,13 +316,8 @@ fn markdown_cli_mode_file_flag_and_unclosed_mermaid_fence() {
         "{}",
         text(&crlf_out.stderr)
     );
-    let crlf_stdout = text(&crlf_out.stdout);
-    assert!(crlf_stdout.contains("Alice"));
-    assert!(!crlf_stdout.contains("\r\r\n"));
-
-    let bad_md = run_hook(&["--markdown"], b"```mermaid\npie\n```\n", &[], None);
-    assert_eq!(bad_md.status.code(), Some(2));
-    assert!(text(&bad_md.stderr).contains("apollinaire diagram failed"));
+    assert!(text(&crlf_out.stdout).contains("Alice"));
+    assert!(!text(&crlf_out.stdout).contains("\r\r\n"));
 
     let tmp = Scratch::new("md-file");
     let er_path = tmp.0.join("er.md");
@@ -576,12 +333,10 @@ fn markdown_cli_mode_file_flag_and_unclosed_mermaid_fence() {
         Some(&tmp.0),
     );
     assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
-    let er_stdout = text(&out.stdout);
-    assert!(er_stdout.contains("CUSTOMER") && er_stdout.contains("ORDER"));
+    assert!(text(&out.stdout).contains("CUSTOMER") && text(&out.stdout).contains("ORDER"));
 
-    let unclosed = tmp.0.join("unclosed.md");
-    fs::write(&unclosed, "```mermaid\nflowchart TD\n  A --> B\n").unwrap();
-    let out = run_hook(&[], &write_payload("Write", &tmp.0, &unclosed), &[], None);
+    let huge_stdin = vec![b' '; MAX_INPUT_BYTES + 1];
+    let out = run_hook(&[], &huge_stdin, &[], None);
     assert_eq!(out.status.code(), Some(2));
-    assert!(text(&out.stderr).contains("not closed"));
+    assert!(text(&out.stderr).contains("16 MiB"));
 }

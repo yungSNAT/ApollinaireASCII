@@ -74,26 +74,29 @@ fn split_line(raw_line: &str) -> (&str, &'static str) {
 /// Collect `(is_mermaid, raw_fenced_block)` for each top-level CommonMark fence using `\n`
 /// line splitting to match [`render_markdown`].
 #[doc(hidden)]
-pub fn fenced_blocks(markdown: &str) -> Vec<(bool, String)> {
+pub fn fenced_blocks(markdown: &str) -> Vec<(bool, &str)> {
     let mut blocks = Vec::new();
-    let mut active: Option<(Fence, bool, String)> = None;
+    let mut active: Option<(Fence, bool, usize)> = None;
+    let mut offset = 0usize;
     for raw_line in markdown.split_inclusive('\n') {
+        let end = offset + raw_line.len();
         let (body, _) = split_line(raw_line);
-        if let Some((fence, is_mermaid, mut buf)) = active.take() {
-            buf.push_str(raw_line);
+        if let Some((fence, is_mermaid, start)) = active.take() {
             if is_closing_fence(body, &fence) {
-                blocks.push((is_mermaid, buf.trim_end_matches(['\r', '\n']).to_owned()));
+                blocks.push((
+                    is_mermaid,
+                    markdown[start..end].trim_end_matches(['\r', '\n']),
+                ));
             } else {
-                active = Some((fence, is_mermaid, buf));
+                active = Some((fence, is_mermaid, start));
             }
-            continue;
+        } else if let Some((fence, info)) = opening_fence(body) {
+            active = Some((fence, is_mermaid_info(info), offset));
         }
-        if let Some((fence, info)) = opening_fence(body) {
-            active = Some((fence, is_mermaid_info(info), raw_line.to_owned()));
-        }
+        offset = end;
     }
-    if let Some((_, true, buf)) = active {
-        blocks.push((true, buf.trim_end_matches(['\r', '\n']).to_owned()));
+    if let Some((_, true, start)) = active {
+        blocks.push((true, markdown[start..].trim_end_matches(['\r', '\n'])));
     }
     blocks
 }
