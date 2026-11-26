@@ -314,7 +314,7 @@ fn general_skill_names_real_commands_and_its_recipes_run() {
             "Design",
         ),
     ] {
-        assert!(skill.contains(&input.replace('\n', "\n")), "{input}");
+        assert!(skill.contains(&input.replace('\n', "\\n")), "{input}");
         let mut child = std::process::Command::new(exe)
             .args(["diagram", "-", "--max-width", "80"])
             .stdin(std::process::Stdio::piped())
