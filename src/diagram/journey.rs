@@ -114,7 +114,9 @@ impl Reader {
     }
 
     fn statement(&mut self, number: usize, stmt: &str) -> Result<()> {
-        let (word, rest) = stmt.split_once(' ').map_or((stmt, ""), |(w, r)| (w, r.trim()));
+        let (word, rest) = stmt
+            .split_once(' ')
+            .map_or((stmt, ""), |(w, r)| (w, r.trim()));
         // Mermaid reads its keywords in any case.
         match word.to_ascii_lowercase().as_str() {
             "title" if !rest.is_empty() => self.title = Some(decode(number, rest)?),
@@ -162,7 +164,11 @@ impl Reader {
                 "Line {number}: a user journey has at most {MAX_TASKS} tasks"
             ));
         }
-        let actors: Vec<&str> = actors.split(',').map(str::trim).filter(|a| !a.is_empty()).collect();
+        let actors: Vec<&str> = actors
+            .split(',')
+            .map(str::trim)
+            .filter(|a| !a.is_empty())
+            .collect();
         self.tasks.push(Task {
             name: decode(number, name)?,
             section: self.sections.len().checked_sub(1),
@@ -181,7 +187,12 @@ fn draw(reader: &Reader, max_width: Option<usize>) -> Result<Frame> {
         .map(|t| indent(t) + t.name.len())
         .max()
         .unwrap_or(0);
-    let actors = reader.tasks.iter().map(|t| t.actors.len()).max().unwrap_or(0);
+    let actors = reader
+        .tasks
+        .iter()
+        .map(|t| t.actors.len())
+        .max()
+        .unwrap_or(0);
     let gap = if actors > 0 { GAP } else { 0 };
     // A column of at least one for the name and, where any task has actors, for them.
     let least = SCORE + 1 + if actors > 0 { gap + 1 } else { 0 };
@@ -216,7 +227,11 @@ fn draw(reader: &Reader, max_width: Option<usize>) -> Result<Frame> {
                 lines.extend(wrap_lines(&reader.sections[index], budget));
             }
         }
-        let pad = if label > indent(task) { indent(task) } else { 0 };
+        let pad = if label > indent(task) {
+            indent(task)
+        } else {
+            0
+        };
         let names = wrap_lines(&task.name, label - pad);
         let people = if task.actors.is_empty() {
             Vec::new()

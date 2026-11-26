@@ -89,7 +89,8 @@ fn journey_reads_from_a_markdown_code_block_and_through_mermaid() {
 
 #[test]
 fn journey_fits_a_narrow_width_or_says_how_wide_it_must_be() {
-    let source = "journey\n  section A long section name\n  A long task name: 4: Someone with a long name";
+    let source =
+        "journey\n  section A long section name\n  A long task name: 4: Someone with a long name";
     for width in 17..=60 {
         let frame = mermaid_with_max_width(source, width).unwrap();
         assert!(frame.width() <= width, "{width}:\n{}", frame.text());
@@ -103,7 +104,9 @@ fn journey_fits_a_narrow_width_or_says_how_wide_it_must_be() {
         "A user journey needs a --max-width of at least 14 columns"
     );
     assert_eq!(
-        mermaid_with_max_width("journey\n  A: 5", 14).unwrap().text(),
+        mermaid_with_max_width("journey\n  A: 5", 14)
+            .unwrap()
+            .text(),
         "A [#####] 5 :)"
     );
 }
@@ -126,7 +129,10 @@ fn journey_refuses_what_it_cannot_draw_with_the_line() {
             "journey\n  Make tea: 5: Me: Cat",
             "Line 2: 'Make tea: 5: Me: Cat' is not a user journey statement; a task is written Name: score: actors",
         ),
-        ("journey\n  : 5: Me", "Line 2: a task needs a name before ':'"),
+        (
+            "journey\n  : 5: Me",
+            "Line 2: a task needs a name before ':'",
+        ),
         (
             "journey\n  Make tea: 0: Me",
             "Line 2: a task's score is a whole number from 1 to 5, not '0'",
