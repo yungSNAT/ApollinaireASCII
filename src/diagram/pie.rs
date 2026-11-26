@@ -52,6 +52,12 @@ pub(super) fn pie_fitted(source: &str, max_width: Option<usize>) -> Result<Frame
     if !reader.started {
         return Err("A pie chart starts with pie".into());
     }
+    if reader.in_block {
+        return Err(format!(
+            "The accDescr block opened on line {} is not closed",
+            reader.block_line
+        ));
+    }
     if reader.slices.is_empty() {
         return Err("A pie chart needs at least one slice".into());
     }
@@ -69,6 +75,7 @@ struct Slice {
 struct Reader {
     started: bool,
     in_block: bool,
+    block_line: usize,
     show_data: bool,
     title: Option<String>,
     slices: Vec<Slice>,
@@ -113,6 +120,11 @@ impl Reader {
         if stmt.starts_with(['"', '\'']) {
             return self.slice(number, stmt);
         }
+        if let Some(block) = accessibility(stmt) {
+            self.in_block = block && !stmt.contains('}');
+            self.block_line = number;
+            return Ok(());
+        }
         let (word, rest) = stmt
             .split_once([' ', '\t'])
             .map_or((stmt, ""), |(w, r)| (w, r.trim()));
@@ -120,10 +132,6 @@ impl Reader {
             "title" => {
                 let title = decode(number, without_comment(rest).trim())?;
                 self.title = (!title.is_empty()).then_some(title);
-            }
-            _ if word.starts_with("accTitle") || word.starts_with("accDescr") => {
-                self.in_block =
-                    word.starts_with("accDescr") && stmt.ends_with('{') && !stmt.contains(':');
             }
             _ => {
                 return Err(format!(
@@ -207,6 +215,20 @@ fn quoted(number: usize, stmt: &str) -> Result<(String, &str)> {
         }
     }
     Err(format!("Line {number}: the label's {quote} is not closed"))
+}
+
+/// Whether `text` starts an `accTitle:` or `accDescr:` line (`Some(false)`) or an
+/// `accDescr {` block (`Some(true)`); Mermaid's pie grammar reads both names in this case only.
+fn accessibility(text: &str) -> Option<bool> {
+    let (rest, describes) = match text.strip_prefix("accTitle") {
+        Some(rest) => (rest, false),
+        None => (text.strip_prefix("accDescr")?, true),
+    };
+    match rest.trim_start().bytes().next() {
+        Some(b':') => Some(false),
+        Some(b'{') if describes => Some(true),
+        _ => None,
+    }
 }
 
 /// `text` up to a `%%` comment.
