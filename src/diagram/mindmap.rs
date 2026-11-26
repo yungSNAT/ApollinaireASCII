@@ -165,13 +165,14 @@ fn label(number: usize, text: &str) -> Result<Vec<String>> {
     if !after.is_empty() {
         return Err(format!("Line {number}: '{after}' follows the node's shape"));
     }
-    // Mermaid breaks a line at `<br>` written in any case, with optional spaces before an
-    // optional `/`. The text is ASCII, so lower-casing keeps every offset.
+    // Mermaid breaks a line at `<br\s*\/?>` in any case: spaces or tabs (the only whitespace a
+    // line can hold here) before an optional `/`. The text is ASCII, so lower-casing keeps
+    // every offset.
     let lower = inner.to_ascii_lowercase();
     let mut lines = Vec::new();
     let mut at = 0;
     for (start, _) in lower.match_indices("<br") {
-        let tail = lower[start + 3..].trim_start_matches(' ');
+        let tail = lower[start + 3..].trim_start_matches([' ', '\t']);
         let tail = tail.strip_prefix('/').unwrap_or(tail);
         if let Some(rest) = tail.strip_prefix('>') {
             if lines.len() == MAX_HEIGHT {
@@ -210,9 +211,10 @@ fn draw(nodes: &[Node], max_width: Option<usize>) -> Result<Frame> {
         let room = budget - branch.len();
         let mut lines = Vec::new();
         for line in &node.lines {
-            // Each wrapped line takes at most room + 1 bytes, so a longer text is refused
-            // before it is wrapped.
-            if line.len() > MAX_HEIGHT * (room + 1) || rows.len() > MAX_HEIGHT {
+            // Each wrapped row holds at most `room` bytes other than spaces, so a text with
+            // more is refused before it is wrapped.
+            let filled = line.bytes().filter(|byte| *byte != b' ').count();
+            if filled.div_ceil(room) > MAX_HEIGHT || rows.len() > MAX_HEIGHT {
                 return Err(format!(
                     "The mindmap needs more than {MAX_HEIGHT} rows; a drawing has at most {MAX_HEIGHT}"
                 ));

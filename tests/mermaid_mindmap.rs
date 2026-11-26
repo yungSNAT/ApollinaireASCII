@@ -115,6 +115,39 @@ fn mindmap_fits_a_narrow_width_or_says_how_wide_it_must_be() {
         mermaid_with_max_width(&long, 1).unwrap_err(),
         "The mindmap needs more than 256 rows; a drawing has at most 256"
     );
+    // A long run of spaces makes no rows, so it is drawn, not refused.
+    let spaced = format!("mindmap\n  A[a{}b]", " ".repeat(3_000));
+    assert_eq!(
+        rows(mermaid_with_max_width(&spaced, 1).unwrap()),
+        ["a", "b"]
+    );
+}
+
+#[test]
+fn mindmap_breaks_text_at_every_br_form_mermaid_matches() {
+    // Mermaid's pattern is /<br\s*\/?>/gi; a line here can hold only spaces and tabs.
+    for tag in [
+        "<br>",
+        "<BR>",
+        "<bR>",
+        "<br/>",
+        "<br />",
+        "<br\t>",
+        "<br\t/>",
+        "<br \t/>",
+        "<br\t \t>",
+        "<Br   />",
+    ] {
+        let source = format!("mindmap\n  A[one{tag}two]");
+        assert_eq!(rows(mindmap(&source).unwrap()), ["one", "two"], "{tag:?}");
+    }
+    // A space or tab after the `/`, a second `/` or another letter is no tag; tabs draw as
+    // spaces.
+    for tag in ["<br/ >", "<br/\t>", "<br//>", "<brx>", "<br"] {
+        let source = format!("mindmap\n  A[one{tag}two]");
+        let drawn = format!("one{}two", tag.replace('\t', " "));
+        assert_eq!(rows(mindmap(&source).unwrap()), [drawn], "{tag:?}");
+    }
 }
 
 #[test]
