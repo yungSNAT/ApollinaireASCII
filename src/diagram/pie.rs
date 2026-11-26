@@ -83,13 +83,29 @@ struct Reader {
 
 impl Reader {
     fn line(&mut self, number: usize, line: &str) -> Result<()> {
-        let stmt = line.trim();
-        if stmt.is_empty() || stmt.starts_with("%%") {
-            return Ok(());
-        }
-        if self.in_block {
-            self.in_block = !stmt.contains('}');
-            return Ok(());
+        let mut stmt = line.trim();
+        loop {
+            // An accDescr block's text runs to its '}', comments included; the line goes on
+            // after it.
+            if self.in_block {
+                let Some(at) = stmt.find('}') else {
+                    return Ok(());
+                };
+                self.in_block = false;
+                stmt = stmt[at + 1..].trim();
+            }
+            if stmt.is_empty() || stmt.starts_with("%%") {
+                return Ok(());
+            }
+            match accessibility(stmt) {
+                Some(true) if self.started => {
+                    self.in_block = true;
+                    self.block_line = number;
+                    stmt = &stmt[stmt.find('{').map_or(stmt.len(), |at| at + 1)..];
+                }
+                Some(false) if self.started => return Ok(()),
+                _ => break,
+            }
         }
         if !self.started {
             let Some(rest) = stmt
@@ -119,11 +135,6 @@ impl Reader {
     fn statement(&mut self, number: usize, stmt: &str) -> Result<()> {
         if stmt.starts_with(['"', '\'']) {
             return self.slice(number, stmt);
-        }
-        if let Some(block) = accessibility(stmt) {
-            self.in_block = block && !stmt.contains('}');
-            self.block_line = number;
-            return Ok(());
         }
         let (word, rest) = stmt
             .split_once([' ', '\t'])
@@ -236,6 +247,20 @@ fn without_comment(text: &str) -> &str {
     text.split_once("%%").map_or(text, |(before, _)| before)
 }
 
+fn too_tall() -> String {
+    format!("The pie chart needs more than {MAX_HEIGHT} rows; a drawing has at most {MAX_HEIGHT}")
+}
+
+/// `text` wrapped to `width`; refused, before any row is made, when it needs more rows than a
+/// drawing has.
+fn wrapped(text: &str, width: usize) -> Result<Vec<String>> {
+    let filled = text.bytes().filter(|&b| b != b' ').count();
+    if filled.div_ceil(width) > MAX_HEIGHT {
+        return Err(too_tall());
+    }
+    Ok(wrap_lines(text, width))
+}
+
 fn draw(reader: &Reader, max_width: Option<usize>) -> Result<Frame> {
     if max_width.is_some_and(|width| width < AFTER_LABEL + 2) {
         return Err(format!(
@@ -266,7 +291,7 @@ fn draw(reader: &Reader, max_width: Option<usize>) -> Result<Frame> {
 
     let mut lines: Vec<String> = Vec::new();
     if let Some(title) = &reader.title {
-        lines.extend(wrap_lines(title, width));
+        lines.extend(wrapped(title, width)?);
         lines.push(String::new());
     }
     for (slice, label) in reader.slices.iter().zip(&labels) {
@@ -286,7 +311,10 @@ fn draw(reader: &Reader, max_width: Option<usize>) -> Result<Frame> {
             "#".repeat(filled),
             ".".repeat(bar - filled)
         );
-        for (row, part) in wrap_lines(label, label_width).into_iter().enumerate() {
+        if lines.len() > MAX_HEIGHT {
+            return Err(too_tall());
+        }
+        for (row, part) in wrapped(label, label_width)?.into_iter().enumerate() {
             if row == 0 {
                 lines.push(format!("{part:<label_width$} {drawn}"));
             } else {
