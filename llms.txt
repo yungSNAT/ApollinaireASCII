@@ -15,14 +15,14 @@ editor at https://yungsnat.github.io/ApollinaireASCII/ processes your files in t
 - [README](https://github.com/yungSNAT/ApollinaireASCII#readme): features, CLI and library quick start, browser build and checks.
 - [CLI guide](https://github.com/yungSNAT/ApollinaireASCII/blob/master/docs/CLI.md): commands and examples, and `apollinaire mcp`, which serves them to agents as Model Context Protocol tools.
 - [Library example](https://github.com/yungSNAT/ApollinaireASCII/blob/master/examples/library.rs): drawing, a generated scene and a JSON round trip.
-- [Browser editor](https://yungsnat.github.io/ApollinaireASCII/): drawing tools, diagram mode, tables, trees, Mermaid flowcharts, sequence, state, class and ER diagrams, lettering, effects, and image, video and camera conversion.
+- [Browser editor](https://yungsnat.github.io/ApollinaireASCII/): drawing tools, diagram mode, tables, trees, Mermaid flowcharts, sequence, state, class and ER diagrams, Gantt and pie charts, Git graphs, timelines, lettering, effects, and image, video and camera conversion.
 
 ## Docs
 
 - [Text and project format](https://github.com/yungSNAT/ApollinaireASCII/blob/master/docs/FORMAT.md): the frame and JSON project formats, fonts and resource limits.
 - [Validation](https://github.com/yungSNAT/ApollinaireASCII/blob/master/docs/VALIDATION.md): checks run, reference comparisons with figlet and known limits.
 - [Dependency scan](https://github.com/yungSNAT/ApollinaireASCII/blob/master/docs/DEPENDENCIES.md): dependency alerts, reachability and the in-house GIF decoder.
-- [Research and provenance](https://github.com/yungSNAT/ApollinaireASCII/blob/master/docs/RESEARCH.md): the projects compared and why RASCII was chosen as the foundation.
+- [Research and provenance](https://github.com/yungSNAT/ApollinaireASCII/blob/master/docs/RESEARCH.md): the sources used and why RASCII was chosen as the foundation.
 - [Third-party notices](https://github.com/yungSNAT/ApollinaireASCII/blob/master/THIRD_PARTY_NOTICES.md): upstream code, font and dependency licences.
 - [CONTRIBUTING.md](https://github.com/yungSNAT/ApollinaireASCII/blob/master/CONTRIBUTING.md): the ASCII contract, reuse rules and checks.
 - [SECURITY.md](https://github.com/yungSNAT/ApollinaireASCII/blob/master/SECURITY.md): reporting a vulnerability privately.
