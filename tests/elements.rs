@@ -330,7 +330,10 @@ fn element_requests_with_bad_keys_kinds_or_places_are_refused() {
         json!({"id": 1, "op": "element_add", "kind": "text", "x": 0, "y": 0, "text": "a"}),
     );
     let refusals = [
-        (json!({"op": "elements", "colour": "red"}), "Unknown argument colour"),
+        (
+            json!({"op": "elements", "colour": "red"}),
+            "Unknown argument colour",
+        ),
         (
             json!({"op": "element_edit", "element": "e1", "colour": "red"}),
             "Unknown argument colour",
