@@ -155,7 +155,7 @@ fn journey_refuses_what_it_cannot_draw_with_the_line() {
         ),
         (
             "journey\n  Caf\u{e9}: 5: Me",
-            "Line 2: byte 4 is 0xc3, not printable ASCII",
+            "Line 2: byte 6 is 0xc3, not printable ASCII",
         ),
         (
             "journey\n  Tea #9786;: 5: Me",
