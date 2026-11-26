@@ -264,26 +264,7 @@ impl Layered {
     /// Replace one frame of one layer without checking [`fits`](Self::fits), returning the old
     /// frame. Callers applying a batch validate `fits` once at the end.
     pub(crate) fn swap_frame(&mut self, layer: usize, index: usize, frame: Frame) -> Result<Frame> {
-        let one_by_one = self.layers.len() == 1 && self.layers[0].art.frames().len() == 1;
-        let (width, height) = (self.layers[0].art.width(), self.layers[0].art.height());
-        if !one_by_one && (frame.width() != width || frame.height() != height) {
-            return Err(
-                "Replacing the whole frame can change its size only in a project of one frame and one layer"
-                    .into(),
-            );
-        }
-        if let Some(element) = self.layers[0]
-            .elements
-            .iter()
-            .find(|element| !element.fits(frame.width(), frame.height(), 1))
-        {
-            return Err(format!(
-                "Element {} would leave the {} x {} frame; delete it first",
-                element.name(),
-                frame.width(),
-                frame.height()
-            ));
-        }
+        self.check_resize(&frame)?;
         let art = &mut self
             .layers
             .get_mut(layer)
@@ -293,6 +274,33 @@ impl Layered {
             return Err("Frame index is outside the project".into());
         }
         Ok(art.swap_frame(index, frame))
+    }
+    /// Refuses `frame` as a replacement frame of another size, unless the project is one frame
+    /// of one layer and every element still fits in it.
+    pub(crate) fn check_resize(&self, frame: &Frame) -> Result<()> {
+        let (width, height) = (self.layers[0].art.width(), self.layers[0].art.height());
+        if (frame.width(), frame.height()) == (width, height) {
+            return Ok(());
+        }
+        if self.layers.len() != 1 || self.layers[0].art.frames().len() != 1 {
+            return Err(
+                "Replacing the whole frame can change its size only in a project of one frame and one layer"
+                    .into(),
+            );
+        }
+        match self.layers[0]
+            .elements
+            .iter()
+            .find(|element| !element.fits(frame.width(), frame.height(), 1))
+        {
+            Some(element) => Err(format!(
+                "Element {} would leave the {} x {} frame; delete it first",
+                element.name(),
+                frame.width(),
+                frame.height()
+            )),
+            None => Ok(()),
+        }
     }
     /// Replace one frame of one layer, keeping the frame's duration. Nothing changes on error.
     pub fn replace_frame(&mut self, layer: usize, index: usize, frame: Frame) -> Result<()> {

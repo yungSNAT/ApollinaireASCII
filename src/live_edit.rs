@@ -559,6 +559,9 @@ fn apply_writes(
     }
 
     let updated = if dry_run {
+        for preview in previews.values() {
+            state.project.check_resize(&preview.frame)?;
+        }
         if state.project.json_bound() as isize + delta_json > MAX_INPUT_BYTES as isize {
             let mut scratch = state.project.clone();
             for (&(layer, frame), preview) in &previews {

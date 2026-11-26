@@ -388,6 +388,37 @@ fn a_frame_cannot_shrink_under_an_element_and_files_cannot_hold_too_many_element
 }
 
 #[test]
+fn an_element_on_a_later_frame_leaves_same_size_writes_alone() {
+    let start = project(&[("Base", false, &["....\n....", "....\n...."])]);
+    let (_, mut p) = apply(
+        &start,
+        json!({"id": 1, "op": "element_add", "kind": "text", "x": 0, "y": 0, "frame": 1, "text": "A"}),
+    );
+    let read = ask(&p, json!({"id": 2, "op": "read", "frame": 0}))
+        .0
+        .unwrap();
+    for dry_run in [true, false] {
+        let (written, _) = ask(
+            &p,
+            json!({"id": 3, "op": "write", "frame": 0, "revision": read["revision"], "x": 1,
+                "y": 1, "text": "Z", "dry_run": dry_run}),
+        );
+        written.unwrap();
+    }
+    let (batched, _) = ask(
+        &p,
+        json!({"id": 4, "op": "batch", "writes": [{"frame": 0, "revision": read["revision"],
+            "x": 1, "y": 1, "text": "Z"}]}),
+    );
+    batched.unwrap();
+    // The editor's typing replaces the whole frame the same way.
+    p.replace_frame(0, 0, Frame::from_text("....\n.Z..").unwrap())
+        .unwrap();
+    assert_eq!(text(&p, 0, 0), "....\n.Z..");
+    assert_eq!(text(&p, 0, 1), "A...\n....");
+}
+
+#[test]
 fn a_whole_frame_live_write_cannot_strand_an_element() {
     let start = project(&[(
         "Base",
@@ -409,6 +440,13 @@ fn a_whole_frame_live_write_cannot_strand_an_element() {
         "{error}"
     );
     assert!(unchanged.is_none());
+    // A dry run goes through the same check and agrees.
+    let (dry, none) = ask(
+        &p,
+        json!({"id": 6, "op": "write", "revision": revision, "text": "ab", "dry_run": true}),
+    );
+    assert_eq!(dry.unwrap_err(), error);
+    assert!(none.is_none());
     // A batch takes the same path.
     let (refused, _) = ask(
         &p,
