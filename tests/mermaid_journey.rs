@@ -248,3 +248,24 @@ fn journey_refuses_what_it_cannot_draw_with_the_line() {
         "The user journey exceeds the 16 MiB input limit"
     );
 }
+
+#[test]
+fn journey_keeps_the_row_of_a_name_of_only_spaces_wider_than_its_column() {
+    let source = format!("journey\n  {}: 5", "#32;".repeat(20));
+    let text = mermaid_with_max_width(&source, 14).unwrap().text();
+    assert!(text.contains("[#####] 5 :)"), "{text:?}");
+}
+
+#[test]
+fn journey_refuses_too_many_sections_or_rows_with_the_count() {
+    let sections: String = (0..257).map(|n| format!("  section S{n}\n")).collect();
+    assert_eq!(
+        journey(&format!("journey\n{sections}")).unwrap_err(),
+        "Line 258: a user journey has at most 256 sections"
+    );
+    let tall: String = (0..129).map(|n| format!("  section S{n}\n  T: 3\n")).collect();
+    assert_eq!(
+        journey(&format!("journey\n{tall}")).unwrap_err(),
+        "The user journey needs 258 rows; a drawing has at most 256"
+    );
+}
