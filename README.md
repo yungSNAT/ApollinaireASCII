@@ -232,7 +232,7 @@ The integration tests cover the ASCII contract, whitespace, drawing, all bundled
 
 ApollinaireASCII retains the history of [orhnk/RASCII](https://github.com/orhnk/RASCII), starting at `8d33a3670e51298d530ab202090b212501310cdd`. Its MIT image-conversion approach is the foundation of the converter. The shared frame model, drawing, scenes, project format, editor and exporters are new Rust code.
 
-[Research](docs/RESEARCH.md) records 1,164 discovered repositories across 27 multilingual searches, the shortlist and why this foundation was selected. Discovery metadata is not a source audit of every result. No external animation artwork was copied.
+[Research](docs/RESEARCH.md) records the 27 multilingual searches (1,164 repositories found), the sources this repository uses and why this foundation was selected. Discovery metadata is not a source audit of every result. No external animation artwork was copied.
 
 The banner's lettering and emblem are drawn from Cascadia Mono and Besley glyphs (SIL OFL 1.1).
 
