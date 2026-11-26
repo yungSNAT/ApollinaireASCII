@@ -263,7 +263,9 @@ fn journey_refuses_too_many_sections_or_rows_with_the_count() {
         journey(&format!("journey\n{sections}")).unwrap_err(),
         "Line 258: a user journey has at most 256 sections"
     );
-    let tall: String = (0..129).map(|n| format!("  section S{n}\n  T: 3\n")).collect();
+    let tall: String = (0..129)
+        .map(|n| format!("  section S{n}\n  T: 3\n"))
+        .collect();
     assert_eq!(
         journey(&format!("journey\n{tall}")).unwrap_err(),
         "The user journey needs 258 rows; a drawing has at most 256"
