@@ -276,6 +276,37 @@ fn pie_reads_a_comment_after_the_header() {
 }
 
 #[test]
+fn pie_reads_label_escapes_and_refuses_input_past_its_limits() {
+    assert!(rows("pie\n\"a\\tb\" : 1")[0].starts_with("a b #"));
+    assert_eq!(
+        pie("pie\n\"abc\\").unwrap_err(),
+        "Line 2: the label's \" is not closed"
+    );
+    assert_eq!(pie("").unwrap_err(), "A pie chart starts with pie");
+    assert_eq!(
+        pie(&" ".repeat(apollinaire_ascii::MAX_INPUT_BYTES + 1)).unwrap_err(),
+        "The pie chart exceeds the 16 MiB input limit"
+    );
+    let slices = |count: usize, title: &str| {
+        let rows: String = (0..count).map(|i| format!("\"s{i}\" : 1\n")).collect();
+        format!("pie{title}\n{rows}")
+    };
+    assert_eq!(
+        pie(&slices(257, "")).unwrap_err(),
+        "Line 258: a pie chart has at most 256 slices"
+    );
+    // A title takes 2 rows, so 255 slices need 257 rows and 256 stop before the last slice.
+    assert_eq!(
+        pie(&slices(255, " title T")).unwrap_err(),
+        "The pie chart needs 257 rows; a drawing has at most 256"
+    );
+    assert_eq!(
+        pie(&slices(256, " title T")).unwrap_err(),
+        "The pie chart needs more than 256 rows; a drawing has at most 256"
+    );
+}
+
+#[test]
 fn pie_refuses_text_too_tall_to_draw_before_wrapping_it() {
     let long = format!("pie\n\"{}\" : 1", "x".repeat(1 << 20));
     assert_eq!(
