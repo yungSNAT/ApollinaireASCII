@@ -28,6 +28,7 @@ mod flowchart;
 mod gantt;
 mod git_graph;
 mod graph;
+mod journey;
 mod markdown;
 mod pie;
 mod sequence;
@@ -38,6 +39,7 @@ pub use er::er_diagram;
 pub use flowchart::flowchart;
 pub use gantt::gantt;
 pub use git_graph::git_graph;
+pub use journey::journey;
 #[doc(hidden)]
 pub use markdown::fenced_blocks;
 pub use markdown::render_markdown;
@@ -47,9 +49,10 @@ pub use state::state_diagram;
 pub use timeline::timeline;
 
 /// Lay out Mermaid text as a [`flowchart`], [`sequence`], [`state_diagram`], [`class_diagram`],
-/// [`er_diagram`], [`gantt`] or [`pie`] chart, [`git_graph`] or [`timeline`], chosen by its
-/// first statement: `flowchart` or `graph`, `sequenceDiagram`, `stateDiagram-v2` (or
-/// `stateDiagram`), `classDiagram`, `erDiagram`, `gantt`, `pie`, `gitGraph` or `timeline`.
+/// [`er_diagram`], [`gantt`] or [`pie`] chart, [`git_graph`], [`timeline`] or user [`journey`],
+/// chosen by its first statement: `flowchart` or `graph`, `sequenceDiagram`, `stateDiagram-v2`
+/// (or `stateDiagram`), `classDiagram`, `erDiagram`, `gantt`, `pie`, `gitGraph`, `timeline` or
+/// `journey`.
 ///
 /// ```
 /// use apollinaire_ascii::diagram::mermaid;
@@ -78,7 +81,7 @@ pub fn mermaid_with_max_width(source: &str, max_width: usize) -> Result<crate::F
 }
 
 pub(crate) fn mermaid_fitted(source: &str, max_width: Option<usize>) -> Result<crate::Frame> {
-    const KINDS: &str = "a Mermaid diagram starts with flowchart, graph, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, gantt, pie, gitGraph or timeline";
+    const KINDS: &str = "a Mermaid diagram starts with flowchart, graph, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, gantt, pie, gitGraph, timeline or journey";
     if let Some(limit) = max_width {
         graph::check_max_width(limit)?;
     }
@@ -117,6 +120,7 @@ pub(crate) fn mermaid_fitted(source: &str, max_width: Option<usize>) -> Result<c
         Some("pie") => pie::pie_fitted(source, max_width),
         Some("gitGraph" | "gitGraph:") => git_graph::git_graph_fitted(source, max_width),
         Some("timeline") => timeline::timeline_fitted(source, max_width),
+        Some("journey") => journey::journey_fitted(source, max_width),
         _ if timeline::header(line) => timeline::timeline_fitted(source, max_width),
         // Another diagram type is named as such; anything else gets the flowchart's own error.
         Some(word)
