@@ -123,7 +123,8 @@ impl Reader {
                 }
                 _ => rest,
             };
-            return if rest.is_empty() {
+            // A comment may end the header line, as in Mermaid's grammar.
+            return if rest.is_empty() || rest.starts_with("%%") {
                 Ok(())
             } else {
                 self.statement(number, rest)
@@ -141,7 +142,8 @@ impl Reader {
             .map_or((stmt, ""), |(w, r)| (w, r.trim()));
         match word {
             "title" => {
-                let title = decode(number, without_comment(rest).trim())?;
+                // Mermaid takes a tab in a title as text; it is drawn as a space.
+                let title = decode(number, &without_comment(rest).trim().replace('\t', " "))?;
                 self.title = (!title.is_empty()).then_some(title);
             }
             _ => {
@@ -263,7 +265,14 @@ fn wrapped(text: &str, width: usize) -> Result<Vec<String>> {
     if filled.div_ceil(width) > MAX_HEIGHT {
         return Err(too_tall());
     }
-    Ok(wrap_lines(text, width))
+    // A text of only spaces wider than `width` wraps to no lines; it keeps one empty line so
+    // that its row is still drawn.
+    let lines = wrap_lines(text, width);
+    Ok(if lines.is_empty() {
+        vec![String::new()]
+    } else {
+        lines
+    })
 }
 
 fn draw(reader: &Reader, max_width: Option<usize>) -> Result<Frame> {
