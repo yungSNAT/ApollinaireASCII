@@ -116,6 +116,7 @@ pub(super) fn draw(
     // The axis: a rule with + at each labelled tick, then the labels, none overlapping.
     let mut rule = vec![b'-'; columns as usize];
     let mut labels = String::new();
+    let mut separate_label = None;
     let mut column = 0;
     while column < columns {
         let label = format_axis(
@@ -125,6 +126,10 @@ pub(super) fn draw(
         )?;
         // A label may run past the bars, but not past the width.
         if label_width + 1 + column as usize + label.len() > width {
+            if column == 0 {
+                rule[0] = b'+';
+                separate_label = Some(label);
+            }
             break;
         }
         rule[column as usize] = b'+';
@@ -137,7 +142,21 @@ pub(super) fn draw(
         "{margin}{}",
         std::str::from_utf8(&rule).unwrap_or_default()
     ));
-    if !labels.is_empty() {
+    if let Some(label) = separate_label {
+        // The axis is printable ASCII. Count its rows before allocating them.
+        let rows = label.len().div_ceil(width);
+        if rows > MAX_HEIGHT.saturating_sub(lines.len()) {
+            return Err(format!(
+                "The Gantt axis label is too long for a drawing of {MAX_HEIGHT} rows"
+            ));
+        }
+        lines.extend(
+            label
+                .as_bytes()
+                .chunks(width)
+                .map(|part| String::from_utf8_lossy(part).into_owned()),
+        );
+    } else if !labels.is_empty() {
         lines.push(format!("{margin}{labels}"));
     }
     let legend: Vec<&str> = [
