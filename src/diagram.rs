@@ -85,14 +85,21 @@ pub(crate) fn mermaid_fitted(source: &str, max_width: Option<usize>) -> Result<c
     // A bad byte or a code fence that is unclosed, tagged otherwise or followed by text is
     // reported before the diagram type.
     mermaid_lines(source, |_, _| Ok(()))?;
-    let first = source
+    let mut statements = source
         .split('\n')
         .enumerate()
         .map(|(index, line)| (index + 1, line.trim()))
-        .find(|(_, line)| !line.is_empty() && !line.starts_with("%%") && !fence(line));
-    let Some((number, line)) = first else {
+        .filter(|(_, line)| !line.is_empty() && !line.starts_with("%%") && !fence(line));
+    let Some((number, line)) = statements.next() else {
         return Err(format!("The text is empty: {KINDS}"));
     };
+    if timeline::comment(line)
+        && statements
+            .find(|(_, next)| !timeline::comment(next))
+            .is_some_and(|(_, next)| timeline::header(next))
+    {
+        return timeline::timeline_fitted(source, max_width);
+    }
     match line.split([' ', '\t', ';']).next() {
         Some("sequenceDiagram") => sequence::sequence_fitted(source, max_width),
         Some("stateDiagram-v2" | "stateDiagram") => state::state_diagram_fitted(source, max_width),
@@ -102,6 +109,7 @@ pub(crate) fn mermaid_fitted(source: &str, max_width: Option<usize>) -> Result<c
         Some("pie") => pie::pie_fitted(source, max_width),
         Some("gitGraph" | "gitGraph:") => git_graph::git_graph_fitted(source, max_width),
         Some("timeline") => timeline::timeline_fitted(source, max_width),
+        _ if timeline::header(line) => timeline::timeline_fitted(source, max_width),
         // Another diagram type is named as such; anything else gets the flowchart's own error.
         Some(word)
             if word.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
