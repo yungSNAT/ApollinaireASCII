@@ -119,7 +119,7 @@ fn command(id: &str) -> Result<()> {
                 );
             }
         }
-        app.replace_layers(crate::Layered::new(layers)?, app.active);
+        app.replace_layers(app.rebuilt(layers)?, app.active);
         app.display(true)
     })
 }
