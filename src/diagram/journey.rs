@@ -266,11 +266,12 @@ fn draw(reader: &Reader, max_width: Option<usize>) -> Result<Frame> {
     let mut section = None;
     for task in &reader.tasks {
         let name = task.section.map(|index| reader.sections[index].as_str());
-        if name != section {
-            section = name;
-            if let Some(name) = name {
-                lines.extend(wrap(name, budget)?);
-            }
+        // A name only changes to another name: tasks before the first section come first.
+        if name != section
+            && let Some(name) = name
+        {
+            section = Some(name);
+            lines.extend(wrap(name, budget)?);
         }
         let pad = if label > indent(task) {
             indent(task)
