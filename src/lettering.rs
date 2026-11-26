@@ -3,7 +3,7 @@
 //! Horizontal layout and word wrap follow figlet 2.2.5; vertical layout follows the FIGfont 2
 //! specification, as implemented by figlet.js. Fonts are plain `.flf` or `.tlf` text whose
 //! glyphs contain only printable ASCII once hardblanks become spaces.
-use crate::{Frame, Result, dimensions, printable};
+use crate::{Frame, Result, dimensions};
 
 /// Bundled fonts, plus the `block` and `outline` styles derived from `big` and `standard`.
 pub const FONTS: &[&str] = &[
@@ -124,18 +124,54 @@ pub fn validate_font(contents: &str) -> Result<()> {
     Font::parse(contents).map(|_| ())
 }
 
+/// The ASCII that punctuation phones and word processors type stands for: curly quotes, dashes,
+/// the ellipsis and the no-break space.
+fn typed(character: char) -> Option<&'static str> {
+    Some(match character {
+        '\u{2018}' | '\u{2019}' => "'",
+        '\u{201c}' | '\u{201d}' => "\"",
+        '\u{2010}'..='\u{2015}' | '\u{2212}' => "-",
+        '\u{2026}' => "...",
+        '\u{a0}' => " ",
+        _ => return None,
+    })
+}
+
+/// `text` with typed punctuation replaced by its ASCII. Any other byte outside printable ASCII
+/// is refused at its offset in the line as written.
+fn typed_punctuation(text: &str) -> Result<String> {
+    let lines = text.split('\n').map(|line| {
+        let mut plain = String::with_capacity(line.len());
+        for (index, character) in line.char_indices() {
+            match typed(character) {
+                Some(ascii) => plain.push_str(ascii),
+                None if (' '..='~').contains(&character) => plain.push(character),
+                None => {
+                    let mut bytes = [0; 4];
+                    character.encode_utf8(&mut bytes);
+                    return Err(format!(
+                        "Only printable ASCII is allowed: byte {index} is 0x{:02x}",
+                        bytes[0]
+                    ));
+                }
+            }
+        }
+        Ok(plain)
+    });
+    Ok(lines.collect::<Result<Vec<_>>>()?.join("\n"))
+}
+
 /// Renders `text` with a bundled font, or with `custom` FLF or TLF contents when given.
+/// Typed punctuation such as curly quotes, dashes and the ellipsis is drawn as its ASCII.
 pub fn render_with(
     text: &str,
     font: &str,
     custom: Option<&str>,
     options: &Options,
 ) -> Result<Frame> {
+    let text = &typed_punctuation(text)?;
     if text.is_empty() || text.len() > 512 {
         return Err("Lettering needs 1..=512 ASCII characters".into());
-    }
-    for line in text.split('\n') {
-        printable(line.as_bytes())?;
     }
     let source = match custom {
         Some(contents) => contents,
@@ -272,6 +308,8 @@ impl Font {
         if contents.len() > MAX_FONT_BYTES {
             return Err("Font exceeds 1 MiB".into());
         }
+        // A font saved with a byte order mark, as one figlet.js font was until v1.13.0.
+        let contents = contents.strip_prefix('\u{feff}').unwrap_or(contents);
         if contents.starts_with("PK\u{3}\u{4}") {
             return Err(
                 "Compressed fonts are not supported; extract the plain .flf or .tlf file first"

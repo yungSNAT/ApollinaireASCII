@@ -1,0 +1,14 @@
+Timeline of Industrial Revolution                                             
+                                                                              
+17th-20th century                                                             
+  Industry 1.0    o-- Machinery, Water power, Steam                           
+                  |   power                                                   
+                  |                                                           
+  Industry 2.0    o-- Electricity, Internal combustion engine, Mass production
+                  |                                                           
+  Industry 3.0    o-- Electronics, Computers, Automation                      
+                  |                                                           
+21st century      |                                                           
+  Industry 4.0    o-- Internet, Robotics, Internet of Things                  
+                  |                                                           
+  Industry 5.0    o-- Artificial intelligence, Big data, 3D printing          
