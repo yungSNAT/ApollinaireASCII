@@ -143,7 +143,19 @@ pub(super) fn draw(
         std::str::from_utf8(&rule).unwrap_or_default()
     ));
     if let Some(label) = separate_label {
-        lines.extend(wrap_lines(&label, width));
+        // The axis is printable ASCII. Count its rows before allocating them.
+        let rows = label.len().div_ceil(width);
+        if rows > MAX_HEIGHT.saturating_sub(lines.len()) {
+            return Err(format!(
+                "The Gantt axis label is too long for a drawing of {MAX_HEIGHT} rows"
+            ));
+        }
+        lines.extend(
+            label
+                .as_bytes()
+                .chunks(width)
+                .map(|part| String::from_utf8_lossy(part).into_owned()),
+        );
     } else if !labels.is_empty() {
         lines.push(format!("{margin}{labels}"));
     }
