@@ -341,27 +341,148 @@ fn a_frame_cannot_shrink_under_an_element_and_files_cannot_hold_too_many_element
     assert_eq!(listed.unwrap()["elements"][0]["drifted"], 4);
 
     // Each element keeps the cells under it, so a file may not make many large ones from a
-    // few bytes: 62 elements the size of a 512 x 256 canvas cover more than 8,000,000 cells.
+    // few bytes: 16 elements the size of a 512 x 256 canvas cover more than 2,000,000 cells.
+    // Spread over the 16 layers a file may have, they are counted together.
     let row = ".".repeat(512);
     let canvas = vec![row.as_str(); 256].join("\n");
     let big = project(&[("Base", false, &[canvas.as_str()])]);
     let mut file: Value = serde_json::from_str(&big.to_json()).unwrap();
     file["version"] = json!(4);
-    file["next_element"] = json!(63);
-    file["layers"][0]["elements"] = (1..=62)
+    file["next_element"] = json!(17);
+    file["layers"][0]["elements"] = (1..=16)
         .map(|id| {
             json!({"id": format!("e{id}"), "frame": 0, "kind": "box", "x": 0, "y": 0,
                 "width": 512, "height": 256})
         })
         .collect();
     let error = Layered::from_json(&file.to_string()).unwrap_err();
-    assert!(error.contains("cover at most 8000000 cells"), "{error}");
+    assert!(error.contains("cover at most 2000000 cells"), "{error}");
     file["layers"][0]["elements"]
         .as_array_mut()
         .unwrap()
-        .truncate(61);
-    file["next_element"] = json!(62);
+        .truncate(15);
+    file["next_element"] = json!(16);
     assert!(Layered::from_json(&file.to_string()).is_ok());
+
+    // A file of a few kilobytes: a 1 x 1 canvas whose 2 layers each claim 8 canvas-sized
+    // elements. It is refused for their cells together, before any element's cells are made
+    // and before the canvas is checked.
+    let claims: Vec<Value> = (0..2)
+        .map(|layer| {
+            let elements: Vec<Value> = (1..=8)
+                .map(|id| {
+                    json!({"id": format!("e{}", layer * 8 + id), "frame": 0, "kind": "box",
+                        "x": 0, "y": 0, "width": 512, "height": 256})
+                })
+                .collect();
+            json!({"name": format!("L{layer}"), "visible": true, "elements": elements})
+        })
+        .collect();
+    let small = json!({"format": "asciiforge", "version": 4, "width": 1, "height": 1,
+        "loop": false, "next_element": 17, "layers": claims,
+        "frames": [{"duration_ms": 100, "layers": [".", "."]}]})
+    .to_string();
+    assert!(small.len() < 4096);
+    let error = Layered::from_json(&small).unwrap_err();
+    assert!(error.contains("cover at most 2000000 cells"), "{error}");
+}
+
+#[test]
+fn a_whole_frame_live_write_cannot_strand_an_element() {
+    let start = project(&[(
+        "Base",
+        false,
+        &["..........\n..........\n..........\n..........\n.........."],
+    )]);
+    let (_, p) = apply(
+        &start,
+        json!({"id": 1, "op": "element_add", "kind": "box", "x": 5, "y": 2, "width": 4, "height": 3}),
+    );
+    let (refused, unchanged) = ask(&p, json!({"id": 2, "op": "write", "text": "ab"}));
+    let error = refused.unwrap_err();
+    assert!(
+        error.contains("Element e1 would leave the 2 x 1 frame"),
+        "{error}"
+    );
+    assert!(unchanged.is_none());
+    // A batch takes the same path.
+    let (refused, _) = ask(
+        &p,
+        json!({"id": 3, "op": "batch", "writes": [{"text": "ab"}]}),
+    );
+    assert!(refused.unwrap_err().contains("would leave"));
+    // A write the element still fits in keeps it, lists it and saves a file that loads.
+    let (_, grown) = apply(
+        &p,
+        json!({"id": 4, "op": "write", "text": "############\n############\n############\n############\n############\n############"}),
+    );
+    let (listed, _) = ask(&grown, json!({"id": 5, "op": "elements"}));
+    assert_ne!(listed.unwrap()["elements"][0]["drifted"], 0);
+    assert_eq!(Layered::from_json(&grown.to_json()).unwrap(), grown);
+}
+
+#[test]
+fn element_counts_ids_and_versions_are_bounded() {
+    let start = project(&[("Base", false, &["ab\ncd"])]);
+    let (_, p) = apply(
+        &start,
+        json!({"id": 1, "op": "element_add", "kind": "text", "x": 0, "y": 0, "text": "Z"}),
+    );
+    let json: Value = serde_json::from_str(&p.to_json()).unwrap();
+    let element = json["layers"][0]["elements"][0].clone();
+    let numbered = |id: usize| {
+        let mut e = element.clone();
+        e["id"] = json!(format!("e{id}"));
+        e
+    };
+    // At most 4,096 in one layer, refused as the list is read.
+    let mut many = json.clone();
+    many["layers"][0]["elements"] = (1..=4097).map(numbered).collect();
+    many["next_element"] = json!(4098);
+    assert!(
+        Layered::from_json(&many.to_string())
+            .unwrap_err()
+            .contains("Too many elements")
+    );
+    // And at most 4,096 in the project, across its layers.
+    let mut two = json.clone();
+    let mut second = two["layers"][0].clone();
+    second["name"] = json!("Top");
+    second["elements"] = (4001..=4097).map(numbered).collect();
+    two["layers"][0]["elements"] = (1..=4000).map(numbered).collect();
+    two["layers"].as_array_mut().unwrap().push(second);
+    for frame in two["frames"].as_array_mut().unwrap() {
+        let text = frame["layers"][0].clone();
+        frame["layers"].as_array_mut().unwrap().push(text);
+    }
+    two["next_element"] = json!(4098);
+    assert!(
+        Layered::from_json(&two.to_string())
+            .unwrap_err()
+            .contains("at most 4096 elements")
+    );
+    // The last id there is leaves nothing for the next element.
+    let mut last = json.clone();
+    last["layers"][0]["elements"][0]["id"] = json!(format!("e{}", u32::MAX));
+    last["next_element"] = json!(u32::MAX);
+    assert!(
+        Layered::from_json(&last.to_string())
+            .unwrap_err()
+            .contains("Element ids are used up")
+    );
+    // Ids are written one way only.
+    let mut padded = json.clone();
+    padded["layers"][0]["elements"][0]["id"] = json!("e01");
+    assert!(Layered::from_json(&padded.to_string()).is_err());
+    // Versions 1 to 3 have no next element.
+    let mut v3 = json.clone();
+    v3["version"] = json!(3);
+    v3["layers"][0].as_object_mut().unwrap().remove("elements");
+    assert!(
+        Layered::from_json(&v3.to_string())
+            .unwrap_err()
+            .contains("next_element")
+    );
 }
 
 #[test]

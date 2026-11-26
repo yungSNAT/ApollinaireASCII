@@ -214,6 +214,15 @@ impl Layered {
             next_element: 1,
         }
     }
+    /// Cells the project's elements cover, each counted once: what their kept `under` cells
+    /// take, at most [`MAX_ELEMENT_CELLS`].
+    pub fn element_cells(&self) -> usize {
+        self.layers
+            .iter()
+            .flat_map(|layer| &layer.elements)
+            .map(|element| element.shape().width * element.shape().height)
+            .sum()
+    }
     pub fn layers(&self) -> &[Layer] {
         &self.layers
     }

@@ -905,7 +905,14 @@ fn commit_element(
     }
     let project_cells =
         layers.len() * entry.art.frames().len() * entry.art.width() * entry.art.height();
-    check_work_budget(2 * project_cells)?;
+    // Each element of the frame may be lifted and redrawn: its drawing made, compared and pasted.
+    let element_cells: usize = entry
+        .elements
+        .iter()
+        .filter(|element| element.frame() == frame)
+        .map(|element| element.shape().width * element.shape().height)
+        .sum();
+    check_work_budget(2 * project_cells + 6 * element_cells)?;
     let art = &entry.art.frames()[frame].frame;
     let (drawn, elements) = elements::apply(art, &entry.elements, frame, edit, force)?;
     let changed = changed_cells(art, &drawn);
@@ -997,7 +1004,7 @@ fn edit_element(state: &State, request: &Value) -> Result<(Value, Option<Layered
     )?;
     if !["x", "y", "width", "height", "text", "style", "arrow"]
         .iter()
-        .any(|key| request.get(key).is_some())
+        .any(|key| request.get(key).is_some_and(|value| !value.is_null()))
     {
         return Err("Give at least one of x, y, width, height, text, style and arrow".into());
     }

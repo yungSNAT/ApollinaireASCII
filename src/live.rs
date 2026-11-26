@@ -217,7 +217,7 @@ pub fn tools() -> Vec<Value> {
             "live_element_delete",
             "Delete an element by id, as one undo step, putting back the cells it covered and redrawing any element above it. Its id is never given out again. Refused when it, or an element above it, was changed by hand, unless force is true.",
             json!({
-                "element": {"type": "string", "pattern": "^e[0-9]+$", "description": "The element's id, like e3."},
+                "element": {"type": "string", "pattern": "^e[1-9][0-9]*$", "description": "The element's id, like e3."},
                 "revision": {"type": "string", "description": "Optional, from live_elements or the last element tool; refused if the element or its cells changed since."},
                 "force": {"type": "boolean", "description": "Redraw over cells changed by hand."},
                 "dry_run": {"type": "boolean", "description": "Return the would-be frame and changed cell count without editing the project or undo history."},
@@ -251,7 +251,7 @@ fn element_properties(adding: bool) -> serde_json::Map<String, Value> {
         props.insert("layer".into(), json!({"type": "integer", "minimum": 0, "description": "Layer index, 0-based (default the active layer)."}));
         props.insert("frame".into(), json!({"type": "integer", "minimum": 0, "description": "Timeline frame index, 0-based (default the frame on screen)."}));
     } else {
-        props.insert("element".into(), json!({"type": "string", "pattern": "^e[0-9]+$", "description": "The element's id, like e3."}));
+        props.insert("element".into(), json!({"type": "string", "pattern": "^e[1-9][0-9]*$", "description": "The element's id, like e3."}));
         props.insert("revision".into(), json!({"type": "string", "description": "Optional, from live_elements or the last element tool; refused if the element or its cells changed since."}));
         props.insert(
             "force".into(),

@@ -992,7 +992,7 @@ fn run(args: Args) -> Result<()> {
                     Layered::from_json(&read_text(&file)?)?
                         .plain()
                         .cloned()
-                        .ok_or("This project uses layers, groups or keyframes; merge its layers in the browser editor first")?
+                        .ok_or("This project uses layers, groups, keyframes or elements; merge its layers in the browser editor first")?
                 } else {
                     load(&file, true)?
                 }

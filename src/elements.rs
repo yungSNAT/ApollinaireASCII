@@ -16,7 +16,7 @@ use crate::{Frame, Result};
 pub const MAX_ELEMENTS: usize = 4096;
 /// Cells a project's elements cover at most, counted once per element, as every element keeps
 /// a copy of the cells under it.
-pub const MAX_ELEMENT_CELLS: usize = crate::MAX_PROJECT_CELLS;
+pub const MAX_ELEMENT_CELLS: usize = 2_000_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
@@ -280,7 +280,12 @@ impl Element {
 /// Parse `e<id>`.
 pub fn parse_id(name: &str) -> Result<u32> {
     name.strip_prefix('e')
-        .filter(|digits| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))
+        // One spelling for each id: no sign and no leading zero.
+        .filter(|digits| {
+            !digits.starts_with('0')
+                && !digits.is_empty()
+                && digits.bytes().all(|b| b.is_ascii_digit())
+        })
         .and_then(|digits| digits.parse().ok())
         .filter(|&id| id > 0)
         .ok_or_else(|| format!("{name:?} is not an element id like e1"))

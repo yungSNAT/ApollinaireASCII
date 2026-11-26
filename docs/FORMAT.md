@@ -56,6 +56,7 @@ Each element holds `id` (`e` and a number from 1, never used twice in a project 
 | Layer name | 1 to 32 printable ASCII characters |
 | Group name | 1 to 32 printable ASCII characters |
 | Elements | 4,096 in a project |
+| Element cells | 2,000,000 in a project, each element's width times height counted once |
 | Frame duration | 10 to 60,000 ms |
 | Project duration | One hour |
 | Effect duration | 100 to 60,000 ms at 1 to 60 FPS |
