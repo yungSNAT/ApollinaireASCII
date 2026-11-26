@@ -22,7 +22,7 @@ editor at https://yungsnat.github.io/ApollinaireASCII/ processes your files in t
 - [Text and project format](https://github.com/yungSNAT/ApollinaireASCII/blob/master/docs/FORMAT.md): the frame and JSON project formats, fonts and resource limits.
 - [Validation](https://github.com/yungSNAT/ApollinaireASCII/blob/master/docs/VALIDATION.md): checks run, reference comparisons with figlet and known limits.
 - [Dependency scan](https://github.com/yungSNAT/ApollinaireASCII/blob/master/docs/DEPENDENCIES.md): dependency alerts, reachability and the in-house GIF decoder.
-- [Research and provenance](https://github.com/yungSNAT/ApollinaireASCII/blob/master/docs/RESEARCH.md): the projects compared and why RASCII was chosen as the foundation.
+- [Research and provenance](https://github.com/yungSNAT/ApollinaireASCII/blob/master/docs/RESEARCH.md): the sources used and why RASCII was chosen as the foundation.
 - [Third-party notices](https://github.com/yungSNAT/ApollinaireASCII/blob/master/THIRD_PARTY_NOTICES.md): upstream code, font and dependency licences.
 - [CONTRIBUTING.md](https://github.com/yungSNAT/ApollinaireASCII/blob/master/CONTRIBUTING.md): the ASCII contract, reuse rules and checks.
 - [SECURITY.md](https://github.com/yungSNAT/ApollinaireASCII/blob/master/SECURITY.md): reporting a vulnerability privately.

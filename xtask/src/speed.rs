@@ -3,7 +3,7 @@
 
 //! Time picture-to-ASCII conversion at 200 columns, best of 5 runs, against
 //! ascii-image-converter and chafa, and check each converter's output is plain ASCII text.
-//! docs/VALIDATION.md records a run. ImageMagick 7 (`magick`) draws the 3 test pictures.
+//! ImageMagick 7 (`magick`) draws the 3 test pictures.
 //! Without a work folder it uses a temporary one and removes it afterwards.
 use crate::shared::{exec, first_line};
 use std::{
