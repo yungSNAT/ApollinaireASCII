@@ -1324,15 +1324,15 @@ fn edit_checks_its_file_and_options_before_needing_a_terminal() {
         ),
         (
             vec![path(&layered)],
-            "This project uses layers, groups or keyframes; merge its layers in the browser editor first",
+            "This project uses layers, groups, keyframes or elements; merge its layers in the browser editor first",
         ),
         (
             vec![path(&keyed)],
-            "This project uses layers, groups or keyframes; merge its layers in the browser editor first",
+            "This project uses layers, groups, keyframes or elements; merge its layers in the browser editor first",
         ),
         (
             vec![path(&grouped)],
-            "This project uses layers, groups or keyframes; merge its layers in the browser editor first",
+            "This project uses layers, groups, keyframes or elements; merge its layers in the browser editor first",
         ),
         (vec!["-".into()], "Edit needs a .txt or .json file"),
         (
@@ -1628,7 +1628,7 @@ fn diagram_lays_out_a_mermaid_flowchart_from_a_file_or_stdin() {
     );
     refused(
         &cli_stdin(&["diagram", "-"], b"quadrantChart\n"),
-        "Line 1: a Mermaid diagram starts with flowchart, graph, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, gantt, pie, gitGraph or timeline",
+        "Line 1: a Mermaid diagram starts with flowchart, graph, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, gantt, pie, gitGraph, timeline or journey",
     );
     let state = cli_stdin(&["diagram", "-"], b"stateDiagram-v2\n  [*] --> Ready\n");
     assert!(

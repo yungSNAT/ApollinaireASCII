@@ -18,7 +18,7 @@ pub fn build(
 pub use unix::build;
 
 #[cfg(unix)]
-mod unix {
+pub(crate) mod unix {
     use crate::shared::fail as io;
     use std::{
         fs,
@@ -99,10 +99,25 @@ mod unix {
         }
     }
 
-    pub fn build(src: &Path, version: &str, arch: &str, out: &Path) -> Result<(), String> {
-        // Only a folder this run created is removed when the build ends.
-        let staging = crate::shared::TempDir::new("apollinaire-deb")?;
-        let root = &staging.0;
+    /// `gzip -9n < from > to`, making `to`'s folders.
+    fn gzip(from: &Path, to: &Path) -> Result<(), String> {
+        fs::create_dir_all(to.parent().expect("A file in a folder")).map_err(io(to))?;
+        run(Command::new("gzip")
+            .arg("-9n")
+            .stdin(fs::File::open(from).map_err(io(from))?)
+            .stdout(fs::File::create(to).map_err(io(to))?))
+    }
+
+    /// Where a package format puts the files whose place differs, as paths under `/usr/share`.
+    pub(crate) struct Layout {
+        pub(crate) zsh: &'static str,
+        pub(crate) licence: &'static str,
+        pub(crate) licences: &'static str,
+    }
+
+    /// Stage the release under `root/usr` as both packages ship it: the binary, the manual
+    /// page, the completions, the README and notices, and the licence texts.
+    pub(crate) fn stage(src: &Path, root: &Path, layout: &Layout) -> Result<(), String> {
         let usr = root.join("usr");
         let share = usr.join("share");
         install(
@@ -110,21 +125,17 @@ mod unix {
             &usr.join("bin/apollinaire"),
             0o755,
         )?;
-        let man = share.join("man/man1");
-        fs::create_dir_all(&man).map_err(io(&man))?;
-        let page = src.join("man/apollinaire.1");
-        let gz = man.join("apollinaire.1.gz");
-        run(Command::new("gzip")
-            .arg("-9n")
-            .stdin(fs::File::open(&page).map_err(io(&page))?)
-            .stdout(fs::File::create(&gz).map_err(io(&gz))?))?;
+        gzip(
+            &src.join("man/apollinaire.1"),
+            &share.join("man/man1/apollinaire.1.gz"),
+        )?;
         let completions = src.join("completions");
         for (from, to) in [
             (
                 "apollinaire.bash",
                 "bash-completion/completions/apollinaire",
             ),
-            ("_apollinaire", "zsh/vendor-completions/_apollinaire"),
+            ("_apollinaire", layout.zsh),
             (
                 "apollinaire.fish",
                 "fish/vendor_completions.d/apollinaire.fish",
@@ -133,7 +144,6 @@ mod unix {
             install(&completions.join(from), &share.join(to), 0o644)?;
         }
         let doc = share.join("doc/apollinaire");
-        install(&src.join("LICENSE.md"), &doc.join("copyright"), 0o644)?;
         for name in [
             "README.md",
             "THIRD_PARTY_NOTICES.md",
@@ -141,9 +151,35 @@ mod unix {
         ] {
             install(&src.join(name), &doc.join(name), 0o644)?;
         }
-        copy_tree(&src.join("LICENSES"), &doc.join("LICENSES"))?;
-        normalise(root)?;
-        let control = control(version, arch, installed_kib(&usr)?);
+        install(&src.join("LICENSE.md"), &share.join(layout.licence), 0o644)?;
+        // The dependency licence texts also sit with the licences, which an install that skips
+        // documentation keeps; for the .deb this is the same file again.
+        let licence_folder = Path::new(layout.licence)
+            .parent()
+            .expect("A file in a folder");
+        install(
+            &src.join("DEPENDENCY_NOTICES.txt"),
+            &share.join(licence_folder).join("DEPENDENCY_NOTICES.txt"),
+            0o644,
+        )?;
+        copy_tree(&src.join("LICENSES"), &share.join(layout.licences))?;
+        normalise(root)
+    }
+
+    pub fn build(src: &Path, version: &str, arch: &str, out: &Path) -> Result<(), String> {
+        // Only a folder this run created is removed when the build ends.
+        let staging = crate::shared::TempDir::new("apollinaire-deb")?;
+        let root = &staging.0;
+        stage(
+            src,
+            root,
+            &Layout {
+                zsh: "zsh/vendor-completions/_apollinaire",
+                licence: "doc/apollinaire/copyright",
+                licences: "doc/apollinaire/LICENSES",
+            },
+        )?;
+        let control = control(version, arch, installed_kib(&root.join("usr"))?);
         let debian = root.join("DEBIAN");
         fs::create_dir(&debian).map_err(io(&debian))?;
         fs::write(debian.join("control"), control).map_err(io(&debian))?;
@@ -175,12 +211,12 @@ Description: Static art, block lettering and animation as real ASCII text
 }
 
 #[cfg(all(test, unix))]
-mod tests {
+pub(crate) mod tests {
     use super::unix::{control, installed_kib};
     use std::{fs, path::Path, process::Command, sync::Mutex};
 
     /// `build` stages in one folder per process, so tests that call it take turns.
-    static BUILD: Mutex<()> = Mutex::new(());
+    pub(crate) static BUILD: Mutex<()> = Mutex::new(());
 
     fn write(path: &Path, text: &str) {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -188,7 +224,7 @@ mod tests {
     }
 
     /// A release folder as the release workflow unpacks it, with a stand-in binary.
-    fn release(dir: &Path) {
+    pub(crate) fn release(dir: &Path) {
         write(&dir.join("apollinaire"), "#!/bin/sh\necho apollinaire\n");
         fs::set_permissions(
             dir.join("apollinaire"),
@@ -217,7 +253,7 @@ mod tests {
         write(&dir.join("LICENSES/nested/Apache-2.0.txt"), "Apache");
     }
 
-    fn output(command: &mut Command) -> String {
+    pub(crate) fn output(command: &mut Command) -> String {
         let out = command.output().unwrap();
         assert!(
             out.status.success(),

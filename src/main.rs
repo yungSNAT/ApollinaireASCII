@@ -250,11 +250,11 @@ enum Command {
         input: PathBuf,
     },
     /// Lay out a Mermaid flowchart, sequence, state, class or ER diagram, Gantt or pie chart,
-    /// Git graph or timeline as ASCII: the subset docs/CLI.md lists.
+    /// Git graph, timeline or user journey as ASCII: the subset docs/CLI.md lists.
     Diagram {
         /// A Mermaid diagram (`flowchart`, `graph`, `sequenceDiagram`, `stateDiagram-v2`,
-        /// `classDiagram`, `erDiagram`, `gantt`, `pie`, `gitGraph` or `timeline`), a Markdown
-        /// document with `--markdown`, or `-` for stdin.
+        /// `classDiagram`, `erDiagram`, `gantt`, `pie`, `gitGraph`, `timeline` or
+        /// `journey`), a Markdown document with `--markdown`, or `-` for stdin.
         input: PathBuf,
         /// Fit the diagram within this many columns (1 to 512) by reflowing or wrapping text.
         #[arg(long)]
@@ -503,9 +503,10 @@ enum Command {
     },
     /// Serve the artwork commands to AI agents as Model Context Protocol tools over stdio.
     Mcp {
-        /// Add live_connect, live_read, live_write and live_batch, which reach the project open in
-        /// the browser editor over a WebSocket on 127.0.0.1, once the user enters the port and
-        /// token there.
+        /// Add live_connect, live_read, live_write, live_batch and the element tools
+        /// (live_elements, live_element_add, live_element_edit, live_element_delete), which reach
+        /// the project open in the browser editor over a WebSocket on 127.0.0.1, once the user
+        /// enters the port and token there.
         #[arg(long)]
         live: bool,
     },
@@ -992,7 +993,7 @@ fn run(args: Args) -> Result<()> {
                     Layered::from_json(&read_text(&file)?)?
                         .plain()
                         .cloned()
-                        .ok_or("This project uses layers, groups or keyframes; merge its layers in the browser editor first")?
+                        .ok_or("This project uses layers, groups, keyframes or elements; merge its layers in the browser editor first")?
                 } else {
                     load(&file, true)?
                 }
