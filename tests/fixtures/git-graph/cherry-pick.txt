@@ -1,0 +1,13 @@
+main                                 
+|  develop                           
+|  |  release                        
+o->+  |  ZERO                        
++--|->o  A                           
+o  |  |  ONE                         
+|  o  |  B                           
+@<-+->+  MERGE                       
+o  |  |  TWO                         
+|  |  %  [cherry-pick:MERGE|parent:B]
+|  |  o  THREE                       
+|  o  |  C                           
+o commit  @ merge  % cherry-pick     
