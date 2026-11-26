@@ -72,7 +72,7 @@ fn mindmap_reads_icons_in_any_case_but_its_header_in_lower_case_as_mermaid_does(
     // Mermaid's detector matches `mindmap` in lower case only, so `MINDMAP` is no diagram.
     assert_eq!(
         mermaid("MINDMAP\n  Root").unwrap_err(),
-        "Line 1: a Mermaid diagram starts with flowchart, graph, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram or mindmap"
+        "Line 1: a Mermaid diagram starts with flowchart, graph, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, gantt or mindmap"
     );
 }
 
@@ -125,8 +125,13 @@ fn mindmap_fits_a_narrow_width_or_says_how_wide_it_must_be() {
 
 #[test]
 fn mindmap_breaks_text_at_every_br_form_mermaid_matches() {
-    // Mermaid's pattern is /<br\s*\/?>/gi; a line here can hold only spaces and tabs.
+    // Mermaid 12.3.0's pattern is /<\/?br\s*\/?>/gi; a line here can hold only spaces and tabs.
     for tag in [
+        "</br>",
+        "</BR>",
+        "</br >",
+        "</BR/>",
+        "</br\t>",
         "<br>",
         "<BR>",
         "<bR>",
@@ -141,9 +146,11 @@ fn mindmap_breaks_text_at_every_br_form_mermaid_matches() {
         let source = format!("mindmap\n  A[one{tag}two]");
         assert_eq!(rows(mindmap(&source).unwrap()), ["one", "two"], "{tag:?}");
     }
-    // A space or tab after the `/`, a second `/` or another letter is no tag; tabs draw as
+    // A space or tab after a `/`, a second `/` or another letter is no tag; tabs draw as
     // spaces.
-    for tag in ["<br/ >", "<br/\t>", "<br//>", "<brx>", "<br"] {
+    for tag in [
+        "<br/ >", "<br/\t>", "<br//>", "<brx>", "<br", "<//br>", "</ br>", "</brx>",
+    ] {
         let source = format!("mindmap\n  A[one{tag}two]");
         let drawn = format!("one{}two", tag.replace('\t', " "));
         assert_eq!(rows(mindmap(&source).unwrap()), [drawn], "{tag:?}");

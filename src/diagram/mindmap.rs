@@ -23,7 +23,7 @@ const CLOSES: &[&str] = &["))", ")", "]", "}}", "(-", "-)", "((", "("];
 ///   indented less, and only the first node, the root, may have no parent.
 /// - A node is its text alone, or an id followed by its text in a shape: `[..]`, `(..)`,
 ///   `((..))`, `))..((`, `)..(` or `{{..}}`. Every shape is drawn alike. Text may be
-///   double-quoted, may use entity codes such as `#59;`, and breaks at `<br>` or `<br/>`.
+///   double-quoted, may use entity codes such as `#59;`, and breaks at `<br>`, `<br/>` or `</br>`.
 /// - `::icon(..)` and `:::class` lines are skipped: the output has no icons or colour.
 ///
 /// Markdown strings and any other syntax are refused with their line number, as is a byte
@@ -123,7 +123,7 @@ impl Reader {
     }
 }
 
-/// A node's lines of text, broken at each `<br>`, `<br/>` or `<br />`.
+/// A node's lines of text, broken at each `<br>`, `<br/>`, `<br />` or `</br>`.
 fn label(number: usize, text: &str) -> Result<Vec<String>> {
     let unclosed = || format!("Line {number}: the node's shape is not closed");
     // A node's id runs to the first bracket; a line opening with `-)` has no id.
@@ -165,14 +165,18 @@ fn label(number: usize, text: &str) -> Result<Vec<String>> {
     if !after.is_empty() {
         return Err(format!("Line {number}: '{after}' follows the node's shape"));
     }
-    // Mermaid breaks a line at `<br\s*\/?>` in any case: spaces or tabs (the only whitespace a
-    // line can hold here) before an optional `/`. The text is ASCII, so lower-casing keeps
-    // every offset.
+    // Mermaid breaks a line at `<\/?br\s*\/?>` in any case: an optional `/`, then spaces or
+    // tabs (the only whitespace a line can hold here) before an optional `/`. The text is
+    // ASCII, so lower-casing keeps every offset.
     let lower = inner.to_ascii_lowercase();
     let mut lines = Vec::new();
     let mut at = 0;
-    for (start, _) in lower.match_indices("<br") {
-        let tail = lower[start + 3..].trim_start_matches([' ', '\t']);
+    for (start, _) in lower.match_indices('<') {
+        let tail = &lower[start + 1..];
+        let Some(tail) = tail.strip_prefix('/').unwrap_or(tail).strip_prefix("br") else {
+            continue;
+        };
+        let tail = tail.trim_start_matches([' ', '\t']);
         let tail = tail.strip_prefix('/').unwrap_or(tail);
         if let Some(rest) = tail.strip_prefix('>') {
             if lines.len() == MAX_HEIGHT {
