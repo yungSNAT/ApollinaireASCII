@@ -246,10 +246,11 @@ fn draw(reader: &Reader, max_width: Option<usize>) -> Result<Frame> {
         (name, (room - name).min(actors))
     };
 
-    // Each line of wrapped text takes at most width + 1 bytes, so a longer text is refused
-    // before it is wrapped.
+    // Each wrapped row holds at most `width` bytes other than spaces, so a text with more is
+    // refused before it is wrapped.
     let wrap = |text: &str, width: usize| {
-        if text.len() > MAX_HEIGHT * (width + 1) {
+        let filled = text.bytes().filter(|byte| *byte != b' ').count();
+        if filled.div_ceil(width) > MAX_HEIGHT {
             return Err(format!(
                 "The user journey needs more than {MAX_HEIGHT} rows; a drawing has at most {MAX_HEIGHT}"
             ));

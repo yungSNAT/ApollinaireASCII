@@ -134,6 +134,17 @@ fn journey_fits_a_narrow_width_or_says_how_wide_it_must_be() {
         "A [#####] 5 :)"
     );
     // A name too long for 256 rows is refused before it is wrapped a byte a row.
+    // A long run of spaces makes no rows, so it is drawn, not refused.
+    let spaced = format!("journey\n  a{}b: 5", " ".repeat(3_000));
+    assert_eq!(
+        mermaid_with_max_width(&spaced, 14)
+            .unwrap()
+            .text()
+            .lines()
+            .map(str::trim_end)
+            .collect::<Vec<_>>(),
+        ["a [#####] 5 :)", "b"]
+    );
     let long = format!("journey\n  {}: 5", "x".repeat(100_000));
     assert_eq!(
         mermaid_with_max_width(&long, 14).unwrap_err(),
