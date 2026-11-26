@@ -140,6 +140,20 @@ fn front_matter_names_the_main_branch_of_a_git_graph_as_a_directive_does() {
         "---\n\"config\": # settings\n  'gitGraph':\n    mainBranchName: 'trunk' # a comment\n---\n{branches}"
     );
     assert_eq!(mermaid(&quoted).unwrap().text(), directive);
+    // In a flow mapping it is refused with its line, not dropped.
+    for (front, line) in [
+        ("{config: {gitGraph: {mainBranchName: trunk}}}", 2),
+        ("config:\n  gitGraph: {mainBranchName: trunk}", 3),
+        ("config:\n  gitGraph: { 'mainBranchName' : trunk }", 3),
+    ] {
+        assert_eq!(
+            mermaid(&format!("---\n{front}\n---\n{branches}")).unwrap_err(),
+            format!(
+                "Line {line}: mainBranchName in a flow mapping is not read; write it on its own line"
+            ),
+            "{front}"
+        );
+    }
     // A directive wins over front matter, as Mermaid merges them.
     let both = format!(
         "---\nconfig:\n  gitGraph:\n    mainBranchName: other\n---\n%%{{init: {{'gitGraph': {{'mainBranchName': 'trunk'}}}}}}%%\n{branches}"

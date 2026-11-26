@@ -431,12 +431,10 @@ fn front_matter<'a, I: Iterator<Item = (usize, &'a str)> + Clone>(
     // The keys above the current line, each with its indent; a block scalar's indent.
     let mut keys: Vec<(usize, &str)> = Vec::new();
     let mut scalar = None;
+    // The body runs to the first closing line past its first line, which `last` guarantees.
     let mut first = true;
-    for (number, text) in lines {
-        if !first && closes(text) {
-            return Ok(());
-        }
-        first = false;
+    let body = lines.take_while(|&(_, text)| std::mem::take(&mut first) || !closes(text));
+    for (number, text) in body {
         let content = text.trim_start_matches([' ', '\t']);
         let depth = text.len() - content.len();
         if content.trim_end().is_empty() || content.starts_with('#') {
@@ -452,9 +450,15 @@ fn front_matter<'a, I: Iterator<Item = (usize, &'a str)> + Clone>(
         let title = Err(format!(
             "Line {number}: a title in front matter is not drawn"
         ));
-        if keys.is_empty() && (titled(content) || content.starts_with('{') && flow_titled(content))
+        if keys.is_empty()
+            && (keyed(content, "title") || content.starts_with('{') && flow_keyed(content, "title"))
         {
             return title;
+        }
+        if flow_keyed(content, "mainBranchName") {
+            return Err(format!(
+                "Line {number}: mainBranchName in a flow mapping is not read; write it on its own line"
+            ));
         }
         let Some((key, value)) = key_value(content) else {
             continue;
@@ -469,13 +473,13 @@ fn front_matter<'a, I: Iterator<Item = (usize, &'a str)> + Clone>(
             setting(number, &path, unquote(value))?;
         }
     }
-    Err(not_closed())
+    Ok(())
 }
 
-/// Whether a front matter line starts with a `title` key, quoted or not.
-fn titled(line: &str) -> bool {
+/// Whether a front matter line starts with `key` as a key, quoted or not.
+fn keyed(line: &str, key: &str) -> bool {
     line.trim_start_matches(['"', '\''])
-        .strip_prefix("title")
+        .strip_prefix(key)
         .is_some_and(|after| {
             after
                 .trim_start_matches(['"', '\''])
@@ -484,14 +488,14 @@ fn titled(line: &str) -> bool {
         })
 }
 
-/// Whether a flow mapping line holds a `title` key anywhere, which is refused whatever its depth.
-fn flow_titled(line: &str) -> bool {
-    line.match_indices("title").any(|(at, _)| {
+/// Whether a line holds `key` as a key of a flow mapping (`{..}`) anywhere.
+fn flow_keyed(line: &str, key: &str) -> bool {
+    line.match_indices(key).any(|(at, _)| {
         line[..at]
             .trim_end_matches(['"', '\''])
             .trim_end()
             .ends_with(['{', ','])
-            && titled(&line[at..])
+            && keyed(&line[at..], key)
     })
 }
 
