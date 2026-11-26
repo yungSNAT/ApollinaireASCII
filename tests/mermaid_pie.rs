@@ -247,6 +247,35 @@ fn pie_reads_accessibility_blocks_to_their_end() {
 }
 
 #[test]
+fn pie_keeps_the_row_of_a_label_of_only_spaces() {
+    // A blank label wider than the label column still draws its slice, with an empty label.
+    let frame = mermaid_with_max_width("pie\n\"          \" : 1\n\"b\" : 1", 20).unwrap();
+    let text = frame.text();
+    let drawn: Vec<&str> = text.lines().collect();
+    assert_eq!(drawn.len(), 2, "{text}");
+    assert!(drawn[0].trim_start().starts_with('#'), "{text}");
+    assert!(drawn[1].starts_with('b'), "{text}");
+    let wide = format!("pie\n\"{}\" : 1\n\"b\" : 1", " ".repeat(300));
+    assert_eq!(rows(&wide).len(), 2);
+}
+
+#[test]
+fn pie_reads_a_tab_as_a_space_as_mermaid_does() {
+    assert_eq!(rows("pie title a\tb\n\"A\" : 1")[0], "a b");
+    assert_eq!(rows("pie\ntitle\ta\tb\n\"A\" : 1")[0], "a b");
+    assert!(rows("pie\n\"a\tb\"\t:\t1")[0].starts_with("a b "));
+}
+
+#[test]
+fn pie_reads_a_comment_after_the_header() {
+    assert_eq!(rows("pie %% c\n\"A\" : 1").len(), 1);
+    assert_eq!(
+        rows("pie showData %% c\n\"A\" : 1"),
+        rows("pie showData\n\"A\" : 1")
+    );
+}
+
+#[test]
 fn pie_refuses_text_too_tall_to_draw_before_wrapping_it() {
     let long = format!("pie\n\"{}\" : 1", "x".repeat(1 << 20));
     assert_eq!(
