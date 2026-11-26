@@ -249,7 +249,7 @@ enum Command {
         /// Text with one node per line, or `-` for stdin. Deeper indentation makes a child.
         input: PathBuf,
     },
-    /// Lay out a Mermaid flowchart, sequence, state, class or ER diagram, Gantt or pie chart,
+    /// Lay out a Mermaid flowchart, sequence, state, class or ER diagram, Gantt chart, pie chart
     /// or timeline as ASCII: the subset docs/CLI.md lists.
     Diagram {
         /// A Mermaid diagram (`flowchart`, `graph`, `sequenceDiagram`, `stateDiagram-v2`,
