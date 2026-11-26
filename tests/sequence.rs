@@ -442,19 +442,19 @@ fn mermaid_reads_the_diagram_type_from_the_first_statement() {
     for (source, error) in [
         (
             "",
-            "The text is empty: a Mermaid diagram starts with flowchart, graph, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram or gantt",
+            "The text is empty: a Mermaid diagram starts with flowchart, graph, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, gantt, pie, gitGraph or timeline",
         ),
         (
             "```mermaid\n```",
-            "The text is empty: a Mermaid diagram starts with flowchart, graph, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram or gantt",
+            "The text is empty: a Mermaid diagram starts with flowchart, graph, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, gantt, pie, gitGraph or timeline",
         ),
         (
-            "\npie",
-            "Line 2: a Mermaid diagram starts with flowchart, graph, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram or gantt",
+            "\nquadrantChart",
+            "Line 2: a Mermaid diagram starts with flowchart, graph, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, gantt, pie, gitGraph or timeline",
         ),
         (
-            "journey",
-            "Line 1: a Mermaid diagram starts with flowchart, graph, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram or gantt",
+            "quadrantChart",
+            "Line 1: a Mermaid diagram starts with flowchart, graph, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, gantt, pie, gitGraph or timeline",
         ),
         // A bad byte or fence is reported before the type, with its line.
         ("caf\u{e9}", "Line 1: byte 4 is 0xc3, not printable ASCII"),

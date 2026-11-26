@@ -1,0 +1,17 @@
+%% max-width: 30
+%%{init: { "gitGraph": { "mainBranchName": "trunk" } } }%%
+gitGraph TB:
+  title Release train for the spring quarter, with a hotfix
+  commit id: "Start of the quarter" tag: "v2.0.0"
+  branch "release/2.1"
+  commit msg: "not drawn" id: "Freeze"
+  checkout trunk
+  commit
+  branch hotfix order: 1
+  commit id: "Fix #35; overflow" type: HIGHLIGHT
+  checkout trunk
+  merge hotfix tag: "v2.0.1"
+  checkout release/2.1
+  cherry-pick id: "Fix #35; overflow"
+  checkout trunk
+  merge "release/2.1" id: "Ship 2.1" type: REVERSE

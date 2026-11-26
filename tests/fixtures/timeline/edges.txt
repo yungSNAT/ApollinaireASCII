@@ -1,0 +1,18 @@
+Launch & after          
+                        
+Before                  
+  Week 1 o-- Plan the   
+         |   work       
+         +-- Book the   
+         |   hall       
+         |              
+  Week 2 o              
+         |              
+Empty    |              
+         |              
+After    |              
+  Week 3 o              
+         |              
+  Week 4 o-- Review at  
+         |   10:30      
+         +-- Write #1 up
