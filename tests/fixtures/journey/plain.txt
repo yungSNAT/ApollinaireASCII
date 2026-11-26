@@ -1,7 +1,7 @@
-Shopping trip                           
-                                        
-Find item   [#### ] 4 :)  Shopper       
-Pay & leave [##   ] 2 :(                
-Help                                    
-  Ask staff [###  ] 3 :|  Shopper, Staff
-  Wait      [#    ] 1 :(  Shopper       
+Shawshank to Zihuatanejo                     
+                                             
+Dig behind the poster [##   ] 2 :(  Andy     
+Crawl 500 yards & out [#    ] 1 :(           
+Pacific                                      
+  Find the letter     [#### ] 4 :)  Red      
+  Reach the beach     [#####] 5 :)  Andy, Red
