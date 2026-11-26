@@ -137,7 +137,7 @@ fn front_matter_names_the_main_branch_of_a_git_graph_as_a_directive_does() {
         assert_eq!(mermaid(&front).unwrap().text(), directive, "{value}");
     }
     let quoted = format!(
-        "---\n\"config\": # settings\n  'gitGraph':\n    mainBranchName: 'trunk' # a comment\n---\n{branches}"
+        "---\n\"config\": # settings\n  sequence:\n    mirrorActors: false\n  'gitGraph':\n    mainBranchName: 'trunk' # a comment\n---\n{branches}"
     );
     assert_eq!(mermaid(&quoted).unwrap().text(), directive);
     // In a flow mapping, on one line or several, or under other keys, it is refused with its
