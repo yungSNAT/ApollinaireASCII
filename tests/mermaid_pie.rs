@@ -237,3 +237,25 @@ fn pie_refuses_what_it_cannot_draw_with_the_line() {
         "A pie chart needs a --max-width of at least 8 columns"
     );
 }
+
+#[test]
+fn pie_reads_accessibility_blocks_to_their_end() {
+    // Text after a block's '}' is read; a '%%' inside a block does not hide its '}'.
+    assert_eq!(rows("pie\naccDescr { a } \"A\" : 1").len(), 1);
+    assert_eq!(rows("pie\naccDescr {\n%% }\n\"A\" : 1").len(), 1);
+    assert_eq!(rows("pie\naccDescr {\na\n} \"A\" : 1\n\"B\" : 1").len(), 2);
+}
+
+#[test]
+fn pie_refuses_text_too_tall_to_draw_before_wrapping_it() {
+    let long = format!("pie\n\"{}\" : 1", "x".repeat(1 << 20));
+    assert_eq!(
+        mermaid_with_max_width(&long, 8).unwrap_err(),
+        "The pie chart needs more than 256 rows; a drawing has at most 256"
+    );
+    let title = format!("pie title {}\n\"A\" : 1", "x".repeat(1 << 20));
+    assert_eq!(
+        pie(&title).unwrap_err(),
+        "The pie chart needs more than 256 rows; a drawing has at most 256"
+    );
+}
