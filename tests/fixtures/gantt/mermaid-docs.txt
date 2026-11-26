@@ -14,11 +14,11 @@ Critical tasks
   Add to mermaid                                                                      ===        
   Functionality added                                                                   *        
 Documentation                                                                                    
-  Describe gantt syntax                    >>>>>>>>>>>>>>                                        
+  Describe gantt syntax                    >>>>>>>>>                                             
   Add gantt diagram to demo page                        ===                                      
   Add another diagram to demo page                      ======                                   
 Last section                                                                                     
-  Describe gantt syntax                                       ==============                     
+  Describe gantt syntax                                       ========                           
   Add gantt diagram to demo page                                           ===                   
   Add another diagram to demo page                                           ======              
                                       +-----------+-----------+-----------+-----------+----------

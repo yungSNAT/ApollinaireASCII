@@ -235,7 +235,7 @@ impl Reader {
 }
 
 /// Each task's start and end in milliseconds since 1970, in source order.
-fn resolve(reader: &Reader) -> Result<Vec<(i64, i64)>> {
+fn resolve(reader: &Reader) -> Result<Vec<(i64, i64, i64)>> {
     let (format_line, format) = (&reader.date_format.0, reader.date_format.1.as_str());
     if !["YYYY", "MM", "DD"].iter().all(|t| format.contains(t)) {
         return Err(format!(
@@ -313,24 +313,33 @@ fn resolve(reader: &Reader) -> Result<Vec<(i64, i64)>> {
         let end = task.end.strip_prefix("until ");
         until.push(end.map(|list| indexes(task, list)).transpose()?);
     }
-    let finish = |task: &Task, start: i64| -> Result<i64> {
-        let Some(length) = parse_length(&task.end) else {
-            return Ok(date(task, &task.end)? + if reader.inclusive_end { DAY } else { 0 });
+    // The end as written, or the earliest `until` start, then moved as Mermaid's
+    // checkTaskDates moves it: unless the end is written as a YYYY-MM-DD date, each excluded
+    // day from the day after the start to the end, inclusive, pushes the end a day later.
+    // The bar stops at the end before the last run of excluded days pushed it.
+    let finish = |task: &Task, start: i64, until: Option<i64>| -> Result<(i64, i64)> {
+        let end = match (until, parse_length(&task.end)) {
+            (Some(end), _) => end,
+            (None, Some(Length::Fixed(length))) => start + length,
+            (None, Some(Length::Months(months))) => add_months(start, months),
+            (None, None) if written_iso(&task.end) => {
+                let end = date(task, &task.end)? + if reader.inclusive_end { DAY } else { 0 };
+                return Ok((end, end));
+            }
+            (None, None) => date(task, &task.end)? + if reader.inclusive_end { DAY } else { 0 },
         };
-        let end = match length {
-            Length::Fixed(length) => start + length,
-            Length::Months(months) => add_months(start, months),
-        };
-        // As Mermaid does: each excluded day from the day after the start to the end,
-        // inclusive, pushes the end a day later.
-        let (mut at, mut end) = (start + DAY, end);
+        let (mut at, mut end, mut drawn, mut skipped) = (start + DAY, end, end, false);
         while at <= end && end - start <= MAX_SPAN {
-            if excluded(at) {
+            if !skipped {
+                drawn = end;
+            }
+            skipped = excluded(at);
+            if skipped {
                 end += DAY;
             }
             at += DAY;
         }
-        Ok(end)
+        Ok((end, drawn))
     };
     let links = Links { after, until };
     let mut walk = Walk {
@@ -343,17 +352,31 @@ fn resolve(reader: &Reader) -> Result<Vec<(i64, i64)>> {
     Ok(walk.times.into_iter().flatten().collect())
 }
 
+/// Whether an end is written as a YYYY-MM-DD date, which Mermaid never moves for excluded days.
+fn written_iso(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    bytes.len() == 10
+        && bytes.iter().enumerate().all(|(index, &byte)| match index {
+            4 | 7 => byte == b'-',
+            _ => byte.is_ascii_digit(),
+        })
+        && parse_date("YYYY-MM-DD", text).is_some()
+}
+
 /// Each task's `after` and `until` tasks, by index.
 struct Links {
     after: Vec<Option<Vec<usize>>>,
     until: Vec<Option<Vec<usize>>>,
 }
 
-/// Times resolved so far, and the tasks being resolved now.
+/// Each task's start, end and drawn end, resolved so far, and the tasks being resolved now.
 struct Walk {
-    times: Vec<Option<(i64, i64)>>,
+    times: Vec<Option<(i64, i64, i64)>>,
     visiting: Vec<bool>,
 }
+
+/// A task's end and drawn end, from its start and the earliest start of its `until` tasks.
+type Finish<'a> = dyn Fn(&Task, i64, Option<i64>) -> Result<(i64, i64)> + 'a;
 
 /// Resolve task `index`, first resolving each task it refers to, so each task is resolved once.
 fn visit(
@@ -362,8 +385,8 @@ fn visit(
     links: &Links,
     walk: &mut Walk,
     date: &dyn Fn(&Task, &str) -> Result<i64>,
-    finish: &dyn Fn(&Task, i64) -> Result<i64>,
-) -> Result<(i64, i64)> {
+    finish: &Finish<'_>,
+) -> Result<(i64, i64, i64)> {
     if let Some(times) = walk.times[index] {
         return Ok(times);
     }
@@ -394,17 +417,18 @@ fn visit(
         }
         (Some(text), None) => date(task, text)?,
     };
-    let end = match &links.until[index] {
+    let until = match &links.until[index] {
         Some(list) => {
             let mut earliest = None;
             for &other in list {
                 let begin = times_of(other)?.0;
                 earliest = Some(earliest.map_or(begin, |at: i64| at.min(begin)));
             }
-            earliest.ok_or_else(|| format!("Line {}: until needs a task id", task.line))?
+            Some(earliest.ok_or_else(|| format!("Line {}: until needs a task id", task.line))?)
         }
-        None => finish(task, start)?,
+        None => None,
     };
+    let (end, drawn) = finish(task, start, until)?;
     if end < start {
         return Err(format!(
             "Line {}: the task ends before it starts",
@@ -417,11 +441,11 @@ fn visit(
             task.line
         ));
     }
-    walk.times[index] = Some((start, end));
-    Ok((start, end))
+    walk.times[index] = Some((start, end, drawn));
+    Ok((start, end, drawn))
 }
 
-fn draw(reader: &Reader, times: &[(i64, i64)], max_width: Option<usize>) -> Result<Frame> {
+fn draw(reader: &Reader, times: &[(i64, i64, i64)], max_width: Option<usize>) -> Result<Frame> {
     if max_width.is_some_and(|width| width < 3) {
         return Err("A Gantt chart needs a --max-width of at least 3 columns".into());
     }
@@ -458,7 +482,7 @@ fn draw(reader: &Reader, times: &[(i64, i64)], max_width: Option<usize>) -> Resu
         .iter()
         .zip(times)
         .filter(|(task, _)| task.tags.milestone)
-        .map(|(_, &(start, end))| (start + (end - start) / 2 - first) / step + 1)
+        .map(|(_, &(start, end, _))| (start + (end - start) / 2 - first) / step + 1)
         .max()
         .unwrap_or(0);
     let columns = ((span + step - 1) / step)
@@ -473,7 +497,7 @@ fn draw(reader: &Reader, times: &[(i64, i64)], max_width: Option<usize>) -> Resu
     let mut used = Tags::default();
     let mut plain = false;
     let mut section = None;
-    for (task, &(start, end)) in reader.tasks.iter().zip(times) {
+    for (task, &(start, end, drawn)) in reader.tasks.iter().zip(times) {
         if task.section != section {
             section = task.section;
             if let Some(index) = section {
@@ -501,7 +525,7 @@ fn draw(reader: &Reader, times: &[(i64, i64)], max_width: Option<usize>) -> Resu
                 b'='
             };
             let from = ((start - first) / step).min(columns - 1);
-            let to = ((end - first + step - 1) / step).clamp(from + 1, columns);
+            let to = ((drawn - first + step - 1) / step).clamp(from + 1, columns);
             bar[from as usize..to as usize].fill(mark);
         }
         used.milestone |= tags.milestone;

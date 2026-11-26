@@ -94,7 +94,8 @@ fn gantt_pushes_a_length_past_excluded_days() {
   A :2026-01-02, 2d
   B :1d",
     );
-    assert_eq!(included[..2], ["A ===", "B    ="]);
+    // The included Saturday counts; Sunday pushes the end to Monday, and the bar stops at Sunday.
+    assert_eq!(included[..2], ["A ==", "B    ="]);
     let friday = rows(
         "gantt
   weekend friday
@@ -304,9 +305,10 @@ fn gantt_reads_times_and_writes_every_axis_field() {
 
 #[test]
 fn gantt_walks_exclusions_from_the_day_after_the_start() {
-    // B starts on Saturday 3 January: only Sunday pushes its end, to Monday.
+    // B starts on Saturday 3 January: only Sunday pushes its end, to Monday; its bar stops at
+    // Sunday, before the day that pushed it.
     let saturday = rows("gantt\n  excludes weekends\n  A :2026-01-02, 2026-01-03\n  B :1d");
-    assert_eq!(saturday[..2], ["A =", "B  =="]);
+    assert_eq!(saturday[..2], ["A =", "B  ="]);
     // An excluded start date does not push the end.
     let excluded = rows("gantt\n  excludes 2026-01-05\n  A :2026-01-05, 2d");
     assert_eq!(excluded[0], "A ==");
@@ -365,4 +367,43 @@ fn gantt_resolves_each_task_once_however_long_its_lists() {
         gantt("gantt\n  A :a, 2026-01-01, 1d\n  B :after , 1d").unwrap_err(),
         "Line 3: 'after' is neither a date in the dateFormat YYYY-MM-DD nor a length in ms, s, m, h, d, w, M or y"
     );
+}
+
+#[test]
+fn gantt_places_tasks_as_mermaid_draws_them() {
+    // Each case was drawn by Mermaid 12.3.0 (mermaid-cli); the comments give its task times.
+    let iso = rows(
+        "gantt
+  excludes weekends
+  A :a, 2026-01-05, 5d
+  B :b, after a, 1d
+  C :c, 2026-01-02, 2026-01-05
+  D :d, after c, 1d
+  E :e, 2026-01-13, until f
+  F :f, 2026-01-17, 1d",
+    );
+    assert_eq!(
+        iso[..6],
+        [
+            // 5 to 12 January, drawn to Saturday 10: the bar stops before the weekend.
+            "A    =====",
+            // after a: Monday 12.
+            "B           =",
+            // An end written YYYY-MM-DD is kept: 2 to 5 January.
+            "C ===",
+            "D    =",
+            // until f moves past the weekend like a length, and is drawn to Saturday 17.
+            "E            ====",
+            "F                =",
+        ]
+    );
+    // Any other date format moves the end: 2 to 7 January, drawn to the 7th.
+    let other = rows(
+        "gantt
+  dateFormat DD/MM/YYYY
+  excludes weekends
+  A :a, 02/01/2026, 05/01/2026
+  B :b, after a, 1d",
+    );
+    assert_eq!(other[..2], ["A =====", "B      ="]);
 }
