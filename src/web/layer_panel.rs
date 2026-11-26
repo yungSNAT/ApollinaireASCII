@@ -163,6 +163,7 @@ fn change(app: &mut App, id: &str) -> Result<()> {
                     motion: Default::default(),
                     // Joining the chosen layer's group keeps the group together.
                     group: group.clone(),
+                    elements: Vec::new(),
                 },
             );
         }

@@ -560,6 +560,7 @@ mod tests {
                 locked: false,
                 motion: Default::default(),
                 group: None,
+                elements: Vec::new(),
             },
             crate::Layer {
                 name: "Front".into(),
@@ -568,6 +569,7 @@ mod tests {
                 locked: false,
                 motion: Default::default(),
                 group: None,
+                elements: Vec::new(),
             },
         ])
         .unwrap();

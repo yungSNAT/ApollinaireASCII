@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: MIT
 
 //! The editor's side of `apollinaire mcp --live`: its answers to the bridge's `read`, `write`
-//! and `batch` requests across any layer and timeline frame. Kept apart from the browser code so
-//! it is tested natively.
+//! and `batch` requests across any layer and timeline frame, and to its element requests
+//! (`elements`, `element_add`, `element_edit`, `element_delete`). Kept apart from the browser
+//! code so it is tested natively.
+use crate::elements::{self, Arrow, Edit, Element, Kind, Shape, Style};
 use crate::{Frame, Layered, MAX_INPUT_BYTES, Result, sha256};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -54,11 +56,11 @@ impl SignIn {
         }
     }
 
-    /// The initial JSON sign-in message advertising `expected_sha256` support.
+    /// The initial JSON sign-in message advertising `expected_sha256` and element support.
     pub fn initial_message(&self) -> String {
         json!({
             "token": self.code,
-            "capabilities": ["expected_sha256"],
+            "capabilities": ["expected_sha256", "elements"],
         })
         .to_string()
     }
@@ -141,6 +143,10 @@ pub fn answer(state: &State, request: &Value) -> (Value, Option<Layered>) {
         Some("read") => read(state, request).map(|result| (result, None)),
         Some("write") => write(state, request),
         Some("batch") => batch(state, request),
+        Some("elements") => list_elements(state, request).map(|result| (result, None)),
+        Some("element_add") => add_element(state, request),
+        Some("element_edit") => edit_element(state, request),
+        Some("element_delete") => delete_element(state, request),
         _ => Err("Unknown request".into()),
     };
     match outcome {
@@ -676,6 +682,352 @@ fn batch(state: &State, request: &Value) -> Result<(Value, Option<Layered>)> {
     Ok((result, applied.updated))
 }
 
+const ELEMENTS_KEYS: &[&str] = &["op", "id", "layer", "frame"];
+const ADD_KEYS: &[&str] = &[
+    "op", "id", "kind", "layer", "frame", "x", "y", "width", "height", "text", "style", "arrow",
+    "dry_run",
+];
+const EDIT_KEYS: &[&str] = &[
+    "op", "id", "element", "revision", "x", "y", "width", "height", "text", "style", "arrow",
+    "force", "dry_run",
+];
+const DELETE_KEYS: &[&str] = &["op", "id", "element", "revision", "force", "dry_run"];
+
+/// Names the element's layer, place, shape and the cells under its rectangle, so an edit based
+/// on an older list is refused once the element or its cells change.
+pub fn element_revision(layer: usize, layer_name: &str, element: &Element, art: &Frame) -> String {
+    let shape = element.shape();
+    let place = format!(
+        "{layer}:{}:{layer_name}:{}:{}:{},{}:{}x{}:{}:{}:{}:{}:",
+        layer_name.len(),
+        element.id(),
+        element.frame(),
+        element.x(),
+        element.y(),
+        shape.width,
+        shape.height,
+        shape.kind.name(),
+        shape.style.name(),
+        shape.arrow.name(),
+        shape.text.len(),
+    );
+    let width = art.width();
+    let cells = (0..shape.height).flat_map(|row| {
+        let at = (element.y() + row) * width + element.x();
+        art.cells()[at..at + shape.width].iter().copied()
+    });
+    // 64-bit FNV-1a, as frame revisions use.
+    let hash = place
+        .bytes()
+        .chain(shape.text.bytes())
+        .chain(cells)
+        .fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
+            (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+        });
+    format!("{hash:016x}")
+}
+
+fn parse_opt_str<'a>(request: &'a Value, key: &str) -> Result<Option<&'a str>> {
+    match request.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(text)) => Ok(Some(text)),
+        Some(_) => Err(format!("{key} must be a string")),
+    }
+}
+
+fn element_json(layer: usize, element: &Element, art: &Frame, layer_name: &str) -> Value {
+    let shape = element.shape();
+    let mut entry = json!({
+        "element": element.name(),
+        "layer": layer,
+        "frame": element.frame(),
+        "kind": shape.kind.name(),
+        "x": element.x(),
+        "y": element.y(),
+        "width": shape.width,
+        "height": shape.height,
+        "revision": element_revision(layer, layer_name, element, art),
+    });
+    if shape.kind != Kind::Text {
+        entry["style"] = json!(shape.style.name());
+    }
+    if shape.kind == Kind::Line {
+        entry["arrow"] = json!(shape.arrow.name());
+    }
+    if !shape.text.is_empty() {
+        entry["text"] = json!(shape.text);
+    }
+    entry
+}
+
+fn list_elements(state: &State, request: &Value) -> Result<Value> {
+    reject_unknown_keys(
+        request.as_object().expect("op matched on object"),
+        ELEMENTS_KEYS,
+    )?;
+    let layers = state.project.layers();
+    let frames = layers[0].art.frames().len();
+    let layer_arg = parse_opt_usize(request, "layer")?
+        .map(|index| resolve_index(Some(index), 0, layers.len(), "Layer"))
+        .transpose()?;
+    let frame_arg = parse_opt_usize(request, "frame")?
+        .map(|index| resolve_index(Some(index), 0, frames, "Frame"))
+        .transpose()?;
+    let mut found = Vec::new();
+    let mut work = 0usize;
+    for (index, layer) in layers.iter().enumerate() {
+        if layer_arg.is_some_and(|wanted| wanted != index) {
+            continue;
+        }
+        let mut on: Vec<usize> = layer.elements.iter().map(Element::frame).collect();
+        on.sort_unstable();
+        on.dedup();
+        for frame in on
+            .into_iter()
+            .filter(|&f| frame_arg.is_none_or(|wanted| wanted == f))
+        {
+            let art = &layer.art.frames()[frame].frame;
+            work += 2 * art.cells().len();
+            work += layer
+                .elements
+                .iter()
+                .filter(|e| e.frame() == frame)
+                .map(|e| 4 * e.shape().width * e.shape().height)
+                .sum::<usize>();
+            check_work_budget(work)?;
+            let drift: BTreeMap<u32, usize> = elements::drift(art, &layer.elements, frame)
+                .into_iter()
+                .collect();
+            for element in layer.elements.iter().filter(|e| e.frame() == frame) {
+                let mut entry = element_json(index, element, art, &layer.name);
+                entry["drifted"] = json!(drift[&element.id()]);
+                found.push(entry);
+            }
+        }
+    }
+    Ok(json!({
+        "elements": found,
+        "next_element": format!("e{}", state.project.next_element()),
+    }))
+}
+
+/// The layer and position in its list of the element `request["element"]` names.
+fn find_element(state: &State, request: &Value) -> Result<(usize, usize)> {
+    let name = request
+        .get("element")
+        .and_then(Value::as_str)
+        .ok_or("element must be an id like e1")?;
+    let id = elements::parse_id(name)?;
+    state
+        .project
+        .layers()
+        .iter()
+        .enumerate()
+        .find_map(|(layer, entry)| {
+            let index = entry.elements.iter().position(|e| e.id() == id)?;
+            Some((layer, index))
+        })
+        .ok_or_else(|| {
+            format!(
+                "No element {name}; live_elements lists the current ones (ids are never reused)"
+            )
+        })
+}
+
+/// The shape a request asks for, starting from `base` (an edit) or from nothing (an add).
+fn requested_shape(request: &Value, base: Option<&Shape>) -> Result<Shape> {
+    let kind = match (base, parse_opt_str(request, "kind")?) {
+        (Some(shape), _) => shape.kind,
+        (None, Some(kind)) => Kind::from_name(kind)?,
+        (None, None) => return Err("kind must be box, text or line".into()),
+    };
+    let text = match parse_opt_str(request, "text")? {
+        Some(text) => text.to_owned(),
+        None => base.map_or_else(String::new, |shape| shape.text.clone()),
+    };
+    let style = match parse_opt_str(request, "style")? {
+        Some(style) => Style::from_name(style)?,
+        None => base.map_or(Style::Plain, |shape| shape.style),
+    };
+    let arrow = match parse_opt_str(request, "arrow")? {
+        Some(arrow) => Arrow::from_name(arrow)?,
+        None => base.map_or(Arrow::None, |shape| shape.arrow),
+    };
+    let (width, height) = (
+        parse_opt_usize(request, "width")?,
+        parse_opt_usize(request, "height")?,
+    );
+    let (width, height) = match kind {
+        Kind::Text => {
+            if width.is_some() || height.is_some() {
+                return Err("A text element's size is its text's; omit width and height".into());
+            }
+            Frame::padded_dimensions(&text)?
+        }
+        Kind::Box => match (
+            width.or(base.map(|s| s.width)),
+            height.or(base.map(|s| s.height)),
+        ) {
+            (Some(width), Some(height)) => (width, height),
+            _ => return Err("A box needs width and height".into()),
+        },
+        Kind::Line => (
+            width.or(base.map(|s| s.width)).unwrap_or(1),
+            height.or(base.map(|s| s.height)).unwrap_or(1),
+        ),
+    };
+    let shape = Shape {
+        kind,
+        width,
+        height,
+        style,
+        arrow,
+        text,
+    };
+    shape.check()?;
+    Ok(shape)
+}
+
+/// Apply an element edit to frame `frame` of layer `layer` and give the reply and project.
+fn commit_element(
+    state: &State,
+    request: &Value,
+    (layer, frame): (usize, usize),
+    edit: Edit,
+    id: u32,
+) -> Result<(Value, Option<Layered>)> {
+    let dry_run = parse_bool(request, "dry_run")?;
+    let force = parse_bool(request, "force")?;
+    let layers = state.project.layers();
+    let entry = &layers[layer];
+    if entry.locked {
+        return Err(format!("Layer \"{}\" is locked", entry.name));
+    }
+    let project_cells =
+        layers.len() * entry.art.frames().len() * entry.art.width() * entry.art.height();
+    check_work_budget(2 * project_cells)?;
+    let art = &entry.art.frames()[frame].frame;
+    let (drawn, elements) = elements::apply(art, &entry.elements, frame, edit, force)?;
+    let changed = changed_cells(art, &drawn);
+    let next_gen = state.generation.wrapping_add(1);
+    let frame_rev = frame_revision(
+        next_gen,
+        layer,
+        &entry.name,
+        layers.len(),
+        frame,
+        entry.art.frames().len(),
+        &drawn,
+    );
+    let mut reply = json!({
+        "element": format!("e{id}"),
+        "layer": layer,
+        "frame": frame,
+        "frame_revision": frame_rev,
+        "changed": changed,
+    });
+    if let Some(element) = elements.iter().find(|e| e.id() == id) {
+        reply["revision"] = json!(element_revision(layer, &entry.name, element, &drawn));
+    }
+    let text = drawn.text();
+    let project = state.project.with_elements(layer, frame, drawn, elements)?;
+    if dry_run {
+        reply["dry_run"] = json!(true);
+        reply["text"] = json!(text);
+        return Ok((reply, None));
+    }
+    Ok((reply, Some(project)))
+}
+
+fn add_element(state: &State, request: &Value) -> Result<(Value, Option<Layered>)> {
+    reject_unknown_keys(request.as_object().expect("op matched on object"), ADD_KEYS)?;
+    let layers = state.project.layers();
+    let layer = resolve_index(
+        parse_opt_usize(request, "layer")?,
+        state.active,
+        layers.len(),
+        "Layer",
+    )?;
+    let frames = layers[0].art.frames().len();
+    let frame = resolve_index(
+        parse_opt_usize(request, "frame")?,
+        state.shown,
+        frames,
+        "Frame",
+    )?;
+    let at = match (
+        parse_opt_usize(request, "x")?,
+        parse_opt_usize(request, "y")?,
+    ) {
+        (Some(x), Some(y)) => (x, y),
+        _ => return Err("Give x and y, the element's top-left cell".into()),
+    };
+    let shape = requested_shape(request, None)?;
+    let id = state.project.next_element();
+    commit_element(
+        state,
+        request,
+        (layer, frame),
+        Edit::Add { id, at, shape },
+        id,
+    )
+}
+
+/// The element an edit or delete names, after its optional revision check.
+fn named_element<'a>(state: &'a State, request: &Value) -> Result<(usize, &'a Element)> {
+    let (layer, index) = find_element(state, request)?;
+    let entry = &state.project.layers()[layer];
+    let element = &entry.elements[index];
+    if let Some(given) = parse_opt_str(request, "revision")? {
+        let art = &entry.art.frames()[element.frame()].frame;
+        if given != element_revision(layer, &entry.name, element, art) {
+            return Err(format!(
+                "Element {} changed since it was listed: call live_elements again",
+                element.name()
+            ));
+        }
+    }
+    Ok((layer, element))
+}
+
+fn edit_element(state: &State, request: &Value) -> Result<(Value, Option<Layered>)> {
+    reject_unknown_keys(
+        request.as_object().expect("op matched on object"),
+        EDIT_KEYS,
+    )?;
+    if !["x", "y", "width", "height", "text", "style", "arrow"]
+        .iter()
+        .any(|key| request.get(key).is_some())
+    {
+        return Err("Give at least one of x, y, width, height, text, style and arrow".into());
+    }
+    let (layer, element) = named_element(state, request)?;
+    let at = (
+        parse_opt_usize(request, "x")?.unwrap_or(element.x()),
+        parse_opt_usize(request, "y")?.unwrap_or(element.y()),
+    );
+    let shape = requested_shape(request, Some(element.shape()))?;
+    let id = element.id();
+    let edit = Edit::Change { id, at, shape };
+    commit_element(state, request, (layer, element.frame()), edit, id)
+}
+
+fn delete_element(state: &State, request: &Value) -> Result<(Value, Option<Layered>)> {
+    reject_unknown_keys(
+        request.as_object().expect("op matched on object"),
+        DELETE_KEYS,
+    )?;
+    let (layer, element) = named_element(state, request)?;
+    let id = element.id();
+    commit_element(
+        state,
+        request,
+        (layer, element.frame()),
+        Edit::Delete { id },
+        id,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -704,6 +1056,7 @@ mod tests {
                 .unwrap(),
                 motion: Motion::default(),
                 group: None,
+                elements: Vec::new(),
             })
             .collect();
         Layered::new(built).unwrap()
@@ -1110,6 +1463,7 @@ mod tests {
                 art: art.clone(),
                 motion: Motion::default(),
                 group: None,
+                elements: Vec::new(),
             })
             .collect();
         let big = Layered::new(layers).unwrap();
@@ -1185,6 +1539,7 @@ mod tests {
                 art: slash_art.clone(),
                 motion: Motion::default(),
                 group: None,
+                elements: Vec::new(),
             })
             .collect();
         p_layers.push(Layer {
@@ -1194,6 +1549,7 @@ mod tests {
             art: space_art,
             motion: Motion::default(),
             group: None,
+            elements: Vec::new(),
         });
         let proj_near = Layered::new(p_layers).unwrap();
         let s_near = state(&proj_near, 13, 0, 1);
@@ -1351,7 +1707,10 @@ mod tests {
         let mut sign_in = SignIn::new(token.clone());
         let initial: Value = serde_json::from_str(&sign_in.initial_message()).unwrap();
         assert_eq!(initial["token"], token);
-        assert_eq!(initial["capabilities"], json!(["expected_sha256"]));
+        assert_eq!(
+            initial["capabilities"],
+            json!(["expected_sha256", "elements"])
+        );
         // Replaced connections never fall back.
         assert_eq!(sign_in.fallback_message(true), None);
         // Pre-greeting close falls back once, never a second time.

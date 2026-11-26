@@ -39,6 +39,14 @@ A property holds its first key's value before that key and its last key's value 
 
 Each shown cell takes the layer's character under the cell's centre once the layer is scaled about its anchor, turned and moved; cells the layer does not cover are spaces. Turning treats a row as twice as tall as a column is wide, as terminals and the editor draw them, so a turned square stays square. The line characters `-`, `\`, `|` and `/` turn with the layer in 45 degree steps, a turn halfway between 2 steps rounding away from zero; other characters keep their shape. A layer without keys is shown exactly as stored.
 
+A version 4 project is version 3 plus elements: named boxes, text blocks and lines that an agent draws through `mcp --live` and later moves, resizes, restyles, retexts or deletes by id. The frames already hold every element's characters, so drawing, flattening and every export ignore elements, and every reader of version 3 reads version 4 the same way. The top level holds `next_element`, the number of the next element's id; a layer may hold `elements`, listed in drawing order, later on top.
+
+```json
+{"format":"asciiforge","version":4,"width":6,"height":3,"loop":true,"next_element":3,"layers":[{"name":"Layer 1","visible":true,"elements":[{"id":"e2","frame":0,"kind":"box","x":0,"y":0,"width":6,"height":3,"style":"rounded","text":"db"}]}],"frames":[{"duration_ms":100,"layers":[".----.\n|db  |\n'----'"]}]}
+```
+
+Each element holds `id` (`e` and a number from 1, never used twice in a project and below `next_element`), `frame` (the zero-based timeline frame it is drawn on), `kind` (`box`, `text` or `line`), `x` and `y` (its top-left cell), and `width` and `height`; the element must lie inside the canvas on a frame the project has. A `box` is at least 2 by 2, with a `style` of `plain` (`+-|`), `rounded` (`.-'|`), `dotted` (`.:`) or `heavy` (`#=`) and optional `text` from its top-left inner cell, which must fit inside the border. A `text` element's size is its text's, rows padded with spaces. A `line` is 1 row high or 1 column wide, with a `style` of `plain` (`-` or `|`), `dotted` (`.` or `:`) or `heavy` (`=` or `#`) and an `arrow` of `none`, `start`, `end` or `both` (`<` and `>`, or `^` and `v`). `style` defaults to `plain` and `arrow` to `none`. `under`, written only when it holds anything but spaces, is the rectangle of characters the element covered when it was last drawn, in the element's size; moving or deleting the element puts it back. `Layered::to_json` writes version 4 once a project has held an element, even after its last element is deleted, so its ids are not given out again. Versions 1 to 3 refuse `elements` and `next_element`.
+
 | Limit | Maximum |
 | --- | --- |
 | Canvas | 512 columns by 256 rows |
@@ -47,6 +55,7 @@ Each shown cell takes the layer's character under the cell's centre once the lay
 | Layers | 16 |
 | Layer name | 1 to 32 printable ASCII characters |
 | Group name | 1 to 32 printable ASCII characters |
+| Elements | 4,096 in a project |
 | Frame duration | 10 to 60,000 ms |
 | Project duration | One hour |
 | Effect duration | 100 to 60,000 ms at 1 to 60 FPS |

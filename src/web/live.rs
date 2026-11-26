@@ -133,10 +133,12 @@ pub(super) fn handle(app: &mut App, request: &serde_json::Value) -> Result<serde
         input("width")?.set_value(&app.project().width().to_string());
         input("height")?.set_value(&app.project().height().to_string());
         app.display(true)?;
-        let note = if request["op"].as_str() == Some("batch") {
-            "The agent changed the project. Undo reverts it."
-        } else {
-            "The agent changed a frame. Undo reverts it."
+        let note = match request["op"].as_str() {
+            Some("batch") => "The agent changed the project. Undo reverts it.",
+            Some(op) if op.starts_with("element_") => {
+                "The agent changed an element. Undo reverts it."
+            }
+            _ => "The agent changed a frame. Undo reverts it.",
         };
         status(note, false);
     } else if was_playing {

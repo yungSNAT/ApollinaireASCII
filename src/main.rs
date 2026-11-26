@@ -502,9 +502,10 @@ enum Command {
     },
     /// Serve the artwork commands to AI agents as Model Context Protocol tools over stdio.
     Mcp {
-        /// Add live_connect, live_read, live_write and live_batch, which reach the project open in
-        /// the browser editor over a WebSocket on 127.0.0.1, once the user enters the port and
-        /// token there.
+        /// Add live_connect, live_read, live_write, live_batch and the element tools
+        /// (live_elements, live_element_add, live_element_edit, live_element_delete), which reach
+        /// the project open in the browser editor over a WebSocket on 127.0.0.1, once the user
+        /// enters the port and token there.
         #[arg(long)]
         live: bool,
     },

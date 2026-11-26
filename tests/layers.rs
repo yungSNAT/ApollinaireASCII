@@ -26,6 +26,7 @@ fn layer(name: &str, visible: bool, texts: &[&str]) -> Layer {
         art: art(texts, true),
         motion: Motion::default(),
         group: None,
+        elements: Vec::new(),
     }
 }
 /// Sky stays still while the bird moves across it; a hidden layer covers everything.
@@ -141,6 +142,7 @@ fn layers_must_share_one_timeline_a_limit_and_valid_names() {
         .unwrap(),
         motion: Motion::default(),
         group: None,
+        elements: Vec::new(),
     };
     // 16 layers of 4 frames of 131,072 cells is 8,388,608 cells.
     assert!(
@@ -441,6 +443,7 @@ fn narrow(frames: usize, spaces: usize) -> Result<Layered, String> {
                 .unwrap(),
                 motion: Motion::default(),
                 group: None,
+                elements: Vec::new(),
             })
             .collect(),
     )
@@ -509,6 +512,7 @@ fn the_project_json_fuzz_seeds_load_and_round_trip_with_and_without_layers_and_k
             ("version-3-curve-digits.json".to_owned(), 2),
             ("version-3-groups.json".to_owned(), 4),
             ("version-3-keyframes.json".to_owned(), 2),
+            ("version-4-elements.json".to_owned(), 2),
         ]
     );
 }

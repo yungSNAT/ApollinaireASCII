@@ -144,6 +144,12 @@ pub fn capable_editor(port: u16, token: &str) -> WebSocket<TcpStream> {
     sign_in(port, &handshake)
 }
 
+/// An editor signing in as the browser editor does, with every capability it has.
+pub fn current_editor(port: u16, token: &str) -> WebSocket<TcpStream> {
+    let handshake = apollinaire_ascii::live_edit::SignIn::new(token).initial_message();
+    sign_in(port, &handshake)
+}
+
 fn sign_in(port: u16, message: &str) -> WebSocket<TcpStream> {
     let mut socket = open(port, Some(EDITOR), None).unwrap();
     socket.send(Message::text(message)).unwrap();

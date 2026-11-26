@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 //! Validate while deserialising, before an untrusted JSON tree can grow.
+use crate::elements::{self, Arrow, Element, Kind, MAX_ELEMENTS, Shape, Style};
 use crate::layers::{Layer, Layered, MAX_LAYERS};
 use crate::motion::{Easing, Key, Motion, Property};
 use crate::{Animation, Frame, MAX_FRAMES, MAX_PROJECT_CELLS, Result, TimedFrame, dimensions};
@@ -15,8 +16,16 @@ pub(crate) fn parse(input: &str) -> Result<Layered> {
 }
 
 const FIELDS: &[&str] = &[
-    "format", "version", "width", "height", "loop", "layers", "frames",
+    "format",
+    "version",
+    "width",
+    "height",
+    "loop",
+    "layers",
+    "frames",
+    "next_element",
 ];
+const LAYER_FIELDS: &[&str] = &["name", "visible", "locked", "motion", "group", "elements"];
 
 struct Project(Layered);
 impl<'de> Deserialize<'de> for Project {
@@ -25,7 +34,7 @@ impl<'de> Deserialize<'de> for Project {
         impl<'de> Visitor<'de> for ProjectVisitor {
             type Value = Project;
             fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                f.write_str("an asciiforge version 1, 2 or 3 project")
+                f.write_str("an asciiforge version 1, 2, 3 or 4 project")
             }
             fn visit_map<M: MapAccess<'de>>(
                 self,
@@ -34,6 +43,7 @@ impl<'de> Deserialize<'de> for Project {
                 let (mut format, mut version, mut width, mut height, mut looping) =
                     (None, None, None, None, None);
                 let (mut layers, mut frames): (Option<Few<Meta>>, _) = (None, None);
+                let mut next_element: Option<u32> = None;
                 while let Some(key) = map.next_key::<String>()? {
                     match key.as_str() {
                         "format" => field(&mut format, &mut map, "format")?,
@@ -43,16 +53,28 @@ impl<'de> Deserialize<'de> for Project {
                         "loop" => field(&mut looping, &mut map, "loop")?,
                         "layers" => field(&mut layers, &mut map, "layers")?,
                         "frames" => field(&mut frames, &mut map, "frames")?,
+                        "next_element" => field(&mut next_element, &mut map, "next_element")?,
                         _ => return Err(de::Error::unknown_field(&key, FIELDS)),
                     }
                 }
                 let version = required::<u32, M::Error>(version, "version")?;
                 if required::<String, M::Error>(format, "format")? != "asciiforge"
-                    || !(1..=3).contains(&version)
+                    || !(1..=4).contains(&version)
                 {
                     return Err(de::Error::custom(
-                        "Expected asciiforge project version 1, 2 or 3",
+                        "Expected asciiforge project version 1, 2, 3 or 4",
                     ));
+                }
+                // Version 4 is version 3 plus elements and the next element's id.
+                match (version, next_element) {
+                    (4, None) => return Err(de::Error::missing_field("next_element")),
+                    (1..=3, Some(_)) => {
+                        return Err(de::Error::unknown_field(
+                            "next_element",
+                            &FIELDS[..FIELDS.len() - 1],
+                        ));
+                    }
+                    _ => {}
                 }
                 let width = required::<usize, M::Error>(width, "width")?;
                 let height = required::<usize, M::Error>(height, "height")?;
@@ -76,6 +98,14 @@ impl<'de> Deserialize<'de> for Project {
                         return Err(de::Error::unknown_field(
                             "motion",
                             &["name", "visible", "locked", "group"],
+                        ));
+                    }
+                    (2 | 3, Some(Few(names)))
+                        if names.iter().any(|meta| meta.elements.is_some()) =>
+                    {
+                        return Err(de::Error::unknown_field(
+                            "elements",
+                            &LAYER_FIELDS[..LAYER_FIELDS.len() - 1],
                         ));
                     }
                     (_, Some(Few(names))) => Some(names),
@@ -119,10 +149,20 @@ impl<'de> Deserialize<'de> for Project {
                                 art,
                                 motion: meta.motion.unwrap_or_default(),
                                 group: meta.group,
+                                elements: meta.elements.map_or_else(Vec::new, |list| list.0),
                             })
                             .collect(),
                     ),
                 }
+                .and_then(|mut project| {
+                    if let Some(next) = next_element {
+                        if next < project.next_element() {
+                            return Err("next_element must be above every element id".into());
+                        }
+                        project.raise_next_element(next);
+                    }
+                    Ok(project)
+                })
                 .map(Project)
                 .map_err(de::Error::custom)
             }
@@ -280,6 +320,7 @@ struct Meta {
     locked: Option<bool>,
     motion: Option<Motion>,
     group: Option<String>,
+    elements: Option<Elements>,
 }
 impl<'de> Deserialize<'de> for Meta {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
@@ -293,8 +334,8 @@ impl<'de> Deserialize<'de> for Meta {
                 self,
                 mut map: M,
             ) -> std::result::Result<Meta, M::Error> {
-                let (mut name, mut visible, mut locked, mut motion, mut group) =
-                    (None, None, None, None, None);
+                let (mut name, mut visible, mut locked, mut motion, mut group, mut elements) =
+                    (None, None, None, None, None, None);
                 while let Some(key) = map.next_key::<String>()? {
                     match key.as_str() {
                         "name" => field(&mut name, &mut map, "name")?,
@@ -302,12 +343,8 @@ impl<'de> Deserialize<'de> for Meta {
                         "locked" => field(&mut locked, &mut map, "locked")?,
                         "motion" => field(&mut motion, &mut map, "motion")?,
                         "group" => field(&mut group, &mut map, "group")?,
-                        _ => {
-                            return Err(de::Error::unknown_field(
-                                &key,
-                                &["name", "visible", "locked", "motion", "group"],
-                            ));
-                        }
+                        "elements" => field(&mut elements, &mut map, "elements")?,
+                        _ => return Err(de::Error::unknown_field(&key, LAYER_FIELDS)),
                     }
                 }
                 Ok(Meta {
@@ -316,10 +353,109 @@ impl<'de> Deserialize<'de> for Meta {
                     locked,
                     motion: motion.map(|Tracks(motion)| motion),
                     group,
+                    elements,
                 })
             }
         }
         deserializer.deserialize_map(MetaVisitor)
+    }
+}
+
+/// A layer's `elements`: at most [`MAX_ELEMENTS`], each checked as it is read;
+/// [`Layered::new`] checks ids and places across the project.
+struct Elements(Vec<Element>);
+impl<'de> Deserialize<'de> for Elements {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+        struct ElementsVisitor;
+        impl<'de> Visitor<'de> for ElementsVisitor {
+            type Value = Elements;
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "at most {MAX_ELEMENTS} elements")
+            }
+            fn visit_seq<S: SeqAccess<'de>>(
+                self,
+                mut sequence: S,
+            ) -> std::result::Result<Elements, S::Error> {
+                let mut items = Vec::new();
+                while let Some(ParsedElement(element)) = sequence.next_element()? {
+                    if items.len() == MAX_ELEMENTS {
+                        return Err(de::Error::custom("Too many elements"));
+                    }
+                    items.push(element);
+                }
+                Ok(Elements(items))
+            }
+        }
+        deserializer.deserialize_seq(ElementsVisitor)
+    }
+}
+
+const ELEMENT_FIELDS: &[&str] = &[
+    "id", "frame", "kind", "x", "y", "width", "height", "style", "arrow", "text", "under",
+];
+
+/// One element: `id`, `frame`, `kind`, `x`, `y`, `width` and `height`, and optional `style`
+/// (default plain), `arrow` (default none), `text` and `under` (default spaces).
+struct ParsedElement(Element);
+impl<'de> Deserialize<'de> for ParsedElement {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+        struct ElementVisitor;
+        impl<'de> Visitor<'de> for ElementVisitor {
+            type Value = ParsedElement;
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("an element with id, frame, kind, x, y, width and height")
+            }
+            fn visit_map<M: MapAccess<'de>>(
+                self,
+                mut map: M,
+            ) -> std::result::Result<ParsedElement, M::Error> {
+                let (mut id, mut frame, mut kind, mut style, mut arrow, mut text) = (
+                    None::<String>,
+                    None,
+                    None::<String>,
+                    None::<String>,
+                    None::<String>,
+                    None,
+                );
+                let (mut x, mut y, mut width, mut height, mut under) =
+                    (None, None, None, None, None::<Text>);
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "id" => field(&mut id, &mut map, "id")?,
+                        "frame" => field(&mut frame, &mut map, "frame")?,
+                        "kind" => field(&mut kind, &mut map, "kind")?,
+                        "x" => field(&mut x, &mut map, "x")?,
+                        "y" => field(&mut y, &mut map, "y")?,
+                        "width" => field(&mut width, &mut map, "width")?,
+                        "height" => field(&mut height, &mut map, "height")?,
+                        "style" => field(&mut style, &mut map, "style")?,
+                        "arrow" => field(&mut arrow, &mut map, "arrow")?,
+                        "text" => field(&mut text, &mut map, "text")?,
+                        "under" => field(&mut under, &mut map, "under")?,
+                        _ => return Err(de::Error::unknown_field(&key, ELEMENT_FIELDS)),
+                    }
+                }
+                let id = elements::parse_id(&required::<String, M::Error>(id, "id")?)
+                    .map_err(de::Error::custom)?;
+                let shape = Shape {
+                    kind: Kind::from_name(&required::<String, M::Error>(kind, "kind")?)
+                        .map_err(de::Error::custom)?,
+                    width: required(width, "width")?,
+                    height: required(height, "height")?,
+                    style: Style::from_name(style.as_deref().unwrap_or("plain"))
+                        .map_err(de::Error::custom)?,
+                    arrow: Arrow::from_name(arrow.as_deref().unwrap_or("none"))
+                        .map_err(de::Error::custom)?,
+                    text: text.unwrap_or_default(),
+                };
+                let at = (required(x, "x")?, required(y, "y")?);
+                let frame = required(frame, "frame")?;
+                Element::parsed(id, frame, at, shape, under.map(|Text(frame)| frame))
+                    .map(ParsedElement)
+                    .map_err(de::Error::custom)
+            }
+        }
+        deserializer.deserialize_map(ElementVisitor)
     }
 }
 

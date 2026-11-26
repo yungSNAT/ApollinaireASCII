@@ -222,6 +222,13 @@ impl App {
                 // A lone layer may change its frame count; keys past the end go.
                 let mut motion = layer.motion.clone();
                 motion.remap(|frame| (frame < count).then_some(frame));
+                // So may its size: an element no longer inside it leaves its cells as drawn.
+                let elements = layer
+                    .elements
+                    .iter()
+                    .filter(|element| element.fits(art.width(), art.height(), count))
+                    .cloned()
+                    .collect();
                 Ok(Layer {
                     name: layer.name.clone(),
                     visible: layer.visible,
@@ -229,6 +236,7 @@ impl App {
                     art,
                     motion,
                     group: layer.group.clone(),
+                    elements,
                 })
             })
             .collect::<Result<Vec<_>>>()?;
@@ -243,8 +251,10 @@ impl App {
         Ok(())
     }
     /// Make `layers` the project with layer `active` chosen, keeping the old one for undo.
-    fn replace_layers(&mut self, layers: Layered, active: usize) {
+    fn replace_layers(&mut self, mut layers: Layered, active: usize) {
         self.pause();
+        // An element id given out once is never given again, whatever the new project held.
+        layers.raise_next_element(self.layers.next_element());
         self.project_generation = self.project_generation.wrapping_add(1);
         let active = active.min(layers.layers().len() - 1);
         self.undo.push(Snapshot {
@@ -897,8 +907,10 @@ fn action(id: &str) -> Result<()> {
                     app.redo.pop()
                 }
                 .ok_or("No history is available")?;
+                let mut layers = previous.layers;
+                layers.raise_next_element(app.layers.next_element());
                 let current = Snapshot {
-                    layers: std::mem::replace(&mut app.layers, previous.layers),
+                    layers: std::mem::replace(&mut app.layers, layers),
                     active: std::mem::replace(&mut app.active, previous.active),
                     selected: app.selected,
                     frame_range: app.frame_range.clone(),
