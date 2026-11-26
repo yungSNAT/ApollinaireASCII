@@ -1,0 +1,11 @@
+Root                         
+|-- I am a square            
+|   |-- I am a rounded square
+|   `-- I am a circle        
+|-- I am a bang              
+|-- I am a cloud             
+|-- I am a hexagon           
+|-- Quoted [text] & more     
+`-- Two                      
+    lines                    
+    here                     
