@@ -450,3 +450,64 @@ fn git_graph_refuses_text_too_tall_to_draw_before_wrapping_it() {
         "Line 2: a branch name is expected"
     );
 }
+
+#[test]
+fn git_graph_bounds_inputs_counts_and_total_height() {
+    assert_eq!(
+        git_graph(&"x".repeat((16 << 20) + 1)).unwrap_err(),
+        "The Git graph exceeds the 16 MiB input limit"
+    );
+    assert_eq!(
+        git_graph("%% comment").unwrap_err(),
+        "A Git graph starts with gitGraph"
+    );
+    assert_eq!(
+        git_graph(&format!("gitGraph\n{}", "commit\n".repeat(257))).unwrap_err(),
+        "Line 258: a Git graph has at most 256 commits"
+    );
+    let branches: String = (1..=170).map(|n| format!("branch b{n}\n")).collect();
+    assert_eq!(
+        git_graph(&format!("gitGraph\n{branches}")).unwrap_err(),
+        "Line 171: a Git graph has at most 170 branches"
+    );
+    assert_eq!(
+        git_graph(&format!("gitGraph\n{}", "commit\n".repeat(256))).unwrap_err(),
+        "The Git graph needs 258 rows; a drawing has at most 256"
+    );
+    let mut source = String::from("gitGraph\n");
+    for i in 0..10 {
+        source.push_str(&format!("commit id: \"{i}{}\"\n", "x".repeat(200)));
+    }
+    assert_eq!(
+        mermaid_with_max_width(&source, 7).unwrap_err(),
+        "The Git graph needs more than 256 rows; a drawing has at most 256"
+    );
+}
+
+#[test]
+fn git_graph_skips_other_directives_comments_and_messages_and_refuses_invalid_operations() {
+    let drawing = rows("%%{init: {'theme': 'base'}}%%\ngitGraph\ncommit \"message\" %% comment");
+    assert_eq!(drawing, rows("gitGraph\ncommit"));
+    assert_eq!(
+        git_graph("gitGraph\ncheckout main extra").unwrap_err(),
+        "Line 2: checkout takes only a branch name"
+    );
+    assert!(
+        git_graph("gitGraph\nbranch empty\ncheckout main\ncommit\nmerge empty")
+            .unwrap_err()
+            .contains("branch empty has no commits to merge")
+    );
+}
+
+#[test]
+fn git_graph_routes_a_delayed_child_to_a_lane_on_the_left() {
+    let drawing = rows(
+        "gitGraph\ncommit\nbranch left\nbranch right\ncommit id: \"marker\"\nbranch child order: 0\ncheckout right\ncommit\ncheckout child\ncommit",
+    );
+    assert!(
+        drawing
+            .iter()
+            .any(|line| line.contains('<') && line.contains("marker")),
+        "{drawing:?}"
+    );
+}
