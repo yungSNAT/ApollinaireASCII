@@ -90,6 +90,7 @@ For unreleased changes on `master`, use `cargo install --locked --git https://gi
 From v0.4.0, each archive holds shell completions in `completions/` and a manual page in `man/`, and the release attaches:
 
 - `apollinaire_<version>_amd64.deb` and `_arm64.deb`, which install the command, manual page and bash, zsh and fish completions: `sudo apt install ./apollinaire_<version>_amd64.deb`.
+- From the release after v0.4.2, `apollinaire-<version>-1.x86_64.rpm` and `.aarch64.rpm`, which install the same files on Fedora, RHEL and openSUSE: `sudo dnf install ./apollinaire-<version>-1.x86_64.rpm`.
 - A Scoop manifest: `scoop install https://github.com/yungSNAT/ApollinaireASCII/releases/latest/download/apollinaire.json`.
 - A Homebrew formula, `apollinaire.rb`. Its copy in `Formula/` makes this repository a tap: `brew tap yungsnat/apollinaire https://github.com/yungSNAT/ApollinaireASCII`, then `brew install yungsnat/apollinaire/apollinaire`.
 

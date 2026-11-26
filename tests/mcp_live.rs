@@ -8,12 +8,21 @@
 mod live;
 
 use apollinaire_ascii::live_edit::SignIn;
-use live::{EDITOR, Session, answer, capable_editor, closed, editor, open};
+use live::{EDITOR, Session, answer, capable_editor, closed, current_editor, editor, open};
 use serde_json::{Value, json};
 use std::thread;
 use tungstenite::Message;
 
-const LIVE: [&str; 4] = ["live_connect", "live_read", "live_write", "live_batch"];
+const LIVE: [&str; 8] = [
+    "live_connect",
+    "live_read",
+    "live_write",
+    "live_batch",
+    "live_elements",
+    "live_element_add",
+    "live_element_edit",
+    "live_element_delete",
+];
 
 #[test]
 fn only_live_mode_lists_the_live_tools() {
@@ -552,4 +561,67 @@ fn live_batch_validates_enforces_sha256_capability_and_forwards() {
     assert_eq!(req["op"], "batch");
     assert_eq!(req["dry_run"], json!(true));
     assert_eq!(req["writes"][0]["expected_sha256"], json!("a".repeat(64)));
+}
+
+#[test]
+fn element_tools_check_their_arguments_need_an_editor_that_keeps_elements_and_forward() {
+    let mut session = Session::start(&["mcp", "--live"]);
+    for (tool, args) in [
+        ("live_elements", json!({"kind": "box"})),
+        (
+            "live_element_add",
+            json!({"kind": "box", "x": 0, "y": 0, "force": true}),
+        ),
+        (
+            "live_element_edit",
+            json!({"element": "e1", "kind": "line"}),
+        ),
+        ("live_element_delete", json!({"element": "e1", "x": 1})),
+    ] {
+        let (text, failed) = session.call(tool, args);
+        assert!(failed, "{tool}: {text}");
+        assert!(text.starts_with("Unknown argument"), "{tool}: {text}");
+    }
+
+    // An editor from before elements is refused before anything is sent to it.
+    let (port, token) = session.connect();
+    let mut older = capable_editor(port, &token);
+    let (text, failed) = session.call("live_elements", json!({}));
+    assert!(failed, "{text}");
+    assert!(text.contains("does not support elements"), "{text}");
+
+    let mut current = current_editor(port, &token);
+    assert!(closed(&mut older));
+    let browser = thread::spawn(move || {
+        let added = answer(
+            &mut current,
+            json!({"result": {"element": "e1", "layer": 0, "frame": 0, "revision": "00aa", "frame_revision": "00bb", "changed": 6}}),
+        );
+        let refused = answer(
+            &mut current,
+            json!({"error": "Element e1 was changed by hand in 2 cells; pass force: true to redraw over them"}),
+        );
+        (added, refused)
+    });
+    let (text, failed) = session.call(
+        "live_element_add",
+        json!({"kind": "box", "x": 1, "y": 2, "width": 3, "height": 2, "style": "heavy"}),
+    );
+    assert!(!failed, "{text}");
+    assert!(text.contains("\"element\":\"e1\""), "{text}");
+    let (text, failed) = session.call("live_element_delete", json!({"element": "e1"}));
+    assert!(failed, "{text}");
+    assert!(text.contains("force: true"), "{text}");
+    let (added, refused) = browser.join().unwrap();
+    assert_eq!(added["op"], "element_add");
+    assert_eq!(
+        (
+            added["kind"].clone(),
+            added["width"].clone(),
+            added["style"].clone()
+        ),
+        (json!("box"), json!(3), json!("heavy"))
+    );
+    assert_eq!(refused["op"], "element_delete");
+    assert_eq!(refused["element"], "e1");
 }

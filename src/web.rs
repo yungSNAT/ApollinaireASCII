@@ -46,6 +46,9 @@ struct App {
     redo: Vec<Snapshot>,
     /// Per-session project generation, randomly seeded and never restored across undo/redo.
     project_generation: u64,
+    /// Which project is open: a new one for each file, picture or recovery opened, so element
+    /// ids carry over undo and redo of one project and never into another.
+    lineage: u64,
     drawing: draw::Drawing,
     camera: Option<media::Camera>,
     recovery: recovery::Recovery,
@@ -53,6 +56,7 @@ struct App {
 }
 struct Snapshot {
     layers: Layered,
+    lineage: u64,
     active: usize,
     selected: usize,
     frame_range: Range<usize>,
@@ -222,6 +226,13 @@ impl App {
                 // A lone layer may change its frame count; keys past the end go.
                 let mut motion = layer.motion.clone();
                 motion.remap(|frame| (frame < count).then_some(frame));
+                // So may its size: an element no longer inside it leaves its cells as drawn.
+                let elements = layer
+                    .elements
+                    .iter()
+                    .filter(|element| element.fits(art.width(), art.height(), count))
+                    .cloned()
+                    .collect();
                 Ok(Layer {
                     name: layer.name.clone(),
                     visible: layer.visible,
@@ -229,10 +240,11 @@ impl App {
                     art,
                     motion,
                     group: layer.group.clone(),
+                    elements,
                 })
             })
             .collect::<Result<Vec<_>>>()?;
-        self.replace_layers(Layered::new(layers)?, self.active);
+        self.replace_layers(self.rebuilt(layers)?, self.active);
         Ok(())
     }
     /// Change every layer's frames alike, as adding, duplicating, deleting or moving frames do.
@@ -242,13 +254,15 @@ impl App {
         self.replace_layers(layers, self.active);
         Ok(())
     }
-    /// Make `layers` the project with layer `active` chosen, keeping the old one for undo.
+    /// Make `layers`, an edit of the open project, the project with layer `active` chosen,
+    /// keeping the old one for undo.
     fn replace_layers(&mut self, layers: Layered, active: usize) {
         self.pause();
         self.project_generation = self.project_generation.wrapping_add(1);
         let active = active.min(layers.layers().len() - 1);
         self.undo.push(Snapshot {
             layers: std::mem::replace(&mut self.layers, layers),
+            lineage: self.lineage,
             active: std::mem::replace(&mut self.active, active),
             selected: self.selected,
             frame_range: self.frame_range.clone(),
@@ -263,6 +277,17 @@ impl App {
         self.modified = true;
         self.recovery.changed();
     }
+    /// Open `layers` as another project: undo returns to the one open before.
+    fn open_layers(&mut self, layers: Layered, active: usize) {
+        self.replace_layers(layers, active);
+        self.lineage = self.lineage.wrapping_add(1);
+    }
+    /// The open project rebuilt from `layers`, keeping the id its next element gets.
+    fn rebuilt(&self, layers: Vec<Layer>) -> Result<Layered> {
+        let mut project = Layered::new(layers)?;
+        project.raise_next_element(self.layers.next_element());
+        Ok(project)
+    }
     fn limit_history(&mut self) {
         while self.undo.len() + self.redo.len() > 100
             || self
@@ -272,6 +297,7 @@ impl App {
                 .map(|s| {
                     let art = &s.layers.layers()[0].art;
                     s.layers.layers().len() * art.width() * art.height() * art.frames().len()
+                        + s.layers.element_cells()
                 })
                 .sum::<usize>()
                 > 16_000_000
@@ -434,6 +460,7 @@ pub fn start() -> std::result::Result<(), JsValue> {
             undo: vec![],
             redo: vec![],
             project_generation,
+            lineage: 0,
             drawing: draw::Drawing::default(),
             camera: None,
             recovery: recovery::Recovery::default(),
@@ -897,8 +924,14 @@ fn action(id: &str) -> Result<()> {
                     app.redo.pop()
                 }
                 .ok_or("No history is available")?;
+                let mut layers = previous.layers;
+                // Within one project, an id given out and undone is not given out again.
+                if previous.lineage == app.lineage {
+                    layers.raise_next_element(app.layers.next_element());
+                }
                 let current = Snapshot {
-                    layers: std::mem::replace(&mut app.layers, previous.layers),
+                    layers: std::mem::replace(&mut app.layers, layers),
+                    lineage: std::mem::replace(&mut app.lineage, previous.lineage),
                     active: std::mem::replace(&mut app.active, previous.active),
                     selected: app.selected,
                     frame_range: app.frame_range.clone(),
@@ -1235,7 +1268,7 @@ fn begin_file(id: &'static str) {
                         decode_media_as(&bytes, &options.render, options.glyphs)?
                     };
                     // Opening a file or picture replaces every layer.
-                    app.replace_layers(Layered::single(art), 0);
+                    app.open_layers(Layered::single(art), 0);
                 } else {
                     let name = file.name();
                     let project = if checked("open-bin")? {
@@ -1257,7 +1290,7 @@ fn begin_file(id: &'static str) {
                             )?))
                         }
                     };
-                    app.replace_layers(project, 0);
+                    app.open_layers(project, 0);
                 }
                 app.seek(0);
                 input("width")?.set_value(&app.project().width().to_string());

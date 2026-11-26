@@ -8,14 +8,15 @@
 //! let sky = Animation::still(Frame::from_text("* *")?);
 //! let bird = Animation::still(Frame::from_text(" v ")?);
 //! let project = Layered::new(vec![
-//!     Layer { name: "Sky".into(), visible: true, locked: false, art: sky, motion: Default::default(), group: None },
-//!     Layer { name: "Bird".into(), visible: true, locked: false, art: bird, motion: Default::default(), group: None },
+//!     Layer { name: "Sky".into(), visible: true, locked: false, art: sky, motion: Default::default(), group: None, elements: Vec::new() },
+//!     Layer { name: "Bird".into(), visible: true, locked: false, art: bird, motion: Default::default(), group: None, elements: Vec::new() },
 //! ])?;
 //! assert_eq!(project.flatten().frames()[0].frame.text(), "*v*");
 //! assert_eq!(Layered::from_json(&project.to_json())?, project);
 //! # Ok::<(), String>(())
 //! ```
 
+use crate::elements::{Element, Kind, MAX_ELEMENT_CELLS, MAX_ELEMENTS, Shape};
 use crate::motion::{Motion, Property};
 use crate::{Animation, Frame, MAX_INPUT_BYTES, MAX_PROJECT_CELLS, Result, TimedFrame};
 use serde_json::{Map, Value, json};
@@ -39,6 +40,9 @@ pub struct Layer {
     /// A group is a label: the layers in one are next to each other in the list, and the
     /// browser editor shows, hides, locks, moves and deletes them together. Drawing ignores it.
     pub group: Option<String>,
+    /// Named boxes, text blocks and lines drawn into its frames, in drawing order; see
+    /// [`elements`](crate::elements). Empty for none.
+    pub elements: Vec<Element>,
 }
 
 impl Layer {
@@ -57,6 +61,8 @@ impl Layer {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Layered {
     layers: Vec<Layer>,
+    /// The id the next element gets; ids are never given out twice.
+    next_element: u32,
 }
 
 impl Layered {
@@ -118,7 +124,36 @@ impl Layered {
         {
             return Err("Project exceeds 8,000,000 cells".into());
         }
-        Ok(Self { layers })
+        let next_element = check_elements(&layers)?;
+        Ok(Self {
+            layers,
+            next_element,
+        })
+    }
+    /// The id the next element gets: above every id the project has held.
+    pub fn next_element(&self) -> u32 {
+        self.next_element
+    }
+    /// Keep the next element's id at least `id`, so an id given out before (in a project
+    /// this one was rebuilt from, or one undone) is not given out again.
+    pub fn raise_next_element(&mut self, id: u32) {
+        self.next_element = self.next_element.max(id);
+    }
+    /// This project with one frame of one layer and that layer's elements replaced, as an
+    /// element edit leaves them.
+    pub(crate) fn with_elements(
+        &self,
+        layer: usize,
+        frame: usize,
+        art: Frame,
+        elements: Vec<Element>,
+    ) -> Result<Self> {
+        let mut layers = self.layers.clone();
+        layers[layer].art.swap_frame(frame, art);
+        layers[layer].elements = elements;
+        let mut project = Self::new(layers)?;
+        project.raise_next_element(self.next_element);
+        Ok(project)
     }
     pub(crate) fn fits(&self) -> Result<()> {
         // The bound is cheap and close; only a project near the limit is serialised to measure.
@@ -148,11 +183,22 @@ impl Layered {
             // up to 24 characters each); the layer's other fields and track names fit in 160.
             .map(|layer| {
                 let group = layer.group.as_ref().map_or(0, |group| 2 * group.len() + 12);
-                2 * layer.name.len() + group + 160 + 160 * layer.motion.len()
+                // An element's numbers and names fit in 200 bytes; its text and under escape
+                // to at most twice their length.
+                let elements: usize = layer
+                    .elements
+                    .iter()
+                    .map(|e| {
+                        let shape = e.shape();
+                        200 + 2 * shape.text.len() + 2 * (shape.width + 1) * shape.height
+                    })
+                    .sum();
+                2 * layer.name.len() + group + 160 + 160 * layer.motion.len() + elements
             })
             .sum();
         // Per frame: {"duration_ms":60000,"layers":[]}, and the header with its brackets.
-        texts + names + 40 * self.layers[0].art.frames().len() + 128
+        // The header, with its brackets and a `next_element`.
+        texts + names + 40 * self.layers[0].art.frames().len() + 160
     }
     pub fn single(art: Animation) -> Self {
         Self {
@@ -163,8 +209,19 @@ impl Layered {
                 art,
                 motion: Motion::default(),
                 group: None,
+                elements: Vec::new(),
             }],
+            next_element: 1,
         }
+    }
+    /// Cells the project's elements cover, each counted once: what their kept `under` cells
+    /// take, at most [`MAX_ELEMENT_CELLS`].
+    pub fn element_cells(&self) -> usize {
+        self.layers
+            .iter()
+            .flat_map(|layer| &layer.elements)
+            .map(|element| element.shape().width * element.shape().height)
+            .sum()
     }
     pub fn layers(&self) -> &[Layer] {
         &self.layers
@@ -187,7 +244,8 @@ impl Layered {
         start..end
     }
     /// The animation, when the project is one visible, unlocked layer named [`DEFAULT_NAME`]
-    /// with no keys and no group: the project a version 1 file holds.
+    /// with no keys and no group, in a project that has never held an element: the project a
+    /// version 1 file holds.
     pub fn plain(&self) -> Option<&Animation> {
         match &self.layers[..] {
             [layer]
@@ -195,7 +253,8 @@ impl Layered {
                     && !layer.locked
                     && layer.name == DEFAULT_NAME
                     && layer.motion.is_empty()
-                    && layer.group.is_none() =>
+                    && layer.group.is_none()
+                    && self.next_element == 1 =>
             {
                 Some(&layer.art)
             }
@@ -205,14 +264,7 @@ impl Layered {
     /// Replace one frame of one layer without checking [`fits`](Self::fits), returning the old
     /// frame. Callers applying a batch validate `fits` once at the end.
     pub(crate) fn swap_frame(&mut self, layer: usize, index: usize, frame: Frame) -> Result<Frame> {
-        let one_by_one = self.layers.len() == 1 && self.layers[0].art.frames().len() == 1;
-        let (width, height) = (self.layers[0].art.width(), self.layers[0].art.height());
-        if !one_by_one && (frame.width() != width || frame.height() != height) {
-            return Err(
-                "Replacing the whole frame can change its size only in a project of one frame and one layer"
-                    .into(),
-            );
-        }
+        self.check_resize(&frame)?;
         let art = &mut self
             .layers
             .get_mut(layer)
@@ -222,6 +274,33 @@ impl Layered {
             return Err("Frame index is outside the project".into());
         }
         Ok(art.swap_frame(index, frame))
+    }
+    /// Refuses `frame` as a replacement frame of another size, unless the project is one frame
+    /// of one layer and every element still fits in it.
+    pub(crate) fn check_resize(&self, frame: &Frame) -> Result<()> {
+        let (width, height) = (self.layers[0].art.width(), self.layers[0].art.height());
+        if (frame.width(), frame.height()) == (width, height) {
+            return Ok(());
+        }
+        if self.layers.len() != 1 || self.layers[0].art.frames().len() != 1 {
+            return Err(
+                "Replacing the whole frame can change its size only in a project of one frame and one layer"
+                    .into(),
+            );
+        }
+        match self.layers[0]
+            .elements
+            .iter()
+            .find(|element| !element.fits(frame.width(), frame.height(), 1))
+        {
+            Some(element) => Err(format!(
+                "Element {} would leave the {} x {} frame; delete it first",
+                element.name(),
+                frame.width(),
+                frame.height()
+            )),
+            None => Ok(()),
+        }
     }
     /// Replace one frame of one layer, keeping the frame's duration. Nothing changes on error.
     pub fn replace_frame(&mut self, layer: usize, index: usize, frame: Frame) -> Result<()> {
@@ -265,23 +344,31 @@ impl Layered {
             .collect();
         Animation::new(frames, first.looping()).expect("Layers share a valid timeline")
     }
-    /// Version 1 for a [`plain`](Self::plain) project, version 3 when a layer has keys,
-    /// otherwise version 2.
+    /// Version 1 for a [`plain`](Self::plain) project, version 4 when the project has held an
+    /// element, version 3 when a layer has keys, otherwise version 2.
     pub fn to_json(&self) -> String {
         if let Some(art) = self.plain() {
             return art.to_json();
         }
         let first = &self.layers[0].art;
         let keyed = self.layers.iter().any(|layer| !layer.motion.is_empty());
-        json!({"format":"asciiforge","version":if keyed { 3 } else { 2 },
+        let version = match (self.next_element > 1, keyed) {
+            (true, _) => 4,
+            (false, true) => 3,
+            (false, false) => 2,
+        };
+        let mut project = json!({"format":"asciiforge","version":version,
             "width":first.width(),"height":first.height(),"loop":first.looping(),
             "layers":self.layers.iter().map(layer_json).collect::<Vec<_>>(),
             "frames":(0..first.frames().len()).map(|index| json!({
                 "duration_ms":first.frames()[index].duration_ms,
                 "layers":self.layers.iter().map(|l| l.art.frames()[index].frame.text())
                     .collect::<Vec<_>>()})).collect::<Vec<_>>()
-        })
-        .to_string()
+        });
+        if version == 4 {
+            project["next_element"] = json!(self.next_element);
+        }
+        project.to_string()
     }
     /// Insert a blank frame at `index` in every layer; keys from `index` on move with their
     /// frames. Nothing changes on error.
@@ -351,6 +438,17 @@ impl Layered {
                 edit(&mut art)?;
                 let mut motion = layer.motion.clone();
                 motion.remap(&map);
+                // Elements move with their frames, as keys do; a copied frame's cells are
+                // copied and its elements stay with the original.
+                let elements = layer
+                    .elements
+                    .iter()
+                    .filter_map(|element| {
+                        let mut element = element.clone();
+                        element.set_frame(map(element.frame())?);
+                        Some(element)
+                    })
+                    .collect();
                 Ok(Layer {
                     name: layer.name.clone(),
                     visible: layer.visible,
@@ -358,13 +456,16 @@ impl Layered {
                     art,
                     motion,
                     group: layer.group.clone(),
+                    elements,
                 })
             })
             .collect::<Result<Vec<_>>>()?;
+        let next_element = self.next_element;
         *self = Self::new(layers)?;
+        self.raise_next_element(next_element);
         Ok(())
     }
-    /// Read a version 1, 2 or 3 project.
+    /// Read a version 1, 2, 3 or 4 project.
     pub fn from_json(input: &str) -> Result<Self> {
         if input.len() > MAX_INPUT_BYTES {
             return Err("Project exceeds the 16 MiB input limit".into());
@@ -382,6 +483,9 @@ fn layer_json(layer: &Layer) -> Value {
     }
     if let Some(group) = &layer.group {
         entry["group"] = json!(group);
+    }
+    if !layer.elements.is_empty() {
+        entry["elements"] = layer.elements.iter().map(element_json).collect();
     }
     if !layer.motion.is_empty() {
         let tracks: Map<String, Value> = Property::ALL
@@ -401,6 +505,70 @@ fn layer_json(layer: &Layer) -> Value {
         entry["motion"] = Value::Object(tracks);
     }
     entry
+}
+
+/// An element's entry: `style` for a box or line, `arrow` for a line, `text` when it has
+/// some, and `under` unless it covered only spaces.
+fn element_json(element: &Element) -> Value {
+    let shape = element.shape();
+    let mut entry = json!({"id":element.name(),"frame":element.frame(),"kind":shape.kind.name(),
+        "x":element.x(),"y":element.y(),"width":shape.width,"height":shape.height});
+    if shape.kind != Kind::Text {
+        entry["style"] = json!(shape.style.name());
+    }
+    if shape.kind == Kind::Line {
+        entry["arrow"] = json!(shape.arrow.name());
+    }
+    if !shape.text.is_empty() {
+        entry["text"] = json!(shape.text);
+    }
+    if element.under().cells().iter().any(|&cell| cell != b' ') {
+        entry["under"] = json!(element.under().text());
+    }
+    entry
+}
+
+/// Refuses a repeated id, too many elements and an element outside the project; gives the
+/// lowest id the next element may have.
+fn check_elements(layers: &[Layer]) -> Result<u32> {
+    let art = &layers[0].art;
+    let mut ids = std::collections::BTreeSet::new();
+    for element in layers.iter().flat_map(|layer| &layer.elements) {
+        if !element.fits(art.width(), art.height(), art.frames().len()) {
+            return Err(format!("Element {} is outside the project", element.name()));
+        }
+        if !ids.insert(element.id()) {
+            return Err(format!("Element id {} is used twice", element.name()));
+        }
+        if ids.len() > MAX_ELEMENTS {
+            return Err(format!("A project holds at most {MAX_ELEMENTS} elements"));
+        }
+    }
+    check_element_cells(
+        layers
+            .iter()
+            .flat_map(|layer| &layer.elements)
+            .map(Element::shape),
+    )?;
+    ids.last().map_or(Ok(1), |&id| {
+        id.checked_add(1)
+            .ok_or_else(|| "Element ids are used up".into())
+    })
+}
+
+/// Refuses elements that together cover more than [`MAX_ELEMENT_CELLS`]; each shape is already
+/// checked, so its cells cannot overflow.
+pub(crate) fn check_element_cells<'a>(shapes: impl IntoIterator<Item = &'a Shape>) -> Result<()> {
+    let cells: usize = shapes
+        .into_iter()
+        .map(|shape| shape.width * shape.height)
+        .sum();
+    if cells > MAX_ELEMENT_CELLS {
+        return Err(format!(
+            "A project's elements cover at most {MAX_ELEMENT_CELLS} cells; these cover {cells}"
+        ));
+    }
+    Ok(())
 }
 
 fn check_name(name: &str, of: &str) -> Result<()> {
@@ -477,6 +645,7 @@ mod tests {
             art,
             motion,
             group: Some("\\".repeat(32)),
+            elements: Vec::new(),
         };
         let project = Layered::new(vec![layer.clone(), layer]).unwrap();
         let json = project.to_json();

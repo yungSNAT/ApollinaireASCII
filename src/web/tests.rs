@@ -3482,3 +3482,35 @@ fn typing_continuation_advances_project_generation_and_invalidates_reads() {
         gen_after_backspace
     );
 }
+
+#[wasm_bindgen_test]
+async fn element_ids_belong_to_their_project_and_an_old_file_keeps_its_version() {
+    use serde_json::{Value, json};
+
+    let live = |request: Value| -> Value {
+        super::state(|app| super::live::handle(app, &request)).unwrap()["result"].clone()
+    };
+    let add = json!({"id": 1, "op": "element_add", "kind": "text", "x": 0, "y": 0, "text": "A"});
+    let old =
+        |text: &str| super::Animation::still(super::Frame::from_text(text).unwrap()).to_json();
+    blank(4, 2);
+    open("first.json", old("....\n....")).await;
+    assert_eq!(live(add.clone())["element"], "e1");
+    // Undoing an add does not give its id out again in the same project.
+    click("undo");
+    assert_eq!(live(add.clone())["element"], "e2");
+    // Another project opened in the same page has its own ids, and saves as it was opened.
+    open("old.json", old("ab\ncd")).await;
+    let saved: Value = serde_json::from_str(&save("download-json").await.1).unwrap();
+    assert_eq!(saved["version"], 1);
+    assert_eq!(live(add.clone())["element"], "e1");
+    let saved: Value = serde_json::from_str(&save("download-json").await.1).unwrap();
+    assert_eq!(
+        (saved["version"].clone(), saved["next_element"].clone()),
+        (json!(4), json!(2))
+    );
+    // Undoing back into the first project resumes its ids.
+    click("undo");
+    click("undo");
+    assert_eq!(live(add)["element"], "e3");
+}
