@@ -159,12 +159,7 @@ fn glyph(data: &[u8], offset: usize, kind: Kind, taken: &mut usize) -> Result<Ve
             "claims {width} x {height} cells; glyphs are at most {MAX_GLYPH_WIDTH} wide and {MAX_GLYPH_HEIGHT} high"
         ));
     }
-    *taken += height * (width + ROW_BYTES);
-    if *taken > MAX_GLYPH_BYTES {
-        return Err(format!(
-            "takes the file's glyphs past {MAX_GLYPH_BYTES} bytes; real fonts need far fewer"
-        ));
-    }
+    charge(taken, height * (width + ROW_BYTES))?;
     let mut rows = vec![vec![b' '; width]; height];
     let (mut row, mut column) = (0, 0);
     let mut at = offset + 2;
@@ -192,14 +187,34 @@ fn glyph(data: &[u8], offset: usize, kind: Kind, taken: &mut usize) -> Result<Ve
                 .ok_or("runs past the end of the font's glyphs")?;
             at += 1;
         }
-        let slot = rows
-            .get_mut(row)
-            .ok_or_else(|| format!("has more than its {height} rows"))?
+        // Real fonts draw descenders below the height they claim, so the glyph grows to the
+        // rows it draws, each charged as a claimed one is.
+        while rows.len() <= row {
+            if rows.len() == MAX_GLYPH_HEIGHT {
+                return Err(format!(
+                    "draws more than {MAX_GLYPH_HEIGHT} rows; glyphs are at most {MAX_GLYPH_HEIGHT} high"
+                ));
+            }
+            charge(taken, width + ROW_BYTES)?;
+            rows.push(vec![b' '; width]);
+        }
+        let slot = rows[row]
             .get_mut(column)
             .ok_or_else(|| format!("has a row longer than its {width} columns"))?;
         *slot = cell;
         column += 1;
     }
+}
+
+/// Add `bytes` to the file's glyph bytes `taken`, refusing a file past [`MAX_GLYPH_BYTES`].
+fn charge(taken: &mut usize, bytes: usize) -> Result<()> {
+    *taken += bytes;
+    if *taken > MAX_GLYPH_BYTES {
+        return Err(format!(
+            "takes the file's glyphs past {MAX_GLYPH_BYTES} bytes; real fonts need far fewer"
+        ));
+    }
+    Ok(())
 }
 
 /// An outline font's placeholder drawn in ASCII: edges as `-` and `|`, top corners as `.`,

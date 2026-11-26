@@ -213,8 +213,8 @@ fn malformed_files_are_refused_with_a_reason_and_never_panic() {
             "longer than its 2 columns",
         ),
         (
-            file(&[font(1, 0, "R", &[(b'R', 1, 1, b"a\rb")])]),
-            "more than its 1 rows",
+            file(&[font(1, 0, "R", &[(b'R', 1, 1, &b"a\r".repeat(33))])]),
+            "glyph 'R' draws more than 32 rows",
         ),
         (
             file(&[font(2, 0, "C", &[(b'C', 1, 1, b"a")])]),
@@ -229,6 +229,20 @@ fn malformed_files_are_refused_with_a_reason_and_never_panic() {
     let empty = file(&[font(1, 0, "Z ", &[(b'Z', 0, 1, b""), (b'A', 1, 1, b"a")])]);
     assert_eq!(thedraw::parse(&empty).unwrap()[0].name, "Z");
     assert_eq!(letter(&empty, "AZA"), ["aa"]);
+    // Real fonts draw descenders below the height they claim (seen in outline and block fonts
+    // of a public TheDraw collection), and a glyph claiming no rows may draw one: each grows
+    // to the rows it draws, and a closing row break draws none.
+    let descends = file(&[font(
+        1,
+        0,
+        "G",
+        &[
+            (b'g', 1, 1, b"a\rb\r"),
+            (b'A', 1, 0, b"c"),
+            (b'B', 1, 1, b"d"),
+        ],
+    )]);
+    assert_eq!(letter(&descends, "gAB"), ["acd", "b"]);
     // A glyph without its closing zero runs into the end of the data.
     let mut open = file(&[block()]);
     open.truncate(open.len() - 2);
