@@ -16,7 +16,10 @@ fuzz_target!(|data: &[u8]| {
     for font in fonts {
         let flf = font.to_flf();
         validate_font(&flf).expect("a TheDraw font becomes a valid FIGlet font");
-        render("Fuzz me!", "standard", Some(&flf), Alignment::Left, None)
-            .expect("a TheDraw font letters printable text");
+        // A font whose glyphs are all empty letters nothing, which is refused as a frame of no
+        // columns; anything else must letter.
+        if let Err(error) = render("Fuzz me!", "standard", Some(&flf), Alignment::Left, None) {
+            assert!(error.starts_with("Dimensions must be"), "{error}");
+        }
     }
 });
