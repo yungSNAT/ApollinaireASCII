@@ -41,6 +41,7 @@ mod unix {
         }
         // Only a folder this run created is removed when the build ends.
         let staging = crate::shared::TempDir::new("apollinaire-rpm")?;
+        plain(&staging.0)?;
         let root = staging.0.join("root");
         stage(
             src,
@@ -70,6 +71,22 @@ mod unix {
         let built = top.join("RPMS/apollinaire.rpm");
         fs::copy(&built, out).map_err(io(&built))?;
         Ok(())
+    }
+
+    /// The staging folder goes into the spec's shell script and an rpmbuild macro, so it must
+    /// hold nothing a shell or rpm reads as syntax: a quote or a `%` would break or inject.
+    pub(super) fn plain(path: &Path) -> Result<(), String> {
+        let text = path.to_string_lossy();
+        if text
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'/' | b'.' | b'_' | b'-'))
+        {
+            Ok(())
+        } else {
+            Err(format!(
+                "An .rpm is staged only under a folder named with letters, digits, '/', '.', '_' and '-', not {text}; set TMPDIR to one"
+            ))
+        }
     }
 
     /// What the package ships: this project (MIT), the bundled FIGlet (BSD-3-Clause) and TOIlet
@@ -139,6 +156,15 @@ mod tests {
             version,
             "An RPM version holds letters, digits, '.', '~', '+' and '_', not '0.5.0-rc.1'"
         );
+        let plain = |path: &str| super::unix::plain(std::path::Path::new(path));
+        assert!(plain("/tmp/apollinaire-rpm-12.x_y").is_ok());
+        for path in ["/tmp/it's", "/tmp/%{nil}", "/tmp/a b", "/tmp/$(id)"] {
+            assert!(
+                plain(path)
+                    .unwrap_err()
+                    .ends_with(&format!("not {path}; set TMPDIR to one"))
+            );
+        }
     }
 
     /// Needs rpmbuild, which the checks workflow installs.
