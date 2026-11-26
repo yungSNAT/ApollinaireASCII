@@ -154,7 +154,7 @@ fn mindmap_refuses_what_it_cannot_draw_with_the_line() {
         ),
         (
             "mindmap\n  Caf\u{e9}",
-            "Line 2: byte 4 is 0xc3, not printable ASCII",
+            "Line 2: byte 6 is 0xc3, not printable ASCII",
         ),
         (
             "mindmap\n  A[#9786;]",
