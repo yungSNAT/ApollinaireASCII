@@ -357,3 +357,22 @@ fn timeline_draws_only_printable_ascii_and_refuses_other_bytes() {
         );
     }
 }
+
+#[test]
+fn timeline_comment_tokens_after_headers_and_periods_match_the_mermaid_lexer() {
+    for header in [
+        "timeline x%% ignored",
+        "timeline LR x%% ignored",
+        "timeline LR%% ignored",
+        "timeline%% ignored",
+        "x%% preface\ntimeline",
+    ] {
+        let source = format!("{header}\nP :%% ignored");
+        assert_eq!(mermaid(&source).unwrap().text().trim_end(), "P o");
+    }
+    assert!(timeline("timelinezz%% text").is_err());
+    assert!(timeline("timeline-x").is_err());
+    assert!(timeline("timeline a").is_err());
+    assert!(timeline("timeline LRx%% text").is_err());
+    assert_eq!(rows("timeline\nP : yes :%%z"), ["P o-- yes :%%z"]);
+}

@@ -120,17 +120,38 @@ fn accessibility(text: &str) -> Option<bool> {
     }
 }
 
-/// `text` up to a `%%` comment that does not follow `}`; used on the header line only, as a
-/// period, event, title or section, once started, runs over `%%` in Mermaid's lexer.
-fn without_comment(text: &str) -> &str {
-    let mut from = 0;
-    while let Some(at) = text[from..].find("%%").map(|at| at + from) {
-        if at > 0 && text.as_bytes()[at - 1] != b'}' {
-            return &text[..at];
-        }
-        from = at + 1;
+/// These rules apply at the beginning of a lexer token. An open period or event keeps its text.
+pub(super) fn comment(text: &str) -> bool {
+    text.starts_with("%%") || (text.as_bytes().get(1..3) == Some(b"%%") && !text.starts_with('}'))
+}
+
+fn word_tail(text: &str) -> bool {
+    text.as_bytes()
+        .first()
+        .is_some_and(|b| b.is_ascii_alphanumeric() || *b == b'_')
+}
+
+pub(super) fn header(text: &str) -> bool {
+    let Some(rest) = text.strip_prefix("timeline") else {
+        return false;
+    };
+    if word_tail(rest) {
+        return false;
     }
-    text
+    let tail = rest.trim_start();
+    if tail.is_empty() || comment(tail) {
+        return true;
+    }
+    if tail.len() == rest.len() {
+        return false;
+    }
+    let Some(direction) = tail.get(..2) else {
+        return false;
+    };
+    let after = &tail[2..];
+    (direction.eq_ignore_ascii_case("LR") || direction.eq_ignore_ascii_case("TD"))
+        && !word_tail(after)
+        && (after.trim().is_empty() || comment(after.trim_start()))
 }
 
 impl Reader {
@@ -146,14 +167,7 @@ impl Reader {
                 self.in_block = false;
                 stmt = stmt[at + 1..].trim();
             }
-            // At a token boundary Mermaid also skips one character followed by %% unless it is }.
-            if stmt.is_empty()
-                || stmt.starts_with("%%")
-                || stmt
-                    .chars()
-                    .next()
-                    .is_some_and(|ch| ch != '}' && stmt[ch.len_utf8()..].starts_with("%%"))
-            {
+            if stmt.is_empty() || comment(stmt) {
                 return Ok(());
             }
             match accessibility(stmt) {
@@ -171,14 +185,7 @@ impl Reader {
         let spaced = stmt.replace('\t', " ");
         let stmt = spaced.as_str();
         if !self.started {
-            let mut words = without_comment(stmt).split_whitespace();
-            let first = words.next().unwrap_or("");
-            let direction = words.next();
-            if first != "timeline"
-                || words.next().is_some()
-                || direction
-                    .is_some_and(|d| !d.eq_ignore_ascii_case("LR") && !d.eq_ignore_ascii_case("TD"))
-            {
+            if !header(stmt) {
                 return Err(format!(
                     "Line {number}: a timeline starts with timeline, timeline LR or timeline TD"
                 ));
@@ -228,6 +235,9 @@ impl Reader {
         let (period, mut rest) = stmt.split_at(end);
         let mut events = Vec::new();
         while !rest.is_empty() {
+            if comment(rest) {
+                break;
+            }
             // `rest` starts with ':', which must be followed by white space.
             let after = &rest[1..];
             if !after.starts_with([' ', '\t']) {
