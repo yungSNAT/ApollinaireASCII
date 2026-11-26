@@ -217,18 +217,10 @@ fn malformed_files_are_refused_with_a_reason_and_never_panic() {
         let error = thedraw::parse(&bytes).unwrap_err();
         assert!(error.contains(message), "{message}: {error}");
     }
-    // A glyph of no cells is empty, not an error, and a font of only such glyphs still letters.
-    let empty = thedraw::parse(&file(&[font(1, 0, "Z ", &[(b'Z', 0, 1, b"")])])).unwrap();
-    assert_eq!(empty[0].name, "Z");
-    let flf = empty[0].to_flf();
-    lettering::validate_font(&flf).unwrap();
-    assert_eq!(
-        lettering::render("Z", "standard", Some(&flf), Alignment::Left, None)
-            .unwrap()
-            .text()
-            .trim(),
-        ""
-    );
+    // A glyph of no cells is empty, not an error, and letters as nothing.
+    let empty = file(&[font(1, 0, "Z ", &[(b'Z', 0, 1, b""), (b'A', 1, 1, b"a")])]);
+    assert_eq!(thedraw::parse(&empty).unwrap()[0].name, "Z");
+    assert_eq!(letter(&empty, "AZA"), ["aa"]);
     // A glyph without its closing zero runs into the end of the data.
     let mut open = file(&[block()]);
     open.truncate(open.len() - 2);
