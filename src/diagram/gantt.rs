@@ -1,0 +1,467 @@
+// Copyright 2026 Ryan Duguid
+// SPDX-License-Identifier: MIT
+
+//! Mermaid Gantt charts (`gantt`) drawn as dated task bars on a shared time axis; see [`gantt`].
+
+mod dates;
+mod draw;
+
+use super::{decode, split_statements};
+use crate::{Frame, MAX_HEIGHT, MAX_INPUT_BYTES, MAX_WIDTH, Result};
+use dates::{
+    DAY, HOUR, Length, MAX_SPAN, MINUTE, SECOND, WEEKDAYS, add_months, format_axis, parse_date,
+    parse_length,
+};
+use std::collections::{HashMap, HashSet};
+
+/// Each task takes a row, so no more can be drawn.
+const MAX_TASKS: usize = MAX_HEIGHT;
+/// Width of a chart drawn without `--max-width`, unless its labels need more.
+const DEFAULT_WIDTH: usize = 100;
+
+/// Draw a Mermaid Gantt chart (`gantt`) as task bars against a dated axis in printable ASCII.
+///
+/// The source starts with `gantt` and may sit inside one Markdown code block fenced with
+/// ```` ``` ```` or `~~~`. Statements end at a line end or `;`; lines starting `%%` are comments.
+///
+/// - `title`, `section` and tasks written `Name : metadata`, where the metadata is optional
+///   tags (`done`, `active`, `crit`, `milestone`), then an optional id, an optional start (a date
+///   or `after id ...`) and an end (a date, a length such as `3d`, `20h`, `2w` or `1M`, or
+///   `until id ...`). A task without a start begins where the task before it ends.
+/// - `dateFormat` reads dates written with `YYYY`, `MM`, `DD`, `HH`, `mm` and `ss` (default
+///   `YYYY-MM-DD`); `axisFormat` labels the axis with `%Y`, `%y`, `%m`, `%d`, `%e`, `%H`, `%M`,
+///   `%S`, `%b`, `%B`, `%a`, `%A` and `%%` (default `%Y-%m-%d`).
+/// - `excludes` (dates, weekday names or `weekends`), `includes`, `weekend friday` and
+///   `inclusiveEndDates` change task ends as Mermaid does; excluded days are not drawn.
+/// - Bars are drawn `=` for a task, `#` done, `>` active, `!` critical and `*` for a milestone,
+///   with a legend for the kinds used. Display settings (`todayMarker`, `tickInterval`,
+///   `weekday`, `topAxis`, `displayMode`), `click`, `call`, `accTitle` and `accDescr` are skipped.
+///
+/// ```
+/// use apollinaire_ascii::diagram::gantt;
+/// let chart = gantt("gantt\n  section Build\n  Design :a1, 2026-01-05, 3d\n  Code :after a1, 4d")?;
+/// assert_eq!(
+///     chart.text(),
+///     "Build              \n  Design ===       \n  Code      ====   \n         +------   \n         2026-01-05\n= task             "
+/// );
+/// # Ok::<(), String>(())
+/// ```
+pub fn gantt(source: &str) -> Result<Frame> {
+    gantt_fitted(source, None)
+}
+
+pub(super) fn gantt_fitted(source: &str, max_width: Option<usize>) -> Result<Frame> {
+    if source.len() > MAX_INPUT_BYTES {
+        return Err("The Gantt chart exceeds the 16 MiB input limit".into());
+    }
+    let mut reader = Reader {
+        date_format: (0, "YYYY-MM-DD".into()),
+        axis_format: (0, "%Y-%m-%d".into()),
+        ..Reader::default()
+    };
+    super::mermaid_lines(source, |number, line| reader.line(number, line))?;
+    if !reader.started {
+        return Err("A Gantt chart starts with gantt".into());
+    }
+    if reader.tasks.is_empty() {
+        return Err("A Gantt chart needs at least one task".into());
+    }
+    draw::draw(&reader, &resolve(&reader)?, max_width)
+}
+
+#[derive(Default, Clone, Copy)]
+struct Tags {
+    done: bool,
+    active: bool,
+    crit: bool,
+    milestone: bool,
+}
+
+struct Task {
+    line: usize,
+    name: String,
+    section: Option<usize>,
+    id: Option<String>,
+    tags: Tags,
+    /// `None` starts where the task before ends.
+    start: Option<String>,
+    end: String,
+}
+
+#[derive(Default)]
+struct Reader {
+    started: bool,
+    in_block: bool,
+    title: Option<String>,
+    date_format: (usize, String),
+    axis_format: (usize, String),
+    excludes: Vec<(usize, String)>,
+    includes: Vec<(usize, String)>,
+    inclusive_end: bool,
+    friday_weekend: bool,
+    sections: Vec<String>,
+    tasks: Vec<Task>,
+}
+
+/// Whether a statement is one of Mermaid's accessibility lines, which are skipped, and if so
+/// whether it opens an `accDescr {` block. As Mermaid's lexer does, in any case: `accTitle` or
+/// `accDescr` before `:`, or `accDescr` before `{`. A task named `accTitleX` is a task.
+fn accessibility(stmt: &str) -> Option<bool> {
+    let after = |word: &str| {
+        stmt.get(..word.len())
+            .filter(|head| head.eq_ignore_ascii_case(word))
+            .map(|_| &stmt[word.len()..])
+    };
+    let title = after("accTitle").map(str::trim_start);
+    let description = after("accDescr").map(str::trim_start);
+    if title.is_some_and(|rest| rest.starts_with(':'))
+        || description.is_some_and(|rest| rest.starts_with(':'))
+    {
+        return Some(false);
+    }
+    description
+        .filter(|rest| rest.starts_with('{'))
+        .map(|rest| !rest.contains('}'))
+}
+
+impl Reader {
+    fn line(&mut self, number: usize, line: &str) -> Result<()> {
+        if line.trim_start().starts_with("%%") {
+            return Ok(());
+        }
+        // A tab inside a name, title or format is drawn as a space.
+        let line = line.replace('\t', " ");
+        for raw in split_statements(&line) {
+            let stmt = raw.trim();
+            if stmt.is_empty() {
+                continue;
+            }
+            if self.in_block {
+                self.in_block = !stmt.contains('}');
+                continue;
+            }
+            if !self.started {
+                if stmt != "gantt" {
+                    return Err(format!("Line {number}: a Gantt chart starts with gantt"));
+                }
+                self.started = true;
+                continue;
+            }
+            self.statement(number, stmt)?;
+        }
+        Ok(())
+    }
+
+    fn statement(&mut self, number: usize, stmt: &str) -> Result<()> {
+        if let Some(open) = accessibility(stmt) {
+            self.in_block = open;
+            return Ok(());
+        }
+        let (word, rest) = stmt
+            .split_once([' ', '\t'])
+            .map_or((stmt, ""), |(w, r)| (w, r.trim()));
+        let tokens = || {
+            rest.split([',', ' ', '\t'])
+                .filter(|t| !t.is_empty())
+                .map(|t| (number, t.to_owned()))
+                .collect::<Vec<_>>()
+        };
+        match word {
+            "title" => self.title = Some(decode(number, rest)?),
+            "dateFormat" | "axisFormat" if rest.is_empty() => {
+                return Err(format!("Line {number}: {word} needs a format"));
+            }
+            "dateFormat" => self.date_format = (number, rest.to_owned()),
+            "axisFormat" => self.axis_format = (number, rest.to_owned()),
+            "excludes" => self.excludes.extend(tokens()),
+            "includes" => self.includes.extend(tokens()),
+            "inclusiveEndDates" => self.inclusive_end = true,
+            "weekend" => match rest {
+                "friday" => self.friday_weekend = true,
+                "saturday" => self.friday_weekend = false,
+                _ => {
+                    return Err(format!(
+                        "Line {number}: weekend is friday or saturday, not '{rest}'"
+                    ));
+                }
+            },
+            "section" => {
+                if self.sections.len() == MAX_TASKS {
+                    return Err(format!(
+                        "Line {number}: a Gantt chart has at most {MAX_TASKS} sections"
+                    ));
+                }
+                self.sections.push(decode(number, rest)?);
+            }
+            "todayMarker" | "tickInterval" | "weekday" | "topAxis" | "displayMode" | "click"
+            | "call" => {}
+            _ => self.task(number, stmt)?,
+        }
+        Ok(())
+    }
+
+    fn task(&mut self, number: usize, stmt: &str) -> Result<()> {
+        let Some((name, meta)) = stmt.split_once(':') else {
+            return Err(format!(
+                "Line {number}: '{stmt}' is not a Gantt statement; a task is written Name : metadata"
+            ));
+        };
+        let name = decode(number, name.trim())?;
+        if name.is_empty() {
+            return Err(format!("Line {number}: a task needs a name before ':'"));
+        }
+        if self.tasks.len() == MAX_TASKS {
+            return Err(format!(
+                "Line {number}: a Gantt chart has at most {MAX_TASKS} tasks"
+            ));
+        }
+        let mut items: Vec<&str> = meta.split(',').map(str::trim).collect();
+        let mut tags = Tags::default();
+        while let Some(&first) = items.first() {
+            match first {
+                "done" => tags.done = true,
+                "active" => tags.active = true,
+                "crit" => tags.crit = true,
+                "milestone" => tags.milestone = true,
+                _ => break,
+            }
+            items.remove(0);
+        }
+        let (id, start, end) = match items.as_slice() {
+            [end] => (None, None, *end),
+            [start, end] => (None, Some(*start), *end),
+            [id, start, end] => (Some(*id), Some(*start), *end),
+            _ => {
+                return Err(format!(
+                    "Line {number}: a task's metadata is tags, then [id,] [start,] end"
+                ));
+            }
+        };
+        if end.is_empty() || start.is_some_and(str::is_empty) || id.is_some_and(str::is_empty) {
+            return Err(format!(
+                "Line {number}: a task's metadata has an empty item"
+            ));
+        }
+        self.tasks.push(Task {
+            line: number,
+            name,
+            section: self.sections.len().checked_sub(1),
+            id: id.map(str::to_owned),
+            tags,
+            start: start.map(str::to_owned),
+            end: end.to_owned(),
+        });
+        Ok(())
+    }
+}
+
+/// Each task's start and end in milliseconds since 1970, in source order.
+fn resolve(reader: &Reader) -> Result<Vec<(i64, i64, i64)>> {
+    let (format_line, format) = (&reader.date_format.0, reader.date_format.1.as_str());
+    if !["YYYY", "MM", "DD"].iter().all(|t| format.contains(t)) {
+        return Err(format!(
+            "Line {format_line}: dateFormat needs YYYY, MM and DD; it may add HH, mm and ss"
+        ));
+    }
+    let day_of = |number: usize, token: &str| {
+        parse_date("YYYY-MM-DD", token)
+            .map(|at| at / DAY)
+            .ok_or_else(|| format!("Line {number}: '{token}' is not a YYYY-MM-DD date"))
+    };
+    let mut excluded_days = HashSet::new();
+    let mut excluded_weekdays = HashSet::new();
+    for (number, token) in &reader.excludes {
+        let lower = token.to_ascii_lowercase();
+        if lower == "weekends" {
+            excluded_weekdays.extend(if reader.friday_weekend {
+                [5, 6]
+            } else {
+                [6, 0]
+            });
+        } else if let Some(weekday) = WEEKDAYS.iter().position(|w| *w == lower) {
+            excluded_weekdays.insert(weekday as i64);
+        } else {
+            excluded_days.insert(day_of(*number, token)?);
+        }
+    }
+    let included: HashSet<i64> = reader
+        .includes
+        .iter()
+        .map(|(number, token)| day_of(*number, token))
+        .collect::<Result<_>>()?;
+    let excluded = |at: i64| {
+        let day = at.div_euclid(DAY);
+        !included.contains(&day)
+            && (excluded_days.contains(&day)
+                || excluded_weekdays.contains(&(day + 4).rem_euclid(7)))
+    };
+    let mut ids = HashMap::new();
+    for (index, task) in reader.tasks.iter().enumerate() {
+        if let Some(id) = &task.id
+            && ids.insert(id.as_str(), index).is_some()
+        {
+            return Err(format!("Line {}: task id '{id}' is used twice", task.line));
+        }
+    }
+    let lookup = |task: &Task, id: &str| {
+        ids.get(id)
+            .copied()
+            .ok_or_else(|| format!("Line {}: no task has the id '{id}'", task.line))
+    };
+    let date = |task: &Task, text: &str| {
+        parse_date(format, text).ok_or_else(|| {
+            format!(
+                "Line {}: '{text}' is neither a date in the dateFormat {format} nor a length in ms, s, m, h, d, w, M or y",
+                task.line
+            )
+        })
+    };
+    // Each `after` and `until` list as task indexes, once, without repeats.
+    let indexes = |task: &Task, list: &str| -> Result<Vec<usize>> {
+        let mut found = list
+            .split_whitespace()
+            .map(|id| lookup(task, id))
+            .collect::<Result<Vec<_>>>()?;
+        found.sort_unstable();
+        found.dedup();
+        Ok(found)
+    };
+    let mut after = Vec::with_capacity(reader.tasks.len());
+    let mut until = Vec::with_capacity(reader.tasks.len());
+    for task in &reader.tasks {
+        let start = task.start.as_deref().and_then(|t| t.strip_prefix("after "));
+        after.push(start.map(|list| indexes(task, list)).transpose()?);
+        let end = task.end.strip_prefix("until ");
+        until.push(end.map(|list| indexes(task, list)).transpose()?);
+    }
+    // The end as written, or the earliest `until` start, then moved as Mermaid's
+    // checkTaskDates moves it: unless the end is written as a YYYY-MM-DD date, each excluded
+    // day from the day after the start to the end, inclusive, pushes the end a day later.
+    // The bar stops at the end before the last run of excluded days pushed it.
+    let finish = |task: &Task, start: i64, until: Option<i64>| -> Result<(i64, i64)> {
+        let end = match (until, parse_length(&task.end)) {
+            (Some(end), _) => end,
+            (None, Some(Length::Fixed(length))) => start + length,
+            (None, Some(Length::Months(months))) => add_months(start, months),
+            (None, None) if written_iso(&task.end) => {
+                let end = date(task, &task.end)? + if reader.inclusive_end { DAY } else { 0 };
+                return Ok((end, end));
+            }
+            (None, None) => date(task, &task.end)? + if reader.inclusive_end { DAY } else { 0 },
+        };
+        let (mut at, mut end, mut drawn, mut skipped) = (start + DAY, end, end, false);
+        while at <= end && end - start <= MAX_SPAN {
+            if !skipped {
+                drawn = end;
+            }
+            skipped = excluded(at);
+            if skipped {
+                end += DAY;
+            }
+            at += DAY;
+        }
+        Ok((end, drawn))
+    };
+    let links = Links { after, until };
+    let mut walk = Walk {
+        times: vec![None; reader.tasks.len()],
+        visiting: vec![false; reader.tasks.len()],
+    };
+    for index in 0..reader.tasks.len() {
+        visit(index, &reader.tasks, &links, &mut walk, &date, &finish)?;
+    }
+    Ok(walk.times.into_iter().flatten().collect())
+}
+
+/// Whether an end is written as a YYYY-MM-DD date, which Mermaid never moves for excluded days.
+fn written_iso(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    bytes.len() == 10
+        && bytes.iter().enumerate().all(|(index, &byte)| match index {
+            4 | 7 => byte == b'-',
+            _ => byte.is_ascii_digit(),
+        })
+        && parse_date("YYYY-MM-DD", text).is_some()
+}
+
+/// Each task's `after` and `until` tasks, by index.
+struct Links {
+    after: Vec<Option<Vec<usize>>>,
+    until: Vec<Option<Vec<usize>>>,
+}
+
+/// Each task's start, end and drawn end, resolved so far, and the tasks being resolved now.
+struct Walk {
+    times: Vec<Option<(i64, i64, i64)>>,
+    visiting: Vec<bool>,
+}
+
+/// A task's end and drawn end, from its start and the earliest start of its `until` tasks.
+type Finish<'a> = dyn Fn(&Task, i64, Option<i64>) -> Result<(i64, i64)> + 'a;
+
+/// Resolve task `index`, first resolving each task it refers to, so each task is resolved once.
+fn visit(
+    index: usize,
+    tasks: &[Task],
+    links: &Links,
+    walk: &mut Walk,
+    date: &dyn Fn(&Task, &str) -> Result<i64>,
+    finish: &Finish<'_>,
+) -> Result<(i64, i64, i64)> {
+    if let Some(times) = walk.times[index] {
+        return Ok(times);
+    }
+    let task = &tasks[index];
+    if walk.visiting[index] {
+        return Err(format!(
+            "Line {}: the task's start or end refers to tasks in a loop",
+            task.line
+        ));
+    }
+    walk.visiting[index] = true;
+    let mut times_of = |other: usize| visit(other, tasks, links, walk, date, finish);
+    let start = match (&task.start, &links.after[index]) {
+        (None, _) if index == 0 => {
+            return Err(format!(
+                "Line {}: the first task needs a start date",
+                task.line
+            ));
+        }
+        (None, _) => times_of(index - 1)?.1,
+        (Some(_), Some(list)) => {
+            let mut latest = None;
+            for &other in list {
+                let end = times_of(other)?.1;
+                latest = Some(latest.map_or(end, |at: i64| at.max(end)));
+            }
+            latest.ok_or_else(|| format!("Line {}: after needs a task id", task.line))?
+        }
+        (Some(text), None) => date(task, text)?,
+    };
+    let until = match &links.until[index] {
+        Some(list) => {
+            let mut earliest = None;
+            for &other in list {
+                let begin = times_of(other)?.0;
+                earliest = Some(earliest.map_or(begin, |at: i64| at.min(begin)));
+            }
+            Some(earliest.ok_or_else(|| format!("Line {}: until needs a task id", task.line))?)
+        }
+        None => None,
+    };
+    let (end, drawn) = finish(task, start, until)?;
+    if end < start {
+        return Err(format!(
+            "Line {}: the task ends before it starts",
+            task.line
+        ));
+    }
+    if end - start > MAX_SPAN {
+        return Err(format!(
+            "Line {}: a task lasts at most 100 years",
+            task.line
+        ));
+    }
+    walk.times[index] = Some((start, end, drawn));
+    Ok((start, end, drawn))
+}

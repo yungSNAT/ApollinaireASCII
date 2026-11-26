@@ -1,0 +1,12 @@
+Release plan                                     
+                                                 
+Build                                            
+  Design    #####                                
+  Implement      >>>>>>>>>>                      
+  Review                   !!!                   
+Ship                                             
+  Package                  ====                  
+  Launch                       *                 
+            +-----------+-------                 
+            2026-03-02  2026-03-14               
+= task  # done  > active  ! critical  * milestone
