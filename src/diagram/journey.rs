@@ -50,6 +50,9 @@ pub(super) fn journey_fitted(source: &str, max_width: Option<usize>) -> Result<F
     if !reader.started {
         return Err("A user journey starts with journey".into());
     }
+    if let Some(number) = reader.block {
+        return Err(format!("Line {number}: accDescr {{ is not closed with }}"));
+    }
     if reader.tasks.is_empty() {
         return Err("A user journey needs at least one task".into());
     }
@@ -66,7 +69,8 @@ struct Task {
 #[derive(Default)]
 struct Reader {
     started: bool,
-    in_block: bool,
+    /// The line of an `accDescr {` block still open.
+    block: Option<usize>,
     title: Option<String>,
     sections: Vec<String>,
     tasks: Vec<Task>,
@@ -76,11 +80,11 @@ impl Reader {
     fn line(&mut self, number: usize, line: &str) -> Result<()> {
         let mut line = line.replace('\t', " ");
         // The text of an `accDescr { .. }` block runs to its `}`, whatever it holds.
-        if self.in_block {
+        if self.block.is_some() {
             let Some(close) = line.find('}') else {
                 return Ok(());
             };
-            self.in_block = false;
+            self.block = None;
             line.replace_range(..=close, "");
         }
         let text = line.trim_start();
@@ -92,7 +96,7 @@ impl Reader {
         {
             // Accessibility text is not drawn; `accTitle:` and `accDescr:` take their line.
             let Some(close) = text.find('}').filter(|_| block) else {
-                self.in_block = block;
+                self.block = block.then_some(number);
                 return Ok(());
             };
             line = text[close + 1..].to_owned();
@@ -118,7 +122,9 @@ impl Reader {
             }
             if !self.started {
                 if stmt != "journey" {
-                    return Err(format!("Line {number}: a user journey starts with journey"));
+                    return Err(format!(
+                        "Line {number}: a user journey starts with journey on a line of its own"
+                    ));
                 }
                 self.started = true;
                 continue;
@@ -240,17 +246,29 @@ fn draw(reader: &Reader, max_width: Option<usize>) -> Result<Frame> {
         (name, (room - name).min(actors))
     };
 
+    // Each line of wrapped text takes at most width + 1 bytes, so a longer text is refused
+    // before it is wrapped.
+    let wrap = |text: &str, width: usize| {
+        if text.len() > MAX_HEIGHT * (width + 1) {
+            return Err(format!(
+                "The user journey needs more than {MAX_HEIGHT} rows; a drawing has at most {MAX_HEIGHT}"
+            ));
+        }
+        Ok(wrap_lines(text, width))
+    };
     let mut lines: Vec<String> = Vec::new();
     if let Some(title) = &reader.title {
-        lines.extend(wrap_lines(title, budget));
+        lines.extend(wrap(title, budget)?);
         lines.push(String::new());
     }
+    // As Mermaid does, a heading starts where the section's name changes.
     let mut section = None;
     for task in &reader.tasks {
-        if task.section != section {
-            section = task.section;
-            if let Some(index) = section {
-                lines.extend(wrap_lines(&reader.sections[index], budget));
+        let name = task.section.map(|index| reader.sections[index].as_str());
+        if name != section {
+            section = name;
+            if let Some(name) = name {
+                lines.extend(wrap(name, budget)?);
             }
         }
         let pad = if label > indent(task) {
@@ -258,11 +276,11 @@ fn draw(reader: &Reader, max_width: Option<usize>) -> Result<Frame> {
         } else {
             0
         };
-        let names = wrap_lines(&task.name, label - pad);
+        let names = wrap(&task.name, label - pad)?;
         let people = if task.actors.is_empty() {
             Vec::new()
         } else {
-            wrap_lines(&task.actors, actors)
+            wrap(&task.actors, actors)?
         };
         let face = match task.score {
             4.. => ":)",

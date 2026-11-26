@@ -133,13 +133,51 @@ fn journey_fits_a_narrow_width_or_says_how_wide_it_must_be() {
             .text(),
         "A [#####] 5 :)"
     );
+    // A name too long for 256 rows is refused before it is wrapped a byte a row.
+    let long = format!("journey\n  {}: 5", "x".repeat(100_000));
+    assert_eq!(
+        mermaid_with_max_width(&long, 14).unwrap_err(),
+        "The user journey needs more than 256 rows; a drawing has at most 256"
+    );
+}
+
+#[test]
+fn journey_draws_one_heading_for_a_section_name_repeated_as_mermaid_does() {
+    let expected = ["A", "  T1 [#####] 5 :)", "  T2 [###  ] 3 :|"];
+    assert_eq!(
+        rows("journey\n  section A\n  T1: 5\n  section A\n  T2: 3"),
+        expected
+    );
+    assert_eq!(
+        rows("journey\n  section A\n  T1: 5\n  section B\n  section A\n  T2: 3"),
+        expected
+    );
 }
 
 #[test]
 fn journey_refuses_what_it_cannot_draw_with_the_line() {
     for (source, error) in [
         ("", "A user journey starts with journey"),
-        ("flowchart", "Line 1: a user journey starts with journey"),
+        (
+            "flowchart",
+            "Line 1: a user journey starts with journey on a line of its own",
+        ),
+        (
+            "journey title Day",
+            "Line 1: a user journey starts with journey on a line of its own",
+        ),
+        (
+            "journey\n  A: 5\n  accDescr {\n  B: 3",
+            "Line 3: accDescr { is not closed with }",
+        ),
+        (
+            "journey\n  Tab #9;: 5",
+            "Line 2: #9; is not an entity for a printable ASCII character",
+        ),
+        (
+            "journey\n  Nul #0;: 5",
+            "Line 2: #0; is not an entity for a printable ASCII character",
+        ),
         ("journey", "A user journey needs at least one task"),
         (
             "journey\n  title Only a title\n  section Empty",
