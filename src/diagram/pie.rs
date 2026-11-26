@@ -195,7 +195,12 @@ impl Reader {
         self.slices.push(Slice {
             label,
             value,
-            shown: format!("{value}"),
+            // As JavaScript writes a number: in exponent form below 0.000001.
+            shown: if value > 0.0 && value < 1e-6 {
+                format!("{value:e}")
+            } else {
+                format!("{value}")
+            },
         });
         Ok(())
     }
