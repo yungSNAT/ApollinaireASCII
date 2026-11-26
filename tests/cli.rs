@@ -1627,8 +1627,8 @@ fn diagram_lays_out_a_mermaid_flowchart_from_a_file_or_stdin() {
         text(&sequence.stderr)
     );
     refused(
-        &cli_stdin(&["diagram", "-"], b"pie\n"),
-        "Line 1: a Mermaid diagram starts with flowchart, graph, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, gantt or journey",
+        &cli_stdin(&["diagram", "-"], b"quadrantChart\n"),
+        "Line 1: a Mermaid diagram starts with flowchart, graph, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, gantt, pie, gitGraph, timeline or journey",
     );
     let state = cli_stdin(&["diagram", "-"], b"stateDiagram-v2\n  [*] --> Ready\n");
     assert!(

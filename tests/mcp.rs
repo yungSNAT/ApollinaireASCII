@@ -96,6 +96,15 @@ fn returned(reply: &Value) -> (String, bool) {
     (text, result["isError"].as_bool().unwrap())
 }
 
+#[test]
+fn timeline_comment_tokens_render_through_the_cli_and_the_mcp_tool() {
+    let source = "a%% preface\ntimeline LR x%% comment\nP :%% ignored";
+    let drawing = printed(&["diagram", "-"], source.as_bytes());
+    assert_eq!(drawing.trim_end(), "P o");
+    let replies = serve(&[call(1, "diagram", json!({"text": source}))]);
+    assert_eq!(returned(&replies[0]), (drawing, false));
+}
+
 fn error(reply: &Value) -> (i64, &str) {
     (
         reply["error"]["code"].as_i64().unwrap(),
