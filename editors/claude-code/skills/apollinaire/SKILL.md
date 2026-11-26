@@ -1,6 +1,6 @@
 ---
 name: apollinaire
-description: Make plain ASCII art with the apollinaire CLI - catalogue art, FIGlet lettering, speech bubbles, tables, trees, Mermaid diagrams and Gantt charts, image and GIF conversion, text effects, scenes and borders - whose output is only printable ASCII (bytes 32 to 126). Use when asked for ASCII art, a banner, a text table or tree, a diagram in text, or a picture as text.
+description: Make plain ASCII art with the apollinaire CLI - catalogue art, FIGlet lettering, speech bubbles, tables, trees, Mermaid diagrams and charts, image and GIF conversion, text effects, scenes and borders - whose output is only printable ASCII (bytes 32 to 126). Use when asked for ASCII art, a banner, a text table or tree, a diagram in text, or a picture as text.
 ---
 
 # ASCII art with apollinaire
@@ -18,7 +18,7 @@ Every drawing command prints to stdout; `--output FILE` writes a new file instea
 | A speech bubble, optionally above art | `apollinaire say "Hello there" --art cat` |
 | A table from CSV or TSV rows | `apollinaire table prices.tsv`, or `--separator ,` |
 | A directory or outline tree | `printf 'src\n  lib.rs\n' \| apollinaire tree -` |
-| A flowchart, sequence, state, class or ER diagram, or a Gantt chart | `apollinaire diagram flow.mmd --max-width 80` |
+| A Mermaid diagram or chart of a kind the `mermaid-ascii` skill lists | `apollinaire diagram flow.mmd --max-width 80` |
 | Every Mermaid block in a Markdown file drawn as text | `apollinaire diagram README.md --markdown --max-width 80` |
 | A photo, logo or GIF as text | `apollinaire image logo.png --width 72` |
 | A border, crop, flip or rotation of existing art | `apollinaire transform art.txt border --style dotted` |
