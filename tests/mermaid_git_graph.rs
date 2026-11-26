@@ -4,6 +4,9 @@
 use apollinaire_ascii::diagram::{git_graph, mermaid, mermaid_with_max_width};
 use std::{fs, path::Path};
 
+#[path = "mermaid_git_graph/limits.rs"]
+mod limits;
+
 /// Each `tests/fixtures/git-graph/*.mmd` drawn matches the `.txt` beside it. A
 /// `%% max-width: N` first line draws it within N columns. `BLESS=1` rewrites the expected files.
 #[test]
@@ -430,57 +433,6 @@ fn git_graph_reads_accessibility_blocks_to_their_end() {
     assert_eq!(
         rows("gitGraph\naccDescr {\na\n} commit\ncommit"),
         ["main", "o", "o", "o commit"]
-    );
-}
-
-#[test]
-fn git_graph_refuses_text_too_tall_to_draw_before_wrapping_it() {
-    let long = format!("gitGraph\ncommit id: \"{}\"", "x".repeat(1 << 20));
-    assert_eq!(
-        mermaid_with_max_width(&long, 7).unwrap_err(),
-        "The Git graph needs more than 256 rows; a drawing has at most 256"
-    );
-    let name = format!("gitGraph\nbranch \"{}\"", "x".repeat(1 << 20));
-    assert_eq!(
-        mermaid_with_max_width(&name, 10).unwrap_err(),
-        "The Git graph needs more than 256 rows; a drawing has at most 256"
-    );
-    assert_eq!(
-        git_graph("gitGraph\nbranch \"\"").unwrap_err(),
-        "Line 2: a branch name is expected"
-    );
-}
-
-#[test]
-fn git_graph_bounds_inputs_counts_and_total_height() {
-    assert_eq!(
-        git_graph(&"x".repeat((16 << 20) + 1)).unwrap_err(),
-        "The Git graph exceeds the 16 MiB input limit"
-    );
-    assert_eq!(
-        git_graph("%% comment").unwrap_err(),
-        "A Git graph starts with gitGraph"
-    );
-    assert_eq!(
-        git_graph(&format!("gitGraph\n{}", "commit\n".repeat(257))).unwrap_err(),
-        "Line 258: a Git graph has at most 256 commits"
-    );
-    let branches: String = (1..=170).map(|n| format!("branch b{n}\n")).collect();
-    assert_eq!(
-        git_graph(&format!("gitGraph\n{branches}")).unwrap_err(),
-        "Line 171: a Git graph has at most 170 branches"
-    );
-    assert_eq!(
-        git_graph(&format!("gitGraph\n{}", "commit\n".repeat(256))).unwrap_err(),
-        "The Git graph needs 258 rows; a drawing has at most 256"
-    );
-    let mut source = String::from("gitGraph\n");
-    for i in 0..10 {
-        source.push_str(&format!("commit id: \"{i}{}\"\n", "x".repeat(200)));
-    }
-    assert_eq!(
-        mermaid_with_max_width(&source, 7).unwrap_err(),
-        "The Git graph needs more than 256 rows; a drawing has at most 256"
     );
 }
 
