@@ -84,7 +84,9 @@ fn mindmap_fits_a_narrow_width_or_says_how_wide_it_must_be() {
         rows(mermaid_with_max_width(source, 5).unwrap()),
         ["R", "`-- C"]
     );
-    let deep: String = (0..129).map(|depth| format!("{}N\n", " ".repeat(depth))).collect();
+    let deep: String = (0..129)
+        .map(|depth| format!("{}N\n", " ".repeat(depth)))
+        .collect();
     assert_eq!(
         mindmap(&format!("mindmap\n{deep}")).unwrap_err(),
         "The mindmap is nested too deeply to fit 512 columns"
@@ -129,8 +131,14 @@ fn mindmap_refuses_what_it_cannot_draw_with_the_line() {
             "mindmap\n  A\n  ::icon(fa fa-book",
             "Line 3: the icon is not closed with ')'",
         ),
-        ("mindmap\n  A[text", "Line 2: the node's shape is not closed"),
-        ("mindmap\n  A[\"text]", "Line 2: the node's shape is not closed"),
+        (
+            "mindmap\n  A[text",
+            "Line 2: the node's shape is not closed",
+        ),
+        (
+            "mindmap\n  A[\"text]",
+            "Line 2: the node's shape is not closed",
+        ),
         (
             "mindmap\n  A{text}",
             "Line 2: a node's shape opens with [, (, ((, )), ) or {{",

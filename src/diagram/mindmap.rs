@@ -162,9 +162,7 @@ fn label(number: usize, text: &str) -> Result<String> {
         (inner, &after[close.len()..])
     };
     if !after.is_empty() {
-        return Err(format!(
-            "Line {number}: '{after}' follows the node's shape"
-        ));
+        return Err(format!("Line {number}: '{after}' follows the node's shape"));
     }
     if inner.trim().is_empty() {
         return Err(format!("Line {number}: a node needs text"));
@@ -204,7 +202,10 @@ fn draw(nodes: &[Node], max_width: Option<usize>) -> Result<Frame> {
         let room = budget - branch.len();
         let lines = node.lines.iter().flat_map(|line| wrap_lines(line, room));
         for (index, line) in lines.enumerate() {
-            rows.push(format!("{}{line}", if index == 0 { &branch } else { &further }));
+            rows.push(format!(
+                "{}{line}",
+                if index == 0 { &branch } else { &further }
+            ));
         }
     }
     if rows.len() > MAX_HEIGHT {
