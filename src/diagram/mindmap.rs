@@ -113,10 +113,7 @@ impl Reader {
                 "Line {number}: a mindmap has at most {MAX_NODES} nodes"
             ));
         }
-        let lines = label(number, text)?
-            .split('\n')
-            .map(|line| decode(number, line))
-            .collect::<Result<_>>()?;
+        let lines = label(number, text)?;
         self.nodes.push(Node {
             indent,
             depth,
@@ -126,8 +123,8 @@ impl Reader {
     }
 }
 
-/// A node's text with each `<br>`, `<br/>` or `<br />` made a line feed.
-fn label(number: usize, text: &str) -> Result<String> {
+/// A node's lines of text, broken at each `<br>`, `<br/>` or `<br />`.
+fn label(number: usize, text: &str) -> Result<Vec<String>> {
     let unclosed = || format!("Line {number}: the node's shape is not closed");
     // A node's id runs to the first bracket; a line opening with `-)` has no id.
     let id = if text.starts_with("-)") {
@@ -168,25 +165,32 @@ fn label(number: usize, text: &str) -> Result<String> {
     if !after.is_empty() {
         return Err(format!("Line {number}: '{after}' follows the node's shape"));
     }
-    if inner.trim().is_empty() {
-        return Err(format!("Line {number}: a node needs text"));
-    }
-    let mut text = inner.replace('\t', " ");
-    // Mermaid breaks a line at `<br>` written in any case, with optional spaces and `/`.
+    // Mermaid breaks a line at `<br>` written in any case, with optional spaces before an
+    // optional `/`. The text is ASCII, so lower-casing keeps every offset.
+    let lower = inner.to_ascii_lowercase();
+    let mut lines = Vec::new();
     let mut at = 0;
-    while let Some(found) = text[at..].to_ascii_lowercase().find("<br") {
-        let start = at + found;
-        let tail = text[start + 3..].trim_start_matches(' ');
+    for (start, _) in lower.match_indices("<br") {
+        let tail = lower[start + 3..].trim_start_matches(' ');
         let tail = tail.strip_prefix('/').unwrap_or(tail);
-        if let Some(end) = tail.strip_prefix('>') {
-            let end = text.len() - end.len();
-            text.replace_range(start..end, "\n");
-            at = start + 1;
-        } else {
-            at = start + 3;
+        if let Some(rest) = tail.strip_prefix('>') {
+            if lines.len() == MAX_HEIGHT {
+                return Err(format!(
+                    "Line {number}: the node's text needs more than {MAX_HEIGHT} rows"
+                ));
+            }
+            lines.push(&inner[at..start]);
+            at = lower.len() - rest.len();
         }
     }
-    Ok(text)
+    lines.push(&inner[at..]);
+    if lines.iter().all(|line| line.trim().is_empty()) {
+        return Err(format!("Line {number}: a node needs text"));
+    }
+    lines
+        .into_iter()
+        .map(|line| decode(number, &line.replace('\t', " ")))
+        .collect()
 }
 
 fn draw(nodes: &[Node], max_width: Option<usize>) -> Result<Frame> {
@@ -204,8 +208,18 @@ fn draw(nodes: &[Node], max_width: Option<usize>) -> Result<Frame> {
     let mut rows = Vec::new();
     for (node, (branch, further)) in nodes.iter().zip(branches(&depths)) {
         let room = budget - branch.len();
-        let lines = node.lines.iter().flat_map(|line| wrap_lines(line, room));
-        for (index, line) in lines.enumerate() {
+        let mut lines = Vec::new();
+        for line in &node.lines {
+            // Each wrapped line takes at most room + 1 bytes, so a longer text is refused
+            // before it is wrapped.
+            if line.len() > MAX_HEIGHT * (room + 1) || rows.len() > MAX_HEIGHT {
+                return Err(format!(
+                    "The mindmap needs more than {MAX_HEIGHT} rows; a drawing has at most {MAX_HEIGHT}"
+                ));
+            }
+            lines.extend(wrap_lines(line, room));
+        }
+        for (index, line) in lines.into_iter().enumerate() {
             rows.push(format!(
                 "{}{line}",
                 if index == 0 { &branch } else { &further }

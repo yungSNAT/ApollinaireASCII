@@ -109,6 +109,31 @@ fn mindmap_fits_a_narrow_width_or_says_how_wide_it_must_be() {
         mermaid_with_max_width(&format!("mindmap\n  {words}"), 5).unwrap_err(),
         "The mindmap needs 300 rows; a drawing has at most 256"
     );
+    // A text too long for 256 rows is refused before it is wrapped a byte a row.
+    let long = format!("mindmap\n  {}", "x".repeat(100_000));
+    assert_eq!(
+        mermaid_with_max_width(&long, 1).unwrap_err(),
+        "The mindmap needs more than 256 rows; a drawing has at most 256"
+    );
+}
+
+#[test]
+fn mindmap_breaks_text_at_br_in_one_pass_and_refuses_too_many_breaks() {
+    assert_eq!(
+        rows(mindmap("mindmap\n  A[one<Br   />two<bR/ >three]").unwrap()),
+        ["one", "two<bR/ >three"]
+    );
+    let breaks = format!("mindmap\n  A[{}]", "x<br>".repeat(300));
+    assert_eq!(
+        mindmap(&breaks).unwrap_err(),
+        "Line 2: the node's text needs more than 256 rows"
+    );
+    // 4 MiB of `<br` that breaks nothing is one long line, refused as too long, not rescanned.
+    let near_misses = format!("mindmap\n  {}", "<brx".repeat(1 << 20));
+    assert_eq!(
+        mindmap(&near_misses).unwrap_err(),
+        "The mindmap needs more than 256 rows; a drawing has at most 256"
+    );
 }
 
 #[test]
@@ -152,6 +177,8 @@ fn mindmap_refuses_what_it_cannot_draw_with_the_line() {
             "mindmap\n  A[\"text]",
             "Line 2: the node's shape is not closed",
         ),
+        ("mindmap\n  A[<br>]", "Line 2: a node needs text"),
+        ("mindmap\n  <br/> <BR>", "Line 2: a node needs text"),
         (
             "mindmap\n  A{text}",
             "Line 2: a node's shape opens with [, (, ((, )), ) or {{",
