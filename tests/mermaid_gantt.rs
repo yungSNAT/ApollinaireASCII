@@ -407,3 +407,19 @@ fn gantt_places_tasks_as_mermaid_draws_them() {
     );
     assert_eq!(other[..2], ["A =====", "B      ="]);
 }
+
+#[test]
+fn gantt_skips_accessibility_lines_in_any_case_and_draws_tasks_named_like_them() {
+    // As Mermaid 12.3.0 draws it: its lexer takes accTitle and accDescr only before ':' or '{',
+    // in any case, so accTitleX is a task.
+    let drawn = rows(
+        "gantt
+  ACCTITLE: Plan
+  AccDescr {
+    Two tasks
+  }
+  accTitleX :a, 2026-01-01, 1d
+  accDescr2 :b, after a, 1d",
+    );
+    assert_eq!(drawn[..2], ["accTitleX =", "accDescr2  ="]);
+}

@@ -103,6 +103,27 @@ struct Reader {
     tasks: Vec<Task>,
 }
 
+/// Whether a statement is one of Mermaid's accessibility lines, which are skipped, and if so
+/// whether it opens an `accDescr {` block. As Mermaid's lexer does, in any case: `accTitle` or
+/// `accDescr` before `:`, or `accDescr` before `{`. A task named `accTitleX` is a task.
+fn accessibility(stmt: &str) -> Option<bool> {
+    let after = |word: &str| {
+        stmt.get(..word.len())
+            .filter(|head| head.eq_ignore_ascii_case(word))
+            .map(|_| &stmt[word.len()..])
+    };
+    let title = after("accTitle").map(str::trim_start);
+    let description = after("accDescr").map(str::trim_start);
+    if title.is_some_and(|rest| rest.starts_with(':'))
+        || description.is_some_and(|rest| rest.starts_with(':'))
+    {
+        return Some(false);
+    }
+    description
+        .filter(|rest| rest.starts_with('{'))
+        .map(|rest| !rest.contains('}'))
+}
+
 impl Reader {
     fn line(&mut self, number: usize, line: &str) -> Result<()> {
         if line.trim_start().starts_with("%%") {
@@ -132,6 +153,10 @@ impl Reader {
     }
 
     fn statement(&mut self, number: usize, stmt: &str) -> Result<()> {
+        if let Some(open) = accessibility(stmt) {
+            self.in_block = open;
+            return Ok(());
+        }
         let (word, rest) = stmt
             .split_once([' ', '\t'])
             .map_or((stmt, ""), |(w, r)| (w, r.trim()));
@@ -170,10 +195,6 @@ impl Reader {
             }
             "todayMarker" | "tickInterval" | "weekday" | "topAxis" | "displayMode" | "click"
             | "call" => {}
-            _ if word.starts_with("accTitle") || word.starts_with("accDescr") => {
-                self.in_block =
-                    word.starts_with("accDescr") && stmt.ends_with('{') && !stmt.contains(':');
-            }
             _ => self.task(number, stmt)?,
         }
         Ok(())
