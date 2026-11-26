@@ -1,3 +1,6 @@
+// Copyright 2026 Ryan Duguid
+// SPDX-License-Identifier: MIT
+
 //! Lane placement, parent links, labels and the ASCII drawing for a parsed Git graph.
 
 use super::{Branch, Commit, Kind, LANE, Reader};
