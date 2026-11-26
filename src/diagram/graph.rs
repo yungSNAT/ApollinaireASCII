@@ -278,7 +278,8 @@ pub(super) fn wrap_lines(text: &str, width: usize) -> Vec<String> {
             push_word(&mut lines, &mut current, word, width);
         }
     }
-    if !current.is_empty() {
+    // A text of only spaces wider than `width` keeps one empty line, so that its row is drawn.
+    if !current.is_empty() || lines.is_empty() {
         lines.push(current);
     }
     lines
@@ -467,4 +468,21 @@ fn layout(graph: &Graph, gap_override: Option<i32>) -> Result<Frame> {
         width,
         height,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::wrap_lines;
+
+    #[test]
+    fn wrap_lines_keeps_one_line_for_text_of_only_spaces() {
+        // Every family draws a row per wrapped line, so a blank text must keep its row.
+        assert_eq!(wrap_lines("          ", 4), [""]);
+        assert_eq!(wrap_lines(&" ".repeat(600), 512), [""]);
+        assert_eq!(wrap_lines("   ", 3), ["   "]);
+        assert_eq!(wrap_lines("", 3), [""]);
+        // Text with words is wrapped as before.
+        assert_eq!(wrap_lines("ab cd", 3), ["ab", "cd"]);
+        assert_eq!(wrap_lines("abcdefg", 3), ["abc", "def", "g"]);
+    }
 }

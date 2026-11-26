@@ -138,9 +138,19 @@ fn gantt_fits_a_max_width_and_scales_long_spans() {
     for width in [3, 12, 40, 80] {
         let chart = mermaid_with_max_width(source, width).unwrap();
         assert!(chart.width() <= width, "{width}:\n{}", chart.text());
+        let joined: String = chart.text().lines().map(str::trim).collect();
+        assert!(joined.contains("2026-01-01"), "{width}:\n{}", chart.text());
     }
     // Without a width a year of days is scaled into the default 100 columns.
     assert!(gantt(source).unwrap().width() <= 100);
+    let long_axis = format!(
+        "gantt\n  axisFormat {}\n  Task :2026-01-01, 1d",
+        "x".repeat(800)
+    );
+    assert_eq!(
+        mermaid_with_max_width(&long_axis, 3).unwrap_err(),
+        "The Gantt axis label is too long for a drawing of 256 rows"
+    );
 }
 
 #[test]

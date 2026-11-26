@@ -1,0 +1,9 @@
+A household budget for the 2026-27      
+financial year, split by category       
+                                        
+Rent and other    ###########......  68%
+housing costs                           
+[2400]                                  
+Groceries [800]   ####.............  23%
+Transport, fuel & ##...............  10%
+"tolls" [350.5]                         

@@ -439,7 +439,7 @@ function cases.preview_bounds_the_renders_running_at_once()
 end
 
 function cases.preview_shows_why_a_block_failed()
-  buffer(concat({ "# Pie" }, fenced("```mermaid", { "pie", '  "Gold" : 3' }, "```")))
+  buffer(concat({ "# Quadrant" }, fenced("```mermaid", { "quadrantChart", "  title Gold" }, "```")))
   vim.api.nvim_win_set_cursor(0, { 1, 0 })
   vim.cmd("ApollinairePreview")
   settle()
