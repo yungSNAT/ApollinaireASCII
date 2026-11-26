@@ -83,13 +83,17 @@ impl Reader {
             self.started = true;
             return Ok(());
         }
-        if text.starts_with("::icon(") || text.starts_with(":::") {
+        // Mermaid reads `::icon(` in any case.
+        let icon = text
+            .get(..7)
+            .is_some_and(|start| start.eq_ignore_ascii_case("::icon("));
+        if icon || text.starts_with(":::") {
             if self.nodes.is_empty() {
                 return Err(format!(
                     "Line {number}: an icon or class follows the node it belongs to"
                 ));
             }
-            if text.starts_with("::icon(") && !text.ends_with(')') {
+            if icon && !text.ends_with(')') {
                 return Err(format!("Line {number}: the icon is not closed with ')'"));
             }
             return Ok(());

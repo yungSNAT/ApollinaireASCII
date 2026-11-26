@@ -64,6 +64,19 @@ fn mindmap_counts_a_tab_as_one_column_of_indentation_as_mermaid_does() {
 }
 
 #[test]
+fn mindmap_reads_icons_in_any_case_but_its_header_in_lower_case_as_mermaid_does() {
+    assert_eq!(
+        rows(mindmap("mindmap\n  Root\n    A\n    ::ICON(fa fa-book)\n    ::Icon(mdi x)").unwrap()),
+        ["Root", "`-- A"]
+    );
+    // Mermaid's detector matches `mindmap` in lower case only, so `MINDMAP` is no diagram.
+    assert_eq!(
+        mermaid("MINDMAP\n  Root").unwrap_err(),
+        "Line 1: a Mermaid diagram starts with flowchart, graph, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram or mindmap"
+    );
+}
+
+#[test]
 fn mindmap_reads_from_a_markdown_code_block_and_through_mermaid() {
     let fenced = "~~~mermaid\nmindmap\n  Root\n    Leaf\n~~~\n";
     assert_eq!(mindmap(fenced).unwrap().text(), "Root    \n`-- Leaf");
