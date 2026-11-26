@@ -74,10 +74,29 @@ struct Reader {
 
 impl Reader {
     fn line(&mut self, number: usize, line: &str) -> Result<()> {
-        if line.trim_start().starts_with("%%") {
+        let mut line = line.replace('\t', " ");
+        // The text of an `accDescr { .. }` block runs to its `}`, whatever it holds.
+        if self.in_block {
+            let Some(close) = line.find('}') else {
+                return Ok(());
+            };
+            self.in_block = false;
+            line.replace_range(..=close, "");
+        }
+        let text = line.trim_start();
+        if text.starts_with("%%") {
             return Ok(());
         }
-        let line = line.replace('\t', " ");
+        if self.started
+            && let Some(block) = accessibility(text)
+        {
+            // Accessibility text is not drawn; `accTitle:` and `accDescr:` take their line.
+            let Some(close) = text.find('}').filter(|_| block) else {
+                self.in_block = block;
+                return Ok(());
+            };
+            line = text[close + 1..].to_owned();
+        }
         // As in Mermaid, a `#` that starts no entity code such as `#59;` starts a comment.
         let mut end = 0;
         while let Some(found) = line[end..].find('#') {
@@ -95,10 +114,6 @@ impl Reader {
         for raw in split_statements(&line[..end]) {
             let stmt = raw.trim();
             if stmt.is_empty() {
-                continue;
-            }
-            if self.in_block {
-                self.in_block = !stmt.contains('}');
                 continue;
             }
             if !self.started {
@@ -130,10 +145,6 @@ impl Reader {
                     ));
                 }
                 self.sections.push(decode(number, rest)?);
-            }
-            _ if word.starts_with("accTitle") || word.starts_with("accDescr") => {
-                self.in_block =
-                    word.starts_with("accDescr") && stmt.ends_with('{') && !stmt.contains(':');
             }
             _ => self.task(number, stmt)?,
         }
@@ -176,6 +187,21 @@ impl Reader {
             actors: decode(number, &actors.join(", "))?,
         });
         Ok(())
+    }
+}
+
+/// Whether `text` starts an `accTitle:` or `accDescr:` directive (`Some(false)`) or an
+/// `accDescr {` block (`Some(true)`), read in any case as Mermaid's lexer does.
+fn accessibility(text: &str) -> Option<bool> {
+    let lower = text.to_ascii_lowercase();
+    let (rest, describes) = match lower.strip_prefix("acctitle") {
+        Some(rest) => (rest, false),
+        None => (lower.strip_prefix("accdescr")?, true),
+    };
+    match rest.trim_start().bytes().next() {
+        Some(b':') => Some(false),
+        Some(b'{') if describes => Some(true),
+        _ => None,
     }
 }
 

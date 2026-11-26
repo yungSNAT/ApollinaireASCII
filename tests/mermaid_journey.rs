@@ -78,6 +78,30 @@ fn journey_keeps_actors_in_order_and_drops_empty_ones() {
 }
 
 #[test]
+fn journey_skips_only_whole_accessibility_directives_as_mermaid_does() {
+    // A task whose name starts like a directive is still a task.
+    assert_eq!(
+        rows("journey\n  First: 5\n  accTitleExtra: 3\n  accDescription: 4"),
+        [
+            "First          [#####] 5 :)",
+            "accTitleExtra  [###  ] 3 :|",
+            "accDescription [#### ] 4 :)",
+        ]
+    );
+    // Directives in any case; a block's text runs to its `}`, past `#` and `;`.
+    assert_eq!(
+        rows(
+            "journey\n  ACCTITLE: a; b # c\n  First: 5\n  AccDescr {\n    text #tag; more }\n  accDescr { one line } Second: 4\n  accDescr:x\n  Third: 1"
+        ),
+        [
+            "First  [#####] 5 :)",
+            "Second [#### ] 4 :)",
+            "Third  [#    ] 1 :(",
+        ]
+    );
+}
+
+#[test]
 fn journey_reads_from_a_markdown_code_block_and_through_mermaid() {
     let fenced = "```mermaid\njourney\n  Wake: 2: Me\n```\n";
     assert_eq!(journey(fenced).unwrap().text(), "Wake [##   ] 2 :(  Me");
