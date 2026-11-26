@@ -146,7 +146,14 @@ impl Reader {
                 self.in_block = false;
                 stmt = stmt[at + 1..].trim();
             }
-            if stmt.is_empty() || stmt.starts_with("%%") {
+            // At a token boundary Mermaid also skips one character followed by %% unless it is }.
+            if stmt.is_empty()
+                || stmt.starts_with("%%")
+                || stmt
+                    .chars()
+                    .next()
+                    .is_some_and(|ch| ch != '}' && stmt[ch.len_utf8()..].starts_with("%%"))
+            {
                 return Ok(());
             }
             match accessibility(stmt) {

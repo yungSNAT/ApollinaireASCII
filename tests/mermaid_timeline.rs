@@ -55,6 +55,64 @@ fn rows(source: &str) -> Vec<String> {
 }
 
 #[test]
+fn input_headers_comments_and_literal_break_prefixes() {
+    assert_eq!(
+        timeline(&"x".repeat((16 << 20) + 1)).unwrap_err(),
+        "The timeline exceeds the 16 MiB input limit"
+    );
+    assert_eq!(
+        timeline("%% header missing").unwrap_err(),
+        "A timeline starts with timeline"
+    );
+    assert!(
+        timeline("timeline}%%")
+            .unwrap_err()
+            .contains("starts with timeline")
+    );
+    assert_eq!(
+        rows("timeline\na%% ignored\n# ignored\nP : <x> and <brx>"),
+        ["P o-- <x> and <brx>"]
+    );
+    assert_eq!(rows("timeline\n}%%x : keep"), ["}%%x o-- keep"]);
+}
+
+#[test]
+fn input_counts_are_bounded_before_drawing() {
+    for (line, label) in [("section S\n", "sections"), ("P\n", "time periods")] {
+        let source = format!("timeline\n{}", line.repeat(257));
+        assert_eq!(
+            timeline(&source).unwrap_err(),
+            format!("Line 258: a timeline has at most 256 {label}")
+        );
+    }
+    let source = format!("timeline\nP{}\n: last", " : e".repeat(256));
+    assert_eq!(
+        timeline(&source).unwrap_err(),
+        "Line 3: a time period has at most 256 events"
+    );
+}
+
+#[test]
+fn layout_limits_cover_repeated_sections_long_event_lists_and_final_rows() {
+    let too_tall = "The timeline needs more than 256 rows; a drawing has at most 256";
+    for lines in ["section S\nP\n".repeat(24), "P\n".repeat(130)] {
+        assert_eq!(
+            timeline(&format!("timeline\n{lines}")).unwrap_err(),
+            too_tall
+        );
+    }
+    assert_eq!(
+        timeline(&format!("timeline\n{}", "P\n".repeat(129))).unwrap_err(),
+        "The timeline needs 257 rows; a drawing has at most 256"
+    );
+    let event = "x<br>".repeat(130);
+    assert_eq!(
+        timeline(&format!("timeline\nP : {event}x : {event}x")).unwrap_err(),
+        too_tall
+    );
+}
+
+#[test]
 fn timeline_keeps_periods_and_events_in_order() {
     let expected = [
         "History",
