@@ -71,6 +71,12 @@ pub(super) fn git_graph_fitted(source: &str, max_width: Option<usize>) -> Result
     if !reader.started {
         return Err("A Git graph starts with gitGraph".into());
     }
+    if reader.in_block {
+        return Err(format!(
+            "The accDescr block opened on line {} is not closed",
+            reader.block_line
+        ));
+    }
     draw(&reader, max_width)
 }
 
@@ -102,6 +108,7 @@ struct Reader {
     started: bool,
     upward: bool,
     in_block: bool,
+    block_line: usize,
     title: Option<String>,
     branches: Vec<Branch>,
     current: usize,
@@ -147,6 +154,21 @@ fn tokens(number: usize, text: &str) -> Result<Vec<Token>> {
         rest = rest.trim_start();
     }
     Ok(tokens)
+}
+
+/// Whether `text` starts an `accTitle:` or `accDescr:` line (`Some(false)`) or an
+/// `accDescr {` block (`Some(true)`); Mermaid's Git graph grammar reads both names in this case
+/// only.
+fn accessibility(text: &str) -> Option<bool> {
+    let (rest, describes) = match text.strip_prefix("accTitle") {
+        Some(rest) => (rest, false),
+        None => (text.strip_prefix("accDescr")?, true),
+    };
+    match rest.trim_start().bytes().next() {
+        Some(b':') => Some(false),
+        Some(b'{') if describes => Some(true),
+        _ => None,
+    }
 }
 
 /// Mermaid's branch names: a letter, digit or `_`, then those, `-`, `.` and `/`, not ending in
@@ -220,9 +242,9 @@ impl Reader {
             }
             "merge" => self.merge(number, &tokens(number, rest)?),
             "cherry-pick" => self.cherry_pick(number, &tokens(number, rest)?),
-            _ if word.starts_with("accTitle") || word.starts_with("accDescr") => {
-                self.in_block =
-                    word.starts_with("accDescr") && stmt.ends_with('{') && !stmt.contains(':');
+            _ if accessibility(stmt).is_some() => {
+                self.in_block = accessibility(stmt) == Some(true) && !stmt.contains('}');
+                self.block_line = number;
                 Ok(())
             }
             _ => Err(format!(

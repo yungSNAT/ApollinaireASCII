@@ -145,6 +145,10 @@ fn git_graph_draws_upward_and_names_the_main_branch() {
     );
     // An empty graph is the main branch alone, as Mermaid draws it.
     assert_eq!(rows("gitGraph"), ["main"]);
+    assert_eq!(
+        rows("gitGraph\naccTitle: t\naccDescr : d\naccDescr { d }\naccDescr {\nd\n}\ncommit"),
+        ["main", "o", "o commit"]
+    );
 }
 
 #[test]
@@ -248,6 +252,19 @@ fn git_graph_refuses_what_mermaid_refuses_with_the_line() {
         (
             "gitGraph\nreset main",
             "Line 2: 'reset main' is not a Git graph statement; use commit, branch, checkout, merge or cherry-pick",
+        ),
+        // Only accTitle and accDescr followed by ':' or '{' are skipped, in Mermaid's case.
+        (
+            "gitGraph\naccTitles x",
+            "Line 2: 'accTitles x' is not a Git graph statement; use commit, branch, checkout, merge or cherry-pick",
+        ),
+        (
+            "gitGraph\nACCTITLE: x",
+            "Line 2: 'ACCTITLE: x' is not a Git graph statement; use commit, branch, checkout, merge or cherry-pick",
+        ),
+        (
+            "gitGraph\naccDescr {\ncommit",
+            "The accDescr block opened on line 2 is not closed",
         ),
         (
             "gitGraph RL:",
