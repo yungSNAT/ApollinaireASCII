@@ -455,9 +455,14 @@ fn front_matter<'a, I: Iterator<Item = (usize, &'a str)> + Clone>(
         {
             return title;
         }
-        if flow_keyed(content, "mainBranchName") {
+        // Only the block form is read; any other place or form of the key is refused, so none
+        // is dropped whilst Mermaid reads it.
+        let under_git_graph = keys.iter().map(|&(_, key)| key).eq(["config", "gitGraph"]);
+        if flow_keyed(content, "mainBranchName")
+            || keyed(content, "mainBranchName") && !under_git_graph
+        {
             return Err(format!(
-                "Line {number}: mainBranchName in a flow mapping is not read; write it on its own line"
+                "Line {number}: mainBranchName is read only on its own line under config: and gitGraph:"
             ));
         }
         let Some((key, value)) = key_value(content) else {

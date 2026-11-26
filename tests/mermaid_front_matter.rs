@@ -140,31 +140,36 @@ fn front_matter_names_the_main_branch_of_a_git_graph_as_a_directive_does() {
         "---\n\"config\": # settings\n  'gitGraph':\n    mainBranchName: 'trunk' # a comment\n---\n{branches}"
     );
     assert_eq!(mermaid(&quoted).unwrap().text(), directive);
-    // In a flow mapping it is refused with its line, not dropped.
+    // In a flow mapping, on one line or several, or under other keys, it is refused with its
+    // line, not dropped.
     for (front, line) in [
         ("{config: {gitGraph: {mainBranchName: trunk}}}", 2),
         ("config:\n  gitGraph: {mainBranchName: trunk}", 3),
         ("config:\n  gitGraph: { 'mainBranchName' : trunk }", 3),
+        ("config:\n  gitGraph: {\n    mainBranchName: trunk\n  }", 4),
+        ("{config: {gitGraph: {\n  mainBranchName: trunk}}}", 3),
+        ("config:\n  mainBranchName: trunk", 3),
+        ("mainBranchName: trunk", 2),
     ] {
         assert_eq!(
             mermaid(&format!("---\n{front}\n---\n{branches}")).unwrap_err(),
             format!(
-                "Line {line}: mainBranchName in a flow mapping is not read; write it on its own line"
+                "Line {line}: mainBranchName is read only on its own line under config: and gitGraph:"
             ),
             "{front}"
         );
     }
+    // A key that only ends in the name is another setting.
+    let lookalike = "---\nconfig:\n  xmainBranchName: trunk\n---\ngitGraph\n  commit";
+    assert_eq!(
+        mermaid(lookalike).unwrap().text(),
+        mermaid("gitGraph\n  commit").unwrap().text()
+    );
     // A directive wins over front matter, as Mermaid merges them.
     let both = format!(
         "---\nconfig:\n  gitGraph:\n    mainBranchName: other\n---\n%%{{init: {{'gitGraph': {{'mainBranchName': 'trunk'}}}}}}%%\n{branches}"
     );
     assert_eq!(mermaid(&both).unwrap().text(), directive);
-    // The key elsewhere is another setting.
-    let elsewhere = "---\nconfig:\n  mainBranchName: trunk\n---\ngitGraph\n  commit";
-    assert_eq!(
-        mermaid(elsewhere).unwrap().text(),
-        mermaid("gitGraph\n  commit").unwrap().text()
-    );
     assert_eq!(
         mermaid("---\nconfig:\n  gitGraph:\n    mainBranchName: ''\n---\ngitGraph\n  commit")
             .unwrap_err(),
