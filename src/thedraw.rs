@@ -20,9 +20,12 @@ pub const MAX_TDF_BYTES: usize = 1024 * 1024;
 /// by other editors.
 const MAX_GLYPH_WIDTH: usize = 64;
 const MAX_GLYPH_HEIGHT: usize = 32;
-/// Cells a file's glyphs may cover together. Glyphs can share and overlap their bytes, so a
-/// small file could otherwise claim far more cells than it holds; real fonts stay far below.
-const MAX_TDF_CELLS: usize = 4 * MAX_TDF_BYTES;
+/// Bytes a file's glyph rows may take together. Glyphs can share and overlap their bytes, so a
+/// small file could otherwise claim far more than it holds; real fonts take well under 1 MiB.
+const MAX_GLYPH_BYTES: usize = 16 * MAX_TDF_BYTES;
+/// What each glyph row is charged beside its cells: its own bookkeeping and the allocator's, so
+/// rows of no cells are counted too.
+const ROW_BYTES: usize = 48;
 const MAGIC: &[u8; 20] = b"\x13TheDraw FONTS file\x1a";
 const FONT_MARK: [u8; 4] = [0x55, 0xaa, 0x00, 0xff];
 /// The mark, name length, 12 name bytes, 4 reserved bytes, type, spacing, data size and the
@@ -65,7 +68,7 @@ pub fn parse(bytes: &[u8]) -> Result<Vec<Font>> {
     }
     let mut fonts = Vec::new();
     let mut at = MAGIC.len();
-    let mut cells = 0;
+    let mut taken = 0;
     // A zero byte, or the end of the file, ends the list.
     while bytes.get(at).is_some_and(|&byte| byte != 0) {
         let number = fonts.len() + 1;
@@ -114,7 +117,7 @@ pub fn parse(bytes: &[u8]) -> Result<Vec<Font>> {
             .zip(b'!'..=b'~')
             .map(|(offset, letter)| match u16::from_le_bytes(*offset) {
                 NO_GLYPH => Ok(None),
-                offset => glyph(data, usize::from(offset), kind, &mut cells)
+                offset => glyph(data, usize::from(offset), kind, &mut taken)
                     .map(Some)
                     .map_err(|error| {
                         format!(
@@ -143,8 +146,9 @@ fn ascii(byte: u8) -> u8 {
     crate::ansi::GLYPHS[usize::from(byte)]
 }
 
-/// The rows of the glyph at `offset` in `data`, counting its cells into `cells`.
-fn glyph(data: &[u8], offset: usize, kind: Kind, cells: &mut usize) -> Result<Vec<Vec<u8>>> {
+/// The rows of the glyph at `offset` in `data`, adding the bytes they take to `taken` before
+/// they are made.
+fn glyph(data: &[u8], offset: usize, kind: Kind, taken: &mut usize) -> Result<Vec<Vec<u8>>> {
     let (&width, &height) = data
         .get(offset)
         .zip(data.get(offset + 1))
@@ -155,10 +159,10 @@ fn glyph(data: &[u8], offset: usize, kind: Kind, cells: &mut usize) -> Result<Ve
             "claims {width} x {height} cells; glyphs are at most {MAX_GLYPH_WIDTH} wide and {MAX_GLYPH_HEIGHT} high"
         ));
     }
-    *cells += width * height;
-    if *cells > MAX_TDF_CELLS {
+    *taken += height * (width + ROW_BYTES);
+    if *taken > MAX_GLYPH_BYTES {
         return Err(format!(
-            "takes the file's glyphs past {MAX_TDF_CELLS} cells; real fonts need far fewer"
+            "takes the file's glyphs past {MAX_GLYPH_BYTES} bytes; real fonts need far fewer"
         ));
     }
     let mut rows = vec![vec![b' '; width]; height];

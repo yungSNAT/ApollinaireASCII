@@ -33,6 +33,14 @@ fn font(kind: u8, spacing: u8, name: &str, glyphs: &[(u8, u8, u8, &[u8])]) -> Ve
     bytes
 }
 
+/// A font whose 94 glyph offsets all point at one empty `width` x `height` glyph.
+fn shared(width: u8, height: u8) -> Vec<u8> {
+    let mut bytes = font(1, 0, "Big", &[(b'!', width, height, b"")]);
+    let offsets = 4 + 1 + 12 + 4 + 1 + 1 + 2;
+    bytes[offsets..offsets + 188].fill(0);
+    bytes
+}
+
 fn file(fonts: &[Vec<u8>]) -> Vec<u8> {
     let mut bytes = MAGIC.to_vec();
     for font in fonts {
@@ -191,14 +199,14 @@ fn malformed_files_are_refused_with_a_reason_and_never_panic() {
         ),
         (
             // Fonts whose 94 glyphs all point at one 64 x 32 glyph: a few hundred bytes each
-            // claim 192,512 cells, so the file is refused long before 1 MiB.
-            {
-                let mut shared = font(1, 0, "Big", &[(b'!', 64, 32, b"")]);
-                let offsets = 4 + 1 + 12 + 4 + 1 + 1 + 2;
-                shared[offsets..offsets + 188].fill(0);
-                file(&vec![shared; 30])
-            },
-            "past 4194304 cells",
+            // claim about 330 KiB of rows, so the file is refused long before 1 MiB.
+            file(&vec![shared(64, 32); 60]),
+            "past 16777216 bytes",
+        ),
+        (
+            // The same with glyphs of no columns: their rows are charged too.
+            file(&vec![shared(0, 32); 200]),
+            "past 16777216 bytes",
         ),
         (
             file(&[font(1, 0, "L", &[(b'L', 2, 1, b"abc")])]),
