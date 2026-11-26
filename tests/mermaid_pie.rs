@@ -119,6 +119,11 @@ fn pie_reads_titles_data_labels_and_quotes() {
     assert_eq!(drawn[0], "Fruit & nuts");
     assert!(drawn[2].starts_with("Apples ; pears #"), "{drawn:?}");
     assert_eq!(rows("pie\n  title\n  \"A\" : 1").len(), 1);
+    assert_eq!(
+        rows("pie\naccTitle : t\naccDescr: d\naccDescr { one line }\naccDescr {\nx\n}\n\"A\" : 1")
+            .len(),
+        1
+    );
 }
 
 #[test]
@@ -211,6 +216,19 @@ fn pie_refuses_what_it_cannot_draw_with_the_line() {
             "Line 2: 1234567890123456 has more than 15 digits before the point",
         ),
         ("pies\n\"A\" : 1", "Line 1: a pie chart starts with pie"),
+        // Only accTitle and accDescr followed by ':' or '{' are skipped, in Mermaid's case.
+        (
+            "pie\naccTitleX : 1",
+            "Line 2: 'accTitleX : 1' is not a pie chart statement; a slice is written \"Label\" : value",
+        ),
+        (
+            "pie\naccdescr: x\n\"A\" : 1",
+            "Line 2: 'accdescr: x' is not a pie chart statement; a slice is written \"Label\" : value",
+        ),
+        (
+            "pie\naccDescr {\n\"A\" : 1",
+            "The accDescr block opened on line 2 is not closed",
+        ),
     ] {
         assert_eq!(pie(source).unwrap_err(), error, "{source}");
     }
