@@ -1,0 +1,26 @@
+Adding GANTT diagram functionality to mermaid                                                    
+                                                                                                 
+A section                                                                                        
+  Completed task                      ######                                                     
+  Active task                                 >>>>>>>>>>>>>>                                     
+  Future task                                              ===================                   
+  Future task2                                                                ===================
+Critical tasks                                                                                   
+  Completed task in the critical line ###                                                        
+  Implement parser and jison               ######                                                
+  Create tests for parser                       !!!!!!!!!!!!!!                                   
+  Future task in critical line                                !!!!!!!!!!!!!!!!!!!                
+  Create tests for renderer                                                     ======           
+  Add to mermaid                                                                      ===        
+  Functionality added                                                                   *        
+Documentation                                                                                    
+  Describe gantt syntax                    >>>>>>>>>                                             
+  Add gantt diagram to demo page                        ===                                      
+  Add another diagram to demo page                      ======                                   
+Last section                                                                                     
+  Describe gantt syntax                                       ========                           
+  Add gantt diagram to demo page                                           ===                   
+  Add another diagram to demo page                                           ======              
+                                      +-----------+-----------+-----------+-----------+----------
+                                      2014-01-06  2014-01-10  2014-01-15  2014-01-19  2014-01-24 
+= task  # done  > active  ! critical  * milestone                                                

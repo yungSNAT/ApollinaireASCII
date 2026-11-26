@@ -1,0 +1,7 @@
+Fixed dates  ===                   
+Working days    =====              
+Until fixed     ==============     
+Late start                 =       
+             +-------+-------+     
+             21 Dec  29 Dec   6 Jan
+= task                             
