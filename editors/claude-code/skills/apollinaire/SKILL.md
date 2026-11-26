@@ -13,7 +13,7 @@ Every drawing command prints to stdout; `--output FILE` writes a new file instea
 
 | Asked for | Command |
 | --- | --- |
-| A ready-made picture (cat, rocket, ghost, border, emoticon) | `apollinaire list --tag bird`, then `apollinaire art cat` |
+| A ready-made picture (cat, rocket, ghost, a border or emoticon) | `apollinaire list --tag bird`, then `apollinaire art cat` |
 | A banner or heading in big letters | `apollinaire text "RUST" --font block` (`apollinaire list` names the fonts) |
 | A speech bubble, optionally above art | `apollinaire say "Hello there" --art cat` |
 | A table from CSV or TSV rows | `apollinaire table prices.tsv`, or `--separator ,` |
@@ -42,7 +42,7 @@ apollinaire table drops.csv --separator , --rules every
 
 # A Mermaid flowchart or Gantt chart within 80 columns.
 printf 'graph LR\n  A[Client] --> B[API]\n' | apollinaire diagram - --max-width 80
-printf 'gantt\n  Design :d, 2026-03-02, 5d\n  Build :after d, 10d\n' | apollinaire diagram -
+printf 'gantt\n  Design :d, 2026-03-02, 5d\n  Build :after d, 10d\n' | apollinaire diagram - --max-width 80
 
 # A picture as text, with dithering and edges drawn as | / - \ strokes.
 apollinaire image photo.png --width 80 --dither

@@ -314,7 +314,11 @@ fn general_skill_names_real_commands_and_its_recipes_run() {
             "Design",
         ),
     ] {
-        assert!(skill.contains(&input.replace('\n', "\\n")), "{input}");
+        let recipe = format!(
+            "{}' | apollinaire diagram - --max-width 80\n",
+            input.replace('\n', "\\n")
+        );
+        assert!(skill.contains(&recipe), "{recipe}");
         let mut child = std::process::Command::new(exe)
             .args(["diagram", "-", "--max-width", "80"])
             .stdin(std::process::Stdio::piped())
