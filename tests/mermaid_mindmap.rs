@@ -259,6 +259,6 @@ fn mindmap_refuses_what_it_cannot_draw_with_the_line() {
 fn mindmap_draws_an_exploding_node_with_no_id_by_its_text() {
     assert_eq!(
         mindmap("mindmap\n  root\n    -)boom(-").unwrap().text(),
-        "root\n`-- boom"
+        "root    \n`-- boom"
     );
 }
