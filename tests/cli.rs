@@ -1628,7 +1628,7 @@ fn diagram_lays_out_a_mermaid_flowchart_from_a_file_or_stdin() {
     );
     refused(
         &cli_stdin(&["diagram", "-"], b"pie\n"),
-        "Line 1: a Mermaid diagram starts with flowchart, graph, sequenceDiagram, stateDiagram-v2, classDiagram or erDiagram",
+        "Line 1: a Mermaid diagram starts with flowchart, graph, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram or gantt",
     );
     let state = cli_stdin(&["diagram", "-"], b"stateDiagram-v2\n  [*] --> Ready\n");
     assert!(
@@ -1650,6 +1650,22 @@ fn diagram_lays_out_a_mermaid_flowchart_from_a_file_or_stdin() {
         text(&er.stdout).contains("||--o{ places"),
         "{}",
         text(&er.stderr)
+    );
+    let gantt = cli_stdin(
+        &["diagram", "-"],
+        b"gantt
+  Build :2026-01-01, 3d
+",
+    );
+    assert_eq!(
+        text(&gantt.stdout),
+        "Build ===       
+      +--       
+      2026-01-01
+= task          
+",
+        "{}",
+        text(&gantt.stderr)
     );
     let narrow = cli_stdin(
         &["diagram", "--max-width", "20", "-"],
