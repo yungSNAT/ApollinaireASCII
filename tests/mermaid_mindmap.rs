@@ -72,7 +72,7 @@ fn mindmap_reads_icons_in_any_case_but_its_header_in_lower_case_as_mermaid_does(
     // Mermaid's detector matches `mindmap` in lower case only, so `MINDMAP` is no diagram.
     assert_eq!(
         mermaid("MINDMAP\n  Root").unwrap_err(),
-        "Line 1: a Mermaid diagram starts with flowchart, graph, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, gantt or mindmap"
+        "Line 1: a Mermaid diagram starts with flowchart, graph, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, gantt, pie, gitGraph, timeline, journey or mindmap"
     );
 }
 

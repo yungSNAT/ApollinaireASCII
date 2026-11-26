@@ -1,0 +1,18 @@
+Release train for the spring 
+quarter, with a hotfix       
+                             
+trunk                        
+|  release/2.1               
+|  |  hotfix                 
+o  |  |  Start of the quarter
+|  |  |  [v2.0.0]            
++->o  |  Freeze              
+o  |  |                      
++--|->#  Fix # overflow      
+@<-|--+  [v2.0.1]            
+|  %<-+  [cherry-pick:Fix #  
+|  |  |  overflow]           
+x<-+  |  Ship 2.1            
+o commit  x reverse          
+# highlight  @ merge         
+% cherry-pick                
