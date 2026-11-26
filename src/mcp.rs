@@ -163,7 +163,7 @@ const TOOLS: &[Tool] = &[
         require: &[],
         content: Some(Content {
             name: "text",
-            description: "A Mermaid flowchart, graph, sequence, state, class or ER diagram or user journey (optionally in one Markdown code block), or a Markdown document when markdown is true.",
+            description: "A Mermaid flowchart, graph, sequence, state, class or ER diagram, Gantt chart or user journey (optionally in one Markdown code block), or a Markdown document when markdown is true.",
             base64: false,
             required: true,
             replaces: "input",

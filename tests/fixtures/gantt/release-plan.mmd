@@ -1,0 +1,10 @@
+gantt
+    title Release plan
+    dateFormat YYYY-MM-DD
+    section Build
+    Design          :done, des, 2026-03-02, 5d
+    Implement       :active, imp, after des, 10d
+    Review          :crit, after imp, 3d
+    section Ship
+    Package         :pkg, after imp, 4d
+    Launch          :milestone, after pkg, 0d
