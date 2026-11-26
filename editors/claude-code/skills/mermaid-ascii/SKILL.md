@@ -1,6 +1,6 @@
 ---
 name: mermaid-ascii
-description: Render Mermaid flowcharts, sequence, state, class and ER diagrams, Gantt and pie charts, Git graphs, timelines or fenced Mermaid blocks in Markdown to pure printable ASCII using apollinaire without Node.js or a browser.
+description: Render Mermaid flowcharts, sequence, state, class and ER diagrams, Gantt and pie charts, Git graphs, timelines, user journeys or fenced Mermaid blocks in Markdown to pure printable ASCII using apollinaire without Node.js or a browser.
 ---
 
 # Inline Mermaid to pure printable ASCII
@@ -18,6 +18,7 @@ Use `apollinaire` to render Mermaid diagrams to pure printable ASCII (bytes 32 t
 - Pie charts (`pie`), drawn as one proportional bar per slice
 - Git graphs (`gitGraph`), drawn as a lane per branch and a row per commit
 - Timelines (`timeline`), drawn as periods down an axis with their events beside them
+- User journeys (`journey`), drawn as scored task rows
 
 ## Commands
 
