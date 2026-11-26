@@ -51,7 +51,7 @@ apollinaire image logo.png --width 72 --edges --edge-glyphs
 
 ## Animations and projects
 
-`effect`, `animate`, `model` and animated `image` input export a timed JSON project. `apollinaire play movie.json` plays one in a terminal; `apollinaire import movie.json --format html --output movie.html` makes a standalone web page and `--output movie.cast` an asciicast recording; `--format text --frame 0` takes one frame as plain text.
+`apollinaire effect`, `apollinaire animate`, `apollinaire model` and animated `apollinaire image` input export a timed JSON project. `apollinaire play movie.json` plays one in a terminal; `apollinaire import movie.json --format html --output movie.html` makes a standalone web page and `--output movie.cast` an asciicast recording; `--format text --frame 0` takes one frame as plain text.
 
 ## Agents
 
@@ -62,5 +62,5 @@ apollinaire image logo.png --width 72 --edges --edge-glyphs
 ## Limits
 
 - Output is at most 512 columns by 256 rows a frame; text input is at most 16 MiB.
-- Colour, ANSI, Unicode and image or SVG output are not made: suggest a colour or Unicode tool if the user needs those.
+- Colour (ANSI colour included), Unicode and image or SVG output are not made; an asciicast recording replays its ASCII frames with terminal cursor and clear-screen codes only: suggest a colour or Unicode tool if the user needs those.
 - Mermaid input is a documented subset: an unsupported statement is refused with its line number rather than drawn wrongly.
