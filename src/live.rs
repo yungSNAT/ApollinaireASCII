@@ -7,7 +7,8 @@
 //! enters both in the editor. A connection is let in only with the editor's Origin and a
 //! loopback Host, and only once it sends the token within the admission time. One signed-in
 //! editor holds the bridge; a later one with the token replaces it. The editor checks and
-//! applies every write itself (`src/live_edit.rs`), as one undo step.
+//! applies every write itself (`src/live_edit.rs`), as one undo step. Elements (boxes, text
+//! blocks and lines with ids) are drawn and changed by id the same way (`src/elements.rs`).
 
 use serde_json::{Value, json};
 use std::{
@@ -54,12 +55,24 @@ const NO_EDITOR: &str = "No editor is connected: enter the port and token from l
 /// Capability name advertised by an editor that enforces `expected_sha256` on writes.
 const CAP_EXPECTED_SHA256: &str = "expected_sha256";
 const NO_SHA256_CAPABILITY: &str = "The connected editor does not advertise expected_sha256 support; reload the editor or omit expected_sha256.";
+/// Capability name advertised by an editor that keeps elements.
+const CAP_ELEMENTS: &str = "elements";
+const NO_ELEMENTS_CAPABILITY: &str =
+    "The connected editor does not support elements; reload the editor.";
 
 type Socket = WebSocket<TcpStream>;
 
 struct Peer {
     socket: Socket,
     supports_sha256: bool,
+    supports_elements: bool,
+}
+
+/// What a request needs the editor to support.
+#[derive(Clone, Copy, Default)]
+struct Needs {
+    sha256: bool,
+    elements: bool,
 }
 
 type Slot = Arc<Mutex<Option<Peer>>>;
@@ -176,7 +189,76 @@ pub fn tools() -> Vec<Value> {
             &["writes"],
             false,
         ),
+        tool(
+            "live_elements",
+            "The elements (boxes, text blocks and lines with ids like e3) in the connected editor's project, optionally of one layer or timeline frame: id, layer, frame, kind, place, size, style, arrow, text, revision, and drifted, the count of their cells changed by hand since they were drawn. Also the id the next element gets; ids are never reused.",
+            json!({
+                "layer": {"type": "integer", "minimum": 0, "description": "Only this layer's elements."},
+                "frame": {"type": "integer", "minimum": 0, "description": "Only this timeline frame's elements."},
+            }),
+            &[],
+            true,
+        ),
+        tool(
+            "live_element_add",
+            "Draw a box, text block or line in printable ASCII on top of a frame and give its id, as one undo step. The cells it covers are kept and come back when it moves or is deleted.",
+            Value::Object(element_properties(true)),
+            &["kind", "x", "y"],
+            false,
+        ),
+        tool(
+            "live_element_edit",
+            "Move, resize, restyle or retext an element by id, as one undo step, putting back the cells it covered and redrawing any element above it. Refused when it, or an element above it, was changed by hand, unless force is true.",
+            Value::Object(element_properties(false)),
+            &["element"],
+            false,
+        ),
+        tool(
+            "live_element_delete",
+            "Delete an element by id, as one undo step, putting back the cells it covered and redrawing any element above it. Its id is never given out again. Refused when it, or an element above it, was changed by hand, unless force is true.",
+            json!({
+                "element": {"type": "string", "pattern": "^e[1-9][0-9]*$", "description": "The element's id, like e3."},
+                "revision": {"type": "string", "description": "Optional, from live_elements or the last element tool; refused if the element or its cells changed since."},
+                "force": {"type": "boolean", "description": "Redraw over cells changed by hand."},
+                "dry_run": {"type": "boolean", "description": "Return the would-be frame and changed cell count without editing the project or undo history."},
+            }),
+            &["element"],
+            false,
+        ),
     ]
+}
+
+/// The arguments of `live_element_add` (`adding`) or `live_element_edit`.
+fn element_properties(adding: bool) -> serde_json::Map<String, Value> {
+    let mut props = json!({
+        "x": {"type": "integer", "minimum": 0, "description": "Column of the element's left edge."},
+        "y": {"type": "integer", "minimum": 0, "description": "Row of the element's top edge."},
+        "width": {"type": "integer", "minimum": 1, "description": "A box's or horizontal line's width (box at least 2). Not for text, whose size is its text's."},
+        "height": {"type": "integer", "minimum": 1, "description": "A box's or vertical line's height (box at least 2). Not for text."},
+        "text": {"type": "string", "description": "A text element's rows, separated by line feeds, or a box's text from its top-left inner cell; printable ASCII."},
+        "style": {"type": "string", "enum": ["plain", "rounded", "dotted", "heavy"], "description": "A box's border or a line's stroke (lines are not rounded); default plain."},
+        "arrow": {"type": "string", "enum": ["none", "start", "end", "both"], "description": "A line's arrowheads; default none."},
+        "dry_run": {"type": "boolean", "description": "Return the would-be frame and changed cell count without editing the project or undo history."},
+    })
+    .as_object()
+    .expect("object")
+    .clone();
+    if adding {
+        props.insert(
+            "kind".into(),
+            json!({"type": "string", "enum": ["box", "text", "line"]}),
+        );
+        props.insert("layer".into(), json!({"type": "integer", "minimum": 0, "description": "Layer index, 0-based (default the active layer)."}));
+        props.insert("frame".into(), json!({"type": "integer", "minimum": 0, "description": "Timeline frame index, 0-based (default the frame on screen)."}));
+    } else {
+        props.insert("element".into(), json!({"type": "string", "pattern": "^e[1-9][0-9]*$", "description": "The element's id, like e3."}));
+        props.insert("revision".into(), json!({"type": "string", "description": "Optional, from live_elements or the last element tool; refused if the element or its cells changed since."}));
+        props.insert(
+            "force".into(),
+            json!({"type": "boolean", "description": "Redraw over cells changed by hand."}),
+        );
+    }
+    props
 }
 
 /// A tool result in the shape `mcp.rs` gives every tool.
@@ -194,11 +276,38 @@ impl Bridge {
         let outcome = match name {
             "live_connect" if arguments.is_empty() => self.connect(),
             "live_connect" => Err("live_connect takes no arguments".into()),
-            "live_read" => read_request(arguments).and_then(|request| self.ask(request, false)),
-            "live_write" => write_request(arguments)
-                .and_then(|(request, needs_sha256)| self.ask(request, needs_sha256)),
-            "live_batch" => batch_request(arguments)
-                .and_then(|(request, needs_sha256)| self.ask(request, needs_sha256)),
+            "live_read" => {
+                read_request(arguments).and_then(|request| self.ask(request, Needs::default()))
+            }
+            "live_write" => write_request(arguments).and_then(|(request, sha256)| {
+                self.ask(
+                    request,
+                    Needs {
+                        sha256,
+                        ..Needs::default()
+                    },
+                )
+            }),
+            "live_batch" => batch_request(arguments).and_then(|(request, sha256)| {
+                self.ask(
+                    request,
+                    Needs {
+                        sha256,
+                        ..Needs::default()
+                    },
+                )
+            }),
+            "live_elements" | "live_element_add" | "live_element_edit" | "live_element_delete" => {
+                element_request(name, arguments).and_then(|request| {
+                    self.ask(
+                        request,
+                        Needs {
+                            elements: true,
+                            ..Needs::default()
+                        },
+                    )
+                })
+            }
             _ => return None,
         };
         Some(match outcome {
@@ -226,18 +335,21 @@ impl Bridge {
         }
         let open = self.open.as_ref().expect("opened above");
         Ok(format!(
-            "Bridge open on port {}, token {}. Open the editor at {EDITOR_PAGE} or a local build, choose Connect an agent and enter both; then use live_read, live_write and live_batch.",
+            "Bridge open on port {}, token {}. Open the editor at {EDITOR_PAGE} or a local build, choose Connect an agent and enter both; then use live_read, live_write, live_batch and the element tools.",
             open.port, open.code
         ))
     }
 
     /// Send a request to the editor and give its result as JSON text.
-    fn ask(&mut self, mut request: Value, needs_sha256: bool) -> Result<String, String> {
+    fn ask(&mut self, mut request: Value, needs: Needs) -> Result<String, String> {
         let open = self.open.as_ref().ok_or(NOT_OPEN)?;
         let mut slot = open.slot.lock().unwrap_or_else(PoisonError::into_inner);
         let peer = slot.as_mut().ok_or(NO_EDITOR)?;
-        if needs_sha256 && !peer.supports_sha256 {
+        if needs.sha256 && !peer.supports_sha256 {
             return Err(NO_SHA256_CAPABILITY.into());
+        }
+        if needs.elements && !peer.supports_elements {
+            return Err(NO_ELEMENTS_CAPABILITY.into());
         }
         self.next += 1;
         request["id"] = json!(self.next);
@@ -308,6 +420,45 @@ fn batch_request(arguments: &serde_json::Map<String, Value>) -> Result<(Value, b
         request[key] = value.clone();
     }
     Ok((request, needs_sha256))
+}
+
+/// An element tool's request, after the names its schema allows; the editor checks the rest.
+fn element_request(
+    name: &str,
+    arguments: &serde_json::Map<String, Value>,
+) -> Result<Value, String> {
+    let (op, allowed): (&str, &[&str]) = match name {
+        "live_elements" => ("elements", &["layer", "frame"]),
+        "live_element_add" => (
+            "element_add",
+            &[
+                "kind", "layer", "frame", "x", "y", "width", "height", "text", "style", "arrow",
+                "dry_run",
+            ],
+        ),
+        "live_element_edit" => (
+            "element_edit",
+            &[
+                "element", "revision", "x", "y", "width", "height", "text", "style", "arrow",
+                "force", "dry_run",
+            ],
+        ),
+        _ => (
+            "element_delete",
+            &["element", "revision", "force", "dry_run"],
+        ),
+    };
+    if let Some(key) = arguments
+        .keys()
+        .find(|key| !allowed.contains(&key.as_str()))
+    {
+        return Err(format!("Unknown argument {key}"));
+    }
+    let mut request = json!({"op": op});
+    for (key, value) in arguments {
+        request[key] = value.clone();
+    }
+    Ok(request)
 }
 
 /// 32 bytes from the system's random source, in hexadecimal.
@@ -428,25 +579,25 @@ fn accept(listener: &TcpListener, port: u16, token: &Arc<str>, slot: &Slot) {
     }
 }
 
-/// Parse the editor's sign-in message: either the bare 64-character token (legacy editor,
-/// `supports_sha256 = false`) or JSON `{"token": "...", "capabilities": [...]}`.
-fn parse_sign_in(given: &str, token: &str) -> Option<bool> {
+/// Parse the editor's sign-in message: either the bare 64-character token (legacy editor, no
+/// capabilities) or JSON `{"token": "...", "capabilities": [...]}`. Gives what the editor
+/// supports.
+fn parse_sign_in(given: &str, token: &str) -> Option<Needs> {
     if same(given.as_bytes(), token.as_bytes()) {
-        return Some(false);
+        return Some(Needs::default());
     }
     let payload: Value = serde_json::from_str(given).ok()?;
     let supplied = payload.get("token")?.as_str()?;
     if !same(supplied.as_bytes(), token.as_bytes()) {
         return None;
     }
-    let supports_sha256 = payload
-        .get("capabilities")
-        .and_then(Value::as_array)
-        .is_some_and(|caps| {
-            caps.iter()
-                .any(|cap| cap.as_str() == Some(CAP_EXPECTED_SHA256))
-        });
-    Some(supports_sha256)
+    let caps = payload.get("capabilities").and_then(Value::as_array);
+    let has =
+        |name: &str| caps.is_some_and(|caps| caps.iter().any(|cap| cap.as_str() == Some(name)));
+    Some(Needs {
+        sha256: has(CAP_EXPECTED_SHA256),
+        elements: has(CAP_ELEMENTS),
+    })
 }
 
 /// The handshake and the token, within the admission time, or `None`.
@@ -485,12 +636,12 @@ fn admit(stream: TcpStream, port: u16, token: &str, done: &Arc<AtomicBool>) -> O
         }
     };
     let mut socket = tungstenite::accept_hdr_with_config(stream, check, Some(config)).ok()?;
-    let supports_sha256 = match socket.read() {
+    let supports = match socket.read() {
         Ok(Message::Text(given)) => parse_sign_in(&given, token),
         _ => None,
     };
-    let Some(supports_sha256) = supports_sha256
-        .filter(|_| start.elapsed() < ADMISSION && !done.swap(true, Ordering::SeqCst))
+    let Some(supports) =
+        supports.filter(|_| start.elapsed() < ADMISSION && !done.swap(true, Ordering::SeqCst))
     else {
         let _ = socket.close(None);
         let _ = socket.flush();
@@ -503,7 +654,8 @@ fn admit(stream: TcpStream, port: u16, token: &str, done: &Arc<AtomicBool>) -> O
     });
     Some(Peer {
         socket,
-        supports_sha256,
+        supports_sha256: supports.sha256,
+        supports_elements: supports.elements,
     })
 }
 
@@ -597,16 +749,21 @@ mod tests {
     #[test]
     fn sign_in_parses_legacy_tokens_and_capability_handshakes() {
         let token = "a".repeat(64);
-        assert_eq!(parse_sign_in(&token, &token), Some(false));
+        let caps = |given: &str| parse_sign_in(given, &token).map(|n| (n.sha256, n.elements));
+        assert_eq!(caps(&token), Some((false, false)));
         let modern = json!({"token": token, "capabilities": ["expected_sha256"]}).to_string();
         assert!(modern.len() <= TOKEN_LIMIT);
-        assert_eq!(parse_sign_in(&modern, &token), Some(true));
+        assert_eq!(caps(&modern), Some((true, false)));
+        // The editor's own sign-in, with every capability, fits before the token is checked.
+        let editor = apollinaire_ascii::live_edit::SignIn::new(token.clone()).initial_message();
+        assert!(editor.len() <= TOKEN_LIMIT, "{}", editor.len());
+        assert_eq!(caps(&editor), Some((true, true)));
         let no_caps = json!({"token": token, "capabilities": []}).to_string();
-        assert_eq!(parse_sign_in(&no_caps, &token), Some(false));
+        assert_eq!(caps(&no_caps), Some((false, false)));
         let wrong =
             json!({"token": "b".repeat(64), "capabilities": ["expected_sha256"]}).to_string();
-        assert_eq!(parse_sign_in(&wrong, &token), None);
-        assert_eq!(parse_sign_in("{bad", &token), None);
-        assert_eq!(parse_sign_in("{}", &token), None);
+        assert_eq!(caps(&wrong), None);
+        assert_eq!(caps("{bad"), None);
+        assert_eq!(caps("{}"), None);
     }
 }

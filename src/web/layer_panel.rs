@@ -163,6 +163,7 @@ fn change(app: &mut App, id: &str) -> Result<()> {
                     motion: Default::default(),
                     // Joining the chosen layer's group keeps the group together.
                     group: group.clone(),
+                    elements: Vec::new(),
                 },
             );
         }
@@ -247,7 +248,7 @@ fn change(app: &mut App, id: &str) -> Result<()> {
             layers[active].name = input("layer-name")?.value();
         }
     }
-    app.replace_layers(Layered::new(layers)?, active);
+    app.replace_layers(app.rebuilt(layers)?, active);
     app.display(true)
 }
 

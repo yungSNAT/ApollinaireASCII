@@ -385,7 +385,7 @@ fn launch(app: &mut App, operation: Operation) -> Result<()> {
                 Ok(()) => {
                     match operation {
                         Operation::Restore(project) => {
-                            app.replace_layers(project, 0);
+                            app.open_layers(project, 0);
                             app.seek(0);
                             input("width")?.set_value(&app.project().width().to_string());
                             input("height")?.set_value(&app.project().height().to_string());
@@ -560,6 +560,7 @@ mod tests {
                 locked: false,
                 motion: Default::default(),
                 group: None,
+                elements: Vec::new(),
             },
             crate::Layer {
                 name: "Front".into(),
@@ -568,6 +569,7 @@ mod tests {
                 locked: false,
                 motion: Default::default(),
                 group: None,
+                elements: Vec::new(),
             },
         ])
         .unwrap();

@@ -244,7 +244,7 @@ fn project_validation_enforces_all_budgets() {
 #[test]
 fn project_json_rejects_invalid_shapes_and_frame_metadata() {
     for (input, expected) in [
-        ("[]", "an asciiforge version 1, 2 or 3 project"),
+        ("[]", "an asciiforge version 1, 2, 3 or 4 project"),
         (r#"{"frames":{}}"#, "1 to 600 bounded frames"),
         (
             r#"{"frames":[0]}"#,
@@ -259,8 +259,8 @@ fn project_json_rejects_invalid_shapes_and_frame_metadata() {
             "Frame duration",
         ),
         (
-            r#"{"format":"asciiforge","version":4}"#,
-            "Expected asciiforge project version 1, 2 or 3",
+            r#"{"format":"asciiforge","version":5}"#,
+            "Expected asciiforge project version 1, 2, 3 or 4",
         ),
         (
             r#"{"format":"asciiforge","version":1,"width":2,"height":1,"loop":false,"frames":[{"text":"A","duration_ms":10}]}"#,
