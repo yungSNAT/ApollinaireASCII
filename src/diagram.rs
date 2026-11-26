@@ -249,6 +249,19 @@ fn fence(line: &str) -> bool {
     })
 }
 
+/// Whether a case-sensitive Mermaid grammar reads an accessibility label or a description block.
+fn case_sensitive_accessibility(text: &str) -> Option<bool> {
+    let (rest, describes) = match text.strip_prefix("accTitle") {
+        Some(rest) => (rest, false),
+        None => (text.strip_prefix("accDescr")?, true),
+    };
+    match rest.trim_start().bytes().next() {
+        Some(b':') => Some(false),
+        Some(b'{') if describes => Some(true),
+        _ => None,
+    }
+}
+
 /// Each line of Mermaid text with its number, inside one optional outer Markdown code fence
 /// (```` ``` ```` or `~~~`, untagged or `mermaid`) that opens on the first line with text.
 /// A byte outside printable ASCII, other than a tab, is refused with its line and column.
