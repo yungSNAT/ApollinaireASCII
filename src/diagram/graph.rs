@@ -278,7 +278,8 @@ pub(super) fn wrap_lines(text: &str, width: usize) -> Vec<String> {
             push_word(&mut lines, &mut current, word, width);
         }
     }
-    if !current.is_empty() {
+    // A text of only spaces wider than `width` keeps one empty line, so that its row is drawn.
+    if !current.is_empty() || lines.is_empty() {
         lines.push(current);
     }
     lines

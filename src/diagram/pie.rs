@@ -265,14 +265,7 @@ fn wrapped(text: &str, width: usize) -> Result<Vec<String>> {
     if filled.div_ceil(width) > MAX_HEIGHT {
         return Err(too_tall());
     }
-    // A text of only spaces wider than `width` wraps to no lines; it keeps one empty line so
-    // that its row is still drawn.
-    let lines = wrap_lines(text, width);
-    Ok(if lines.is_empty() {
-        vec![String::new()]
-    } else {
-        lines
-    })
+    Ok(wrap_lines(text, width))
 }
 
 fn draw(reader: &Reader, max_width: Option<usize>) -> Result<Frame> {
