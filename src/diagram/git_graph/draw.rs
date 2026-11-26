@@ -31,13 +31,17 @@ fn too_tall() -> String {
     format!("The Git graph needs more than {MAX_HEIGHT} rows; a drawing has at most {MAX_HEIGHT}")
 }
 
-/// `text` wrapped to `width`; refused, before any row is made, when it needs more rows than a
-/// drawing has.
-fn wrapped(text: &str, width: usize) -> Result<Vec<String>> {
+fn check_text_height(text: &str, width: usize) -> Result<()> {
     let filled = text.bytes().filter(|&b| b != b' ').count();
     if filled.div_ceil(width) > MAX_HEIGHT {
         return Err(too_tall());
     }
+    Ok(())
+}
+
+/// Check before allocating wrapped rows.
+fn wrapped(text: &str, width: usize) -> Result<Vec<String>> {
+    check_text_height(text, width)?;
     Ok(wrap_lines(text, width))
 }
 
@@ -53,9 +57,8 @@ fn display_label<'a>(reader: &'a Reader, commit: &'a Commit) -> Cow<'a, str> {
             .iter()
             .find_map(|(id, &at)| (at == parent).then_some(id.as_str()))
             .unwrap_or(&reader.branches[fallback].name);
-        let already_named = label
-            .match_indices("cherry-pick:")
-            .any(|(at, prefix)| label[at + prefix.len()..].starts_with(name));
+        let already_named = "cherry-pick:".len() + name.len() <= label.len()
+            && label.contains(&format!("cherry-pick:{name}"));
         if !already_named {
             let row = label.to_mut();
             if !row.is_empty() {
@@ -80,6 +83,14 @@ pub(super) fn draw(reader: &Reader, max_width: Option<usize>) -> Result<Frame> {
         ));
     }
     let label_room = max_width.map_or(MAX_WIDTH - grid - 2, |width| width - grid - 2);
+    // These strings appear in the drawing even if another row also refers to them by name.
+    // Reject an oversized original before constructing or searching any derived labels.
+    for branch in &reader.branches {
+        check_text_height(&branch.name, max_width.unwrap_or(MAX_WIDTH))?;
+    }
+    for commit in &reader.commits {
+        check_text_height(&commit.label, label_room)?;
+    }
     let column = |commit: usize| lanes[reader.commits[commit].branch] * LANE;
 
     // Each row's lane cells, then the hops drawn across it.

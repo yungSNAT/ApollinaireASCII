@@ -531,3 +531,15 @@ fn a_delayed_child_preserves_the_marked_parent_on_the_same_lane_cell() {
         ]
     );
 }
+
+#[test]
+fn a_custom_tag_that_names_the_marked_parent_keeps_its_label() {
+    let graph = "gitGraph\ncommit id: \"AB\"\nbranch dev\ncheckout main\ncommit\nmerge dev tag: \"cherry-pick:A cherry-pick:AB\"";
+    assert!(
+        rows(graph)
+            .iter()
+            .any(|row| row.ends_with("[cherry-pick:A cherry-pick:AB]"))
+    );
+    let narrow = "gitGraph\ncommit\nbranch dev\ncheckout main\ncommit\nmerge dev";
+    assert!(mermaid_with_max_width(narrow, 5).is_err());
+}
