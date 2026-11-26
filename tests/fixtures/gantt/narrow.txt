@@ -1,0 +1,13 @@
+A plan whose title is longer than
+the narrow width                 
+                                 
+Preparation and                  
+research                         
+  Gather          =======        
+  requirements                   
+  from every team                
+  Write the              ====    
+  specification                  
+                  +----------    
+                  2026-06-01     
+= task                           
