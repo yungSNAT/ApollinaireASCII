@@ -62,5 +62,6 @@ apollinaire image logo.png --width 72 --edges --edge-glyphs
 ## Limits
 
 - Output is at most 512 columns by 256 rows a frame; text input is at most 16 MiB.
-- Colour (ANSI colour included), Unicode and image or SVG output are not made; an asciicast recording replays its ASCII frames with terminal cursor and clear-screen codes only: suggest a colour or Unicode tool if the user needs those.
+- Colour (ANSI colour included), Unicode and image or SVG output are not made: suggest a colour or Unicode tool if the user needs those.
+- An asciicast recording replays its ASCII frames with terminal cursor and clear-screen codes only.
 - Mermaid input is a documented subset: an unsupported statement is refused with its line number rather than drawn wrongly.
