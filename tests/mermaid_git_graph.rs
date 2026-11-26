@@ -313,3 +313,38 @@ fn git_graph_draws_only_printable_ascii_and_refuses_other_bytes() {
         );
     }
 }
+
+#[test]
+fn git_graph_reads_accessibility_blocks_to_their_end() {
+    // Text after a block's '}' is read; a '%%' inside a block does not hide its '}'.
+    assert_eq!(
+        rows("gitGraph\naccDescr { a } commit"),
+        ["main", "o", "o commit"]
+    );
+    assert_eq!(
+        rows("gitGraph\naccDescr {\n%% }\ncommit"),
+        ["main", "o", "o commit"]
+    );
+    assert_eq!(
+        rows("gitGraph\naccDescr {\na\n} commit\ncommit"),
+        ["main", "o", "o", "o commit"]
+    );
+}
+
+#[test]
+fn git_graph_refuses_text_too_tall_to_draw_before_wrapping_it() {
+    let long = format!("gitGraph\ncommit id: \"{}\"", "x".repeat(1 << 20));
+    assert_eq!(
+        mermaid_with_max_width(&long, 7).unwrap_err(),
+        "The Git graph needs more than 256 rows; a drawing has at most 256"
+    );
+    let name = format!("gitGraph\nbranch \"{}\"", "x".repeat(1 << 20));
+    assert_eq!(
+        mermaid_with_max_width(&name, 10).unwrap_err(),
+        "The Git graph needs more than 256 rows; a drawing has at most 256"
+    );
+    assert_eq!(
+        git_graph("gitGraph\nbranch \"\"").unwrap_err(),
+        "Line 2: a branch name is expected"
+    );
+}

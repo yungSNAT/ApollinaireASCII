@@ -175,7 +175,7 @@ fn accessibility(text: &str) -> Option<bool> {
 /// `.` or `/`; or any quoted text.
 fn branch_name(number: usize, token: Option<&Token>) -> Result<String> {
     match token {
-        Some(Token::Text(name)) => Ok(name.clone()),
+        Some(Token::Text(name)) if !name.is_empty() => Ok(name.clone()),
         Some(Token::Word(name))
             if name
                 .bytes()
@@ -191,17 +191,32 @@ fn branch_name(number: usize, token: Option<&Token>) -> Result<String> {
 
 impl Reader {
     fn line(&mut self, number: usize, line: &str) -> Result<()> {
-        let stmt = line.trim();
-        if stmt.starts_with("%%{") {
-            self.directive(number, stmt)?;
-            return Ok(());
-        }
-        if stmt.is_empty() || stmt.starts_with("%%") {
-            return Ok(());
-        }
-        if self.in_block {
-            self.in_block = !stmt.contains('}');
-            return Ok(());
+        let mut stmt = line.trim();
+        loop {
+            // An accDescr block's text runs to its '}', comments included; the line goes on
+            // after it.
+            if self.in_block {
+                let Some(at) = stmt.find('}') else {
+                    return Ok(());
+                };
+                self.in_block = false;
+                stmt = stmt[at + 1..].trim();
+            }
+            if stmt.starts_with("%%{") {
+                return self.directive(number, stmt);
+            }
+            if stmt.is_empty() || stmt.starts_with("%%") {
+                return Ok(());
+            }
+            match accessibility(stmt) {
+                Some(true) if self.started => {
+                    self.in_block = true;
+                    self.block_line = number;
+                    stmt = &stmt[stmt.find('{').map_or(stmt.len(), |at| at + 1)..];
+                }
+                Some(false) if self.started => return Ok(()),
+                _ => break,
+            }
         }
         if !self.started {
             let header: String = stmt.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -242,11 +257,6 @@ impl Reader {
             }
             "merge" => self.merge(number, &tokens(number, rest)?),
             "cherry-pick" => self.cherry_pick(number, &tokens(number, rest)?),
-            _ if accessibility(stmt).is_some() => {
-                self.in_block = accessibility(stmt) == Some(true) && !stmt.contains('}');
-                self.block_line = number;
-                Ok(())
-            }
             _ => Err(format!(
                 "Line {number}: '{stmt}' is not a Git graph statement; use commit, branch, checkout, merge or cherry-pick"
             )),
@@ -535,6 +545,20 @@ fn lane_order(branches: &[Branch]) -> Vec<usize> {
     lane
 }
 
+fn too_tall() -> String {
+    format!("The Git graph needs more than {MAX_HEIGHT} rows; a drawing has at most {MAX_HEIGHT}")
+}
+
+/// `text` wrapped to `width`; refused, before any row is made, when it needs more rows than a
+/// drawing has.
+fn wrapped(text: &str, width: usize) -> Result<Vec<String>> {
+    let filled = text.bytes().filter(|&b| b != b' ').count();
+    if filled.div_ceil(width) > MAX_HEIGHT {
+        return Err(too_tall());
+    }
+    Ok(wrap_lines(text, width))
+}
+
 fn draw(reader: &Reader, max_width: Option<usize>) -> Result<Frame> {
     let lanes = lane_order(&reader.branches);
     let count = reader.branches.len();
@@ -587,14 +611,14 @@ fn draw(reader: &Reader, max_width: Option<usize>) -> Result<Frame> {
 
     let mut graph: Vec<String> = Vec::new();
     for (commit, row) in reader.commits.iter().zip(&rows) {
+        if graph.len() > MAX_HEIGHT {
+            return Err(too_tall());
+        }
         let cells = String::from_utf8_lossy(row).into_owned();
         let blank: String = (0..grid)
             .map(|x| if x % LANE == 0 { '|' } else { ' ' })
             .collect();
-        for (index, part) in wrap_lines(&commit.label, label_room)
-            .into_iter()
-            .enumerate()
-        {
+        for (index, part) in wrapped(&commit.label, label_room)?.into_iter().enumerate() {
             let lanes = if index == 0 { &cells } else { &blank };
             graph.push(if part.is_empty() {
                 lanes.clone()
@@ -611,7 +635,7 @@ fn draw(reader: &Reader, max_width: Option<usize>) -> Result<Frame> {
     let width = max_width.unwrap_or(MAX_WIDTH);
     for (place, &branch) in by_lane.iter().enumerate() {
         let before = "|  ".repeat(place);
-        for part in wrap_lines(&reader.branches[branch].name, width - place * LANE) {
+        for part in wrapped(&reader.branches[branch].name, width - place * LANE)? {
             header.push(format!("{before}{part}"));
         }
     }
@@ -652,7 +676,7 @@ fn draw(reader: &Reader, max_width: Option<usize>) -> Result<Frame> {
         .max(1);
     let mut lines: Vec<String> = Vec::new();
     if let Some(title) = &reader.title {
-        lines.extend(wrap_lines(title, drawn.min(width)));
+        lines.extend(wrapped(title, drawn.min(width))?);
         lines.push(String::new());
     }
     lines.extend(body);
