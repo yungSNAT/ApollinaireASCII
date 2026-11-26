@@ -124,13 +124,32 @@ pub fn validate_font(contents: &str) -> Result<()> {
     Font::parse(contents).map(|_| ())
 }
 
+/// The punctuation phones and word processors type in place of ASCII, as the ASCII it stands
+/// for: curly quotes, dashes, the ellipsis and the no-break space. Other text is unchanged.
+fn typed_punctuation(text: &str) -> String {
+    let mut plain = String::with_capacity(text.len());
+    for character in text.chars() {
+        match character {
+            '\u{2018}' | '\u{2019}' => plain.push('\''),
+            '\u{201c}' | '\u{201d}' => plain.push('"'),
+            '\u{2010}'..='\u{2015}' | '\u{2212}' => plain.push('-'),
+            '\u{2026}' => plain.push_str("..."),
+            '\u{a0}' => plain.push(' '),
+            other => plain.push(other),
+        }
+    }
+    plain
+}
+
 /// Renders `text` with a bundled font, or with `custom` FLF or TLF contents when given.
+/// Typed punctuation such as curly quotes, dashes and the ellipsis is drawn as its ASCII.
 pub fn render_with(
     text: &str,
     font: &str,
     custom: Option<&str>,
     options: &Options,
 ) -> Result<Frame> {
+    let text = &typed_punctuation(text);
     if text.is_empty() || text.len() > 512 {
         return Err("Lettering needs 1..=512 ASCII characters".into());
     }
@@ -272,6 +291,8 @@ impl Font {
         if contents.len() > MAX_FONT_BYTES {
             return Err("Font exceeds 1 MiB".into());
         }
+        // A font saved with a byte order mark, as one figlet.js font was until v1.13.0.
+        let contents = contents.strip_prefix('\u{feff}').unwrap_or(contents);
         if contents.starts_with("PK\u{3}\u{4}") {
             return Err(
                 "Compressed fonts are not supported; extract the plain .flf or .tlf file first"

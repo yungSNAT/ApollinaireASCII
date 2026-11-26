@@ -321,3 +321,31 @@ fn wrap_drops_separators_at_automatic_and_explicit_breaks() {
         assert_eq!(frame.text(), "aabb\ncc  ", "{text:?}");
     }
 }
+
+#[test]
+fn typed_punctuation_is_drawn_as_its_ascii() {
+    // Phones type these; figlet.js v1.13.0 added glyphs for them. ASCII art draws the ASCII.
+    let typed = "\u{201c}Hi\u{201d} \u{2013} it\u{2019}s 5\u{2026}\u{a0}\u{2014}";
+    let plain = "\"Hi\" - it's 5... -";
+    for font in ["standard", "small"] {
+        assert_eq!(
+            render(typed, font, Options::default()),
+            render(plain, font, Options::default())
+        );
+    }
+    // Other text that is not ASCII is still refused.
+    let error =
+        lettering::render_with("5\u{20ac}", "standard", None, &Options::default()).unwrap_err();
+    assert_eq!(error, "Only printable ASCII is allowed: byte 1 is 0xe2");
+}
+
+#[test]
+fn a_font_saved_with_a_byte_order_mark_loads() {
+    let marked = format!("\u{feff}{}", include_str!("../src/fonts/big.flf"));
+    lettering::validate_font(&marked).unwrap();
+    let drawn = lettering::render_with("Hi", "big", Some(&marked), &Options::default());
+    assert_eq!(
+        drawn.unwrap().text(),
+        render("Hi", "big", Options::default())
+    );
+}
