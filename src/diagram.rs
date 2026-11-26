@@ -284,13 +284,23 @@ fn case_sensitive_accessibility(text: &str) -> Option<bool> {
 
 /// Each line of Mermaid text with its number, inside one optional outer Markdown code fence
 /// (```` ``` ```` or `~~~`, untagged or `mermaid`) that opens on the first line with text.
-/// The diagram may open with YAML front matter, as Mermaid reads it: a `---` line, optionally
-/// indented, up to the next line of the same indent and `---`. Nothing in it is drawn, so its
-/// settings are read past, as `%%{init}%%` directives are, and a `title` there is refused.
+/// The diagram may open with YAML front matter, as [`front_matter`] reads it; blank lines before
+/// it are read past, as Mermaid's page loader trims them. Nothing in it is drawn, so its settings
+/// are read past, as `%%{init}%%` directives are, and a `title` there is refused.
 /// A byte outside printable ASCII, other than a tab, is refused with its line and column, except
 /// in front matter. Lines are read one at a time, so no copy of a long input is made.
 fn mermaid_lines<'a>(
     source: &'a str,
+    statement: impl FnMut(usize, &'a str) -> Result<()>,
+) -> Result<()> {
+    mermaid_lines_with(source, |_, _, _| Ok(()), statement)
+}
+
+/// [`mermaid_lines`], also giving `setting` each `key: value` line of front matter with its line
+/// number, the keys it sits under and its own key, and the value unquoted.
+fn mermaid_lines_with<'a>(
+    source: &'a str,
+    mut setting: impl FnMut(usize, &[&'a str], &'a str) -> Result<()>,
     mut statement: impl FnMut(usize, &'a str) -> Result<()>,
 ) -> Result<()> {
     let mut raw = source
@@ -319,7 +329,7 @@ fn mermaid_lines<'a>(
         .and_then(|&(number, text)| Some((number, front_matter_indent(text)?)))
     {
         raw.next();
-        front_matter(number, indent, &mut raw)?;
+        front_matter(number, indent, &mut raw, &mut setting)?;
     }
     let mut lines = raw.map(|(number, text)| ascii_line(number, text));
     let Some((mark, opened)) = opened else {
@@ -385,35 +395,150 @@ fn front_matter_indent(line: &str) -> Option<&str> {
     (rest.trim_end() == "---").then(|| &line[..line.len() - rest.len()])
 }
 
-/// Read front matter opened on line `opened` up to its closing line: the same indent and `---`.
-/// A top-level `title` is refused, since it is not drawn.
-fn front_matter<'a>(
+/// Read front matter opened on line `opened`, as Mermaid 12.3.0's `matchFrontMatter` does
+/// (`diagram-api/regexes.ts`). A closing line has the opening's indent, `---` and only
+/// whitespace, and a line after it. The opening runs on over the blank lines after it whilst a
+/// closing line stays at least 2 lines further on; the body is the lines after that, up to the
+/// first closing line past its first line. A top-level `title` is refused, since it is not
+/// drawn; each `key: value` line goes to `setting`, and a block scalar's lines are its text.
+fn front_matter<'a, I: Iterator<Item = (usize, &'a str)> + Clone>(
     opened: usize,
     indent: &str,
-    lines: &mut impl Iterator<Item = (usize, &'a str)>,
+    lines: &mut std::iter::Peekable<I>,
+    setting: &mut impl FnMut(usize, &[&'a str], &'a str) -> Result<()>,
 ) -> Result<()> {
+    let closes = |text: &str| {
+        text.strip_prefix(indent)
+            .is_some_and(|rest| rest.trim_end() == "---")
+    };
+    let not_closed = || format!("The front matter opened on line {opened} is not closed");
+    let mut scan = lines.clone();
+    let mut last = None;
+    while let Some((number, text)) = scan.next() {
+        if closes(text) && scan.peek().is_some() {
+            last = Some(number);
+        }
+    }
+    let last = last
+        .filter(|&last| last >= opened + 2)
+        .ok_or_else(not_closed)?;
+    while let Some(&(number, text)) = lines.peek() {
+        if !text.trim().is_empty() || number + 2 > last {
+            break;
+        }
+        lines.next();
+    }
+    // The keys above the current line, each with its indent; a block scalar's indent.
+    let mut keys: Vec<(usize, &str)> = Vec::new();
+    let mut scalar = None;
+    let mut first = true;
     for (number, text) in lines {
-        let Some(rest) = text.strip_prefix(indent) else {
-            continue;
-        };
-        if rest.trim_end() == "---" {
+        if !first && closes(text) {
             return Ok(());
         }
-        let key = rest.trim_start_matches(['"', '\'']);
-        if key.strip_prefix("title").is_some_and(|after| {
+        first = false;
+        let content = text.trim_start_matches([' ', '\t']);
+        let depth = text.len() - content.len();
+        if content.trim_end().is_empty() || content.starts_with('#') {
+            continue;
+        }
+        if scalar.is_some_and(|at| depth > at) {
+            continue;
+        }
+        scalar = None;
+        while keys.last().is_some_and(|&(at, _)| at >= depth) {
+            keys.pop();
+        }
+        let title = Err(format!(
+            "Line {number}: a title in front matter is not drawn"
+        ));
+        if keys.is_empty() && (titled(content) || content.starts_with('{') && flow_titled(content))
+        {
+            return title;
+        }
+        let Some((key, value)) = key_value(content) else {
+            continue;
+        };
+        if value.is_empty() {
+            keys.push((depth, key));
+        } else if value.starts_with(['|', '>']) {
+            scalar = Some(depth);
+        } else {
+            let mut path: Vec<&str> = keys.iter().map(|&(_, key)| key).collect();
+            path.push(key);
+            setting(number, &path, unquote(value))?;
+        }
+    }
+    Err(not_closed())
+}
+
+/// Whether a front matter line starts with a `title` key, quoted or not.
+fn titled(line: &str) -> bool {
+    line.trim_start_matches(['"', '\''])
+        .strip_prefix("title")
+        .is_some_and(|after| {
             after
                 .trim_start_matches(['"', '\''])
                 .trim_start()
                 .starts_with(':')
-        }) {
-            return Err(format!(
-                "Line {number}: a title in front matter is not drawn"
-            ));
+        })
+}
+
+/// Whether a flow mapping line holds a `title` key anywhere, which is refused whatever its depth.
+fn flow_titled(line: &str) -> bool {
+    line.match_indices("title").any(|(at, _)| {
+        line[..at]
+            .trim_end_matches(['"', '\''])
+            .trim_end()
+            .ends_with(['{', ','])
+            && titled(&line[at..])
+    })
+}
+
+/// A block mapping line's key and value (with no comment), or `None`.
+fn key_value(line: &str) -> Option<(&str, &str)> {
+    let (key, rest) = match line.as_bytes().first() {
+        Some(&quote @ (b'"' | b'\'')) => {
+            let end = line[1..].find(char::from(quote))? + 1;
+            (
+                &line[1..end],
+                line[end + 1..].trim_start().strip_prefix(':')?,
+            )
+        }
+        _ => {
+            let at = line.match_indices(':').map(|(at, _)| at).find(|&at| {
+                line[at + 1..]
+                    .chars()
+                    .next()
+                    .is_none_or(|c| c == ' ' || c == '\t')
+            })?;
+            (line[..at].trim_end(), &line[at + 1..])
+        }
+    };
+    let rest = rest.trim();
+    let value = match rest.as_bytes().first() {
+        Some(&quote @ (b'"' | b'\'')) => rest[1..]
+            .find(char::from(quote))
+            .map_or(rest, |end| &rest[..end + 2]),
+        _ => rest
+            .find(" #")
+            .or_else(|| rest.find("\t#"))
+            .map_or(rest, |at| rest[..at].trim_end()),
+    };
+    Some((key, if value.starts_with('#') { "" } else { value }))
+}
+
+/// A YAML scalar without its surrounding quotes.
+fn unquote(value: &str) -> &str {
+    for quote in ['"', '\''] {
+        if let Some(inner) = value
+            .strip_prefix(quote)
+            .and_then(|v| v.strip_suffix(quote))
+        {
+            return inner;
         }
     }
-    Err(format!(
-        "The front matter opened on line {opened} is not closed"
-    ))
+    value
 }
 
 fn join(existing: u8, stroke: u8) -> u8 {

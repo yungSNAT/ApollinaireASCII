@@ -63,8 +63,26 @@ fn front_matter_is_refused_when_unclosed_titled_or_not_first() {
             "---\n\"title\" : Pets\n---\npie\n  \"a\" : 1",
             "Line 2: a title in front matter is not drawn",
         ),
+        // A top-level title in a flow mapping, or less indented than the opening, is still one.
         (
-            "---\n---\n",
+            "---\n{title: Pets}\n---\npie\n  \"a\" : 1",
+            "Line 2: a title in front matter is not drawn",
+        ),
+        (
+            "  ---\ntitle: Pets\n  ---\npie\n  \"a\" : 1",
+            "Line 2: a title in front matter is not drawn",
+        ),
+        // The closing line follows at least one line of body, and a line follows it.
+        (
+            "---\n---\ngraph TD\n  A-->B\n",
+            "The front matter opened on line 1 is not closed",
+        ),
+        (
+            "---\nconfig: {}\n---",
+            "The front matter opened on line 1 is not closed",
+        ),
+        (
+            "---\n\n---\n",
             "The text is empty: a Mermaid diagram starts with flowchart, graph, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, gantt, pie, gitGraph, timeline or journey",
         ),
     ] {
@@ -78,4 +96,64 @@ fn front_matter_is_refused_when_unclosed_titled_or_not_first() {
     );
     // Front matter after the first statement is not front matter.
     assert!(mermaid("pie\n---\n\"a\" : 1").is_err());
+    // A block scalar's lines are text, not keys.
+    let described = "---\ndescription: >-\n  title: x and mainBranchName: y\n---\npie\n  \"a\" : 1";
+    assert_eq!(
+        mermaid(described).unwrap().text(),
+        mermaid("pie\n  \"a\" : 1").unwrap().text()
+    );
+}
+
+#[test]
+fn the_opening_runs_on_over_blank_lines_whilst_a_closing_line_follows() {
+    // Mermaid 12.3.0's matchFrontMatter: the opening takes the blank lines after it, so the
+    // `---` after them is body and the next one closes it.
+    assert_eq!(
+        mermaid("---\n\n---\nconfig: x\n---\ngraph TD\n  A-->B\n")
+            .unwrap()
+            .text(),
+        mermaid("graph TD\n  A-->B").unwrap().text()
+    );
+}
+
+#[test]
+fn front_matter_names_the_main_branch_of_a_git_graph_as_a_directive_does() {
+    let branches = "gitGraph\n  commit\n  branch dev\n  commit\n  checkout trunk\n  commit";
+    let directive = mermaid(&format!(
+        "%%{{init: {{'gitGraph': {{'mainBranchName': 'trunk'}}}}}}%%\n{branches}"
+    ))
+    .unwrap()
+    .text();
+    assert!(directive.contains("trunk"), "{directive}");
+    for value in [
+        "trunk",
+        "'trunk'",
+        "\"trunk\"",
+        "trunk  # the default branch",
+    ] {
+        let front = format!(
+            "---\nconfig:\n  theme: dark\n  gitGraph:\n    showBranches: true\n    mainBranchName: {value}\n---\n{branches}"
+        );
+        assert_eq!(mermaid(&front).unwrap().text(), directive, "{value}");
+    }
+    let quoted = format!(
+        "---\n\"config\": # settings\n  'gitGraph':\n    mainBranchName: 'trunk' # a comment\n---\n{branches}"
+    );
+    assert_eq!(mermaid(&quoted).unwrap().text(), directive);
+    // A directive wins over front matter, as Mermaid merges them.
+    let both = format!(
+        "---\nconfig:\n  gitGraph:\n    mainBranchName: other\n---\n%%{{init: {{'gitGraph': {{'mainBranchName': 'trunk'}}}}}}%%\n{branches}"
+    );
+    assert_eq!(mermaid(&both).unwrap().text(), directive);
+    // The key elsewhere is another setting.
+    let elsewhere = "---\nconfig:\n  mainBranchName: trunk\n---\ngitGraph\n  commit";
+    assert_eq!(
+        mermaid(elsewhere).unwrap().text(),
+        mermaid("gitGraph\n  commit").unwrap().text()
+    );
+    assert_eq!(
+        mermaid("---\nconfig:\n  gitGraph:\n    mainBranchName: ''\n---\ngitGraph\n  commit")
+            .unwrap_err(),
+        "Line 4: mainBranchName names a branch"
+    );
 }
