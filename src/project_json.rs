@@ -3,7 +3,7 @@
 
 //! Validate while deserialising, before an untrusted JSON tree can grow.
 use crate::elements::{self, Arrow, Element, Kind, MAX_ELEMENTS, Shape, Style};
-use crate::layers::{Layer, Layered, MAX_LAYERS};
+use crate::layers::{Layer, Layered, MAX_LAYERS, check_element_cells};
 use crate::motion::{Easing, Key, Motion, Property};
 use crate::{Animation, Frame, MAX_FRAMES, MAX_PROJECT_CELLS, Result, TimedFrame, dimensions};
 use serde::de::{self, Deserialize, Deserializer, IgnoredAny, MapAccess, SeqAccess, Visitor};
@@ -138,21 +138,37 @@ impl<'de> Deserialize<'de> for Project {
                     .map_err(de::Error::custom)?;
                 match names {
                     None => Ok(Layered::single(animations.remove(0))),
-                    Some(names) => Layered::parsed(
+                    Some(names) => check_element_cells(
+                        names
+                            .iter()
+                            .flat_map(|meta| meta.elements.iter().flat_map(|list| &list.0))
+                            .map(|element| &element.shape),
+                    )
+                    .and_then(|()| {
                         names
                             .into_iter()
                             .zip(animations)
-                            .map(|(meta, art)| Layer {
-                                name: meta.name,
-                                visible: meta.visible,
-                                locked: meta.locked.unwrap_or(false),
-                                art,
-                                motion: meta.motion.unwrap_or_default(),
-                                group: meta.group,
-                                elements: meta.elements.map_or_else(Vec::new, |list| list.0),
+                            .map(|(meta, art)| {
+                                Ok(Layer {
+                                    name: meta.name,
+                                    visible: meta.visible,
+                                    locked: meta.locked.unwrap_or(false),
+                                    art,
+                                    motion: meta.motion.unwrap_or_default(),
+                                    group: meta.group,
+                                    elements: meta
+                                        .elements
+                                        .map_or_else(Vec::new, |list| list.0)
+                                        .into_iter()
+                                        .map(|e| {
+                                            Element::parsed(e.id, e.frame, e.at, e.shape, e.under)
+                                        })
+                                        .collect::<Result<_>>()?,
+                                })
                             })
-                            .collect(),
-                    ),
+                            .collect::<Result<_>>()
+                    })
+                    .and_then(Layered::parsed),
                 }
                 .and_then(|mut project| {
                     if let Some(next) = next_element {
@@ -363,7 +379,7 @@ impl<'de> Deserialize<'de> for Meta {
 
 /// A layer's `elements`: at most [`MAX_ELEMENTS`], each checked as it is read;
 /// [`Layered::new`] checks ids and places across the project.
-struct Elements(Vec<Element>);
+struct Elements(Vec<ParsedElement>);
 impl<'de> Deserialize<'de> for Elements {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
         struct ElementsVisitor;
@@ -377,7 +393,7 @@ impl<'de> Deserialize<'de> for Elements {
                 mut sequence: S,
             ) -> std::result::Result<Elements, S::Error> {
                 let mut items = Vec::new();
-                while let Some(ParsedElement(element)) = sequence.next_element()? {
+                while let Some(element) = sequence.next_element::<ParsedElement>()? {
                     if items.len() == MAX_ELEMENTS {
                         return Err(de::Error::custom("Too many elements"));
                     }
@@ -395,8 +411,16 @@ const ELEMENT_FIELDS: &[&str] = &[
 ];
 
 /// One element: `id`, `frame`, `kind`, `x`, `y`, `width` and `height`, and optional `style`
-/// (default plain), `arrow` (default none), `text` and `under` (default spaces).
-struct ParsedElement(Element);
+/// (default plain), `arrow` (default none), `text` and `under` (default spaces). A missing
+/// `under` is made only once the project's elements are known to fit
+/// [`MAX_ELEMENT_CELLS`](elements::MAX_ELEMENT_CELLS).
+struct ParsedElement {
+    id: u32,
+    frame: usize,
+    at: (usize, usize),
+    shape: Shape,
+    under: Option<Frame>,
+}
 impl<'de> Deserialize<'de> for ParsedElement {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
         struct ElementVisitor;
@@ -448,11 +472,14 @@ impl<'de> Deserialize<'de> for ParsedElement {
                         .map_err(de::Error::custom)?,
                     text: text.unwrap_or_default(),
                 };
-                let at = (required(x, "x")?, required(y, "y")?);
-                let frame = required(frame, "frame")?;
-                Element::parsed(id, frame, at, shape, under.map(|Text(frame)| frame))
-                    .map(ParsedElement)
-                    .map_err(de::Error::custom)
+                shape.check().map_err(de::Error::custom)?;
+                Ok(ParsedElement {
+                    id,
+                    frame: required(frame, "frame")?,
+                    at: (required(x, "x")?, required(y, "y")?),
+                    shape,
+                    under: under.map(|Text(frame)| frame),
+                })
             }
         }
         deserializer.deserialize_map(ElementVisitor)

@@ -16,7 +16,7 @@
 //! # Ok::<(), String>(())
 //! ```
 
-use crate::elements::{Element, Kind, MAX_ELEMENTS};
+use crate::elements::{Element, Kind, MAX_ELEMENT_CELLS, MAX_ELEMENTS, Shape};
 use crate::motion::{Motion, Property};
 use crate::{Animation, Frame, MAX_INPUT_BYTES, MAX_PROJECT_CELLS, Result, TimedFrame};
 use serde_json::{Map, Value, json};
@@ -262,6 +262,18 @@ impl Layered {
                 "Replacing the whole frame can change its size only in a project of one frame and one layer"
                     .into(),
             );
+        }
+        if let Some(element) = self.layers[0]
+            .elements
+            .iter()
+            .find(|element| !element.fits(frame.width(), frame.height(), 1))
+        {
+            return Err(format!(
+                "Element {} would leave the {} x {} frame; delete it first",
+                element.name(),
+                frame.width(),
+                frame.height()
+            ));
         }
         let art = &mut self
             .layers
@@ -515,10 +527,31 @@ fn check_elements(layers: &[Layer]) -> Result<u32> {
             return Err(format!("A project holds at most {MAX_ELEMENTS} elements"));
         }
     }
+    check_element_cells(
+        layers
+            .iter()
+            .flat_map(|layer| &layer.elements)
+            .map(Element::shape),
+    )?;
     ids.last().map_or(Ok(1), |&id| {
         id.checked_add(1)
             .ok_or_else(|| "Element ids are used up".into())
     })
+}
+
+/// Refuses elements that together cover more than [`MAX_ELEMENT_CELLS`]; each shape is already
+/// checked, so its cells cannot overflow.
+pub(crate) fn check_element_cells<'a>(shapes: impl IntoIterator<Item = &'a Shape>) -> Result<()> {
+    let cells: usize = shapes
+        .into_iter()
+        .map(|shape| shape.width * shape.height)
+        .sum();
+    if cells > MAX_ELEMENT_CELLS {
+        return Err(format!(
+            "A project's elements cover at most {MAX_ELEMENT_CELLS} cells; these cover {cells}"
+        ));
+    }
+    Ok(())
 }
 
 fn check_name(name: &str, of: &str) -> Result<()> {

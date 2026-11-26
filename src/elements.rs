@@ -14,6 +14,9 @@ use crate::{Frame, Result};
 
 /// Elements a project holds at most.
 pub const MAX_ELEMENTS: usize = 4096;
+/// Cells a project's elements cover at most, counted once per element, as every element keeps
+/// a copy of the cells under it.
+pub const MAX_ELEMENT_CELLS: usize = crate::MAX_PROJECT_CELLS;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
@@ -312,6 +315,14 @@ pub fn apply(
     force: bool,
 ) -> Result<(Frame, Vec<Element>)> {
     let (width, height) = (art.width(), art.height());
+    if let Edit::Add { id, at, shape } | Edit::Change { id, at, shape } = &edit {
+        shape.check()?;
+        if at.0.saturating_add(shape.width) > width || at.1.saturating_add(shape.height) > height {
+            return Err(format!(
+                "Element e{id} would leave the {width} x {height} frame"
+            ));
+        }
+    }
     let mut cells = art.cells().to_vec();
     let mut elements = elements.to_vec();
     let target = match &edit {
@@ -348,14 +359,6 @@ pub fn apply(
     }
     match edit {
         Edit::Add { id, at, shape } | Edit::Change { id, at, shape } => {
-            shape.check()?;
-            if at.0.saturating_add(shape.width) > width
-                || at.1.saturating_add(shape.height) > height
-            {
-                return Err(format!(
-                    "Element e{id} would leave the {width} x {height} frame"
-                ));
-            }
             let under = Frame::blank(shape.width, shape.height)?;
             let element = Element {
                 id,

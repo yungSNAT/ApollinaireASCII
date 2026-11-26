@@ -320,6 +320,51 @@ fn version_4_files_keep_elements_and_their_ids_and_older_versions_refuse_them() 
 }
 
 #[test]
+fn a_frame_cannot_shrink_under_an_element_and_files_cannot_hold_too_many_element_cells() {
+    let start = project(&[("Base", false, &["....\n....\n...."])]);
+    let (_, mut p) = apply(
+        &start,
+        json!({"id": 1, "op": "element_add", "kind": "box", "x": 2, "y": 1, "width": 2, "height": 2}),
+    );
+    let before = p.clone();
+    let error = p
+        .replace_frame(0, 0, Frame::from_text("...\n...").unwrap())
+        .unwrap_err();
+    assert!(
+        error.contains("Element e1 would leave the 3 x 2 frame"),
+        "{error}"
+    );
+    assert_eq!(p, before);
+    p.replace_frame(0, 0, Frame::from_text("#####\n#####\n#####").unwrap())
+        .unwrap();
+    let (listed, _) = ask(&p, json!({"id": 2, "op": "elements"}));
+    assert_eq!(listed.unwrap()["elements"][0]["drifted"], 4);
+
+    // Each element keeps the cells under it, so a file may not make many large ones from a
+    // few bytes: 62 elements the size of a 512 x 256 canvas cover more than 8,000,000 cells.
+    let row = ".".repeat(512);
+    let canvas = vec![row.as_str(); 256].join("\n");
+    let big = project(&[("Base", false, &[canvas.as_str()])]);
+    let mut file: Value = serde_json::from_str(&big.to_json()).unwrap();
+    file["version"] = json!(4);
+    file["next_element"] = json!(63);
+    file["layers"][0]["elements"] = (1..=62)
+        .map(|id| {
+            json!({"id": format!("e{id}"), "frame": 0, "kind": "box", "x": 0, "y": 0,
+                "width": 512, "height": 256})
+        })
+        .collect();
+    let error = Layered::from_json(&file.to_string()).unwrap_err();
+    assert!(error.contains("cover at most 8000000 cells"), "{error}");
+    file["layers"][0]["elements"]
+        .as_array_mut()
+        .unwrap()
+        .truncate(61);
+    file["next_element"] = json!(62);
+    assert!(Layered::from_json(&file.to_string()).is_ok());
+}
+
+#[test]
 fn elements_follow_their_frames_and_ids_survive_rebuilds() {
     let start = project(&[("Base", false, &["aa", "bb", "cc"])]);
     let (_, p) = apply(
