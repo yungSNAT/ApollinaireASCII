@@ -179,7 +179,7 @@ fn mindmap_refuses_what_it_cannot_draw_with_the_line() {
     let many = format!("mindmap\n  R\n{}", "    C\n".repeat(256));
     assert_eq!(
         mindmap(&many).unwrap_err(),
-        "Line 259: a mindmap has at most 256 nodes"
+        "Line 258: a mindmap has at most 256 nodes"
     );
     let huge = format!("mindmap\n  {}", "x".repeat(MAX_INPUT_BYTES));
     assert_eq!(
