@@ -97,7 +97,7 @@ impl Reader {
             if stmt.is_empty() || stmt.starts_with("%%") {
                 return Ok(());
             }
-            match accessibility(stmt) {
+            match super::case_sensitive_accessibility(stmt) {
                 Some(true) if self.started => {
                     self.in_block = true;
                     self.block_line = number;
@@ -233,20 +233,6 @@ fn quoted(number: usize, stmt: &str) -> Result<(String, &str)> {
         }
     }
     Err(format!("Line {number}: the label's {quote} is not closed"))
-}
-
-/// Whether `text` starts an `accTitle:` or `accDescr:` line (`Some(false)`) or an
-/// `accDescr {` block (`Some(true)`); Mermaid's pie grammar reads both names in this case only.
-fn accessibility(text: &str) -> Option<bool> {
-    let (rest, describes) = match text.strip_prefix("accTitle") {
-        Some(rest) => (rest, false),
-        None => (text.strip_prefix("accDescr")?, true),
-    };
-    match rest.trim_start().bytes().next() {
-        Some(b':') => Some(false),
-        Some(b'{') if describes => Some(true),
-        _ => None,
-    }
 }
 
 /// `text` up to a `%%` comment.

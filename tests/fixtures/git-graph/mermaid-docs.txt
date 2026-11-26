@@ -1,0 +1,10 @@
+main             
+|  develop       
+o  |             
+o  |             
++->o             
+|  o             
+@<-+             
+o  |             
+o  |             
+o commit  @ merge
