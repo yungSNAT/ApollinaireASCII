@@ -41,10 +41,10 @@ pub use flowchart::flowchart;
 pub use gantt::gantt;
 pub use git_graph::git_graph;
 pub use journey::journey;
-pub use mindmap::mindmap;
 #[doc(hidden)]
 pub use markdown::fenced_blocks;
 pub use markdown::render_markdown;
+pub use mindmap::mindmap;
 pub use pie::pie;
 pub use sequence::sequence;
 pub use state::state_diagram;
