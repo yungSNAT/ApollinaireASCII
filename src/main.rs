@@ -523,7 +523,17 @@ enum Command {
     /// Print this manual page as roff, for `apollinaire man | man -l -`.
     Man,
 }
+/// Runs the command on an 8 MiB stack: `run` is one large match, and a debug build's frame for
+/// it outgrows the 1 MiB main thread stack Windows gives.
 fn main() -> std::process::ExitCode {
+    std::thread::Builder::new()
+        .stack_size(8 << 20)
+        .spawn(command)
+        .expect("the command thread starts")
+        .join()
+        .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+}
+fn command() -> std::process::ExitCode {
     let args = Args::parse();
     let hook = matches!(args.command, Command::ClaudeHook(_));
     match run(args) {
