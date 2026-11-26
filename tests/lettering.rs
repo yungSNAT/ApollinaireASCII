@@ -337,6 +337,17 @@ fn typed_punctuation_is_drawn_as_its_ascii() {
     let error =
         lettering::render_with("5\u{20ac}", "standard", None, &Options::default()).unwrap_err();
     assert_eq!(error, "Only printable ASCII is allowed: byte 1 is 0xe2");
+    // The offset is in the line as typed, before any punctuation is replaced.
+    for (text, error) in [
+        ("\u{2019}\u{20ac}", "byte 3 is 0xe2"),
+        ("ok\n\u{2026}\tx", "byte 3 is 0x09"),
+    ] {
+        let refused = lettering::render_with(text, "standard", None, &Options::default());
+        assert_eq!(
+            refused.unwrap_err(),
+            format!("Only printable ASCII is allowed: {error}")
+        );
+    }
 }
 
 #[test]
