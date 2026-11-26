@@ -60,6 +60,10 @@ pub fn git_graph(source: &str) -> Result<Frame> {
 }
 
 pub(super) fn git_graph_fitted(source: &str, max_width: Option<usize>) -> Result<Frame> {
+    draw(&parse(source)?, max_width)
+}
+
+fn parse(source: &str) -> Result<Reader> {
     if source.len() > MAX_INPUT_BYTES {
         return Err("The Git graph exceeds the 16 MiB input limit".into());
     }
@@ -82,7 +86,7 @@ pub(super) fn git_graph_fitted(source: &str, max_width: Option<usize>) -> Result
             reader.block_line
         ));
     }
-    draw(&reader, max_width)
+    Ok(reader)
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -104,6 +108,8 @@ struct Commit {
     label: String,
     /// Parents no lane line can reach; each is joined by a marked line at this row.
     marked: Vec<usize>,
+    /// Fallback name for an unnamed marked parent when merging a branch.
+    merged_branch: Option<usize>,
 }
 
 struct Branch {
@@ -363,14 +369,8 @@ impl Reader {
         Ok((id, tags, kind))
     }
 
-    /// Add `commit`; `merged` names the branch a merge brings in, for a parent with no id.
-    fn push(
-        &mut self,
-        number: usize,
-        id: Option<String>,
-        mut commit: Commit,
-        merged: Option<&str>,
-    ) -> Result<()> {
+    /// Add a commit and remember the parents that need a labelled connection.
+    fn push(&mut self, number: usize, id: Option<String>, mut commit: Commit) -> Result<()> {
         if self.commits.len() == MAX_HEIGHT {
             return Err(format!(
                 "Line {number}: a Git graph has at most {MAX_HEIGHT} commits"
@@ -390,18 +390,6 @@ impl Reader {
                 continue;
             }
             commit.marked.push(parent);
-            let named = self
-                .ids
-                .iter()
-                .find_map(|(id, &at)| (at == parent).then(|| id.clone()))
-                .or_else(|| merged.map(str::to_owned))
-                .unwrap_or_else(|| on.name.clone());
-            if !commit.label.contains(&format!("cherry-pick:{named}")) {
-                if !commit.label.is_empty() {
-                    commit.label.push(' ');
-                }
-                commit.label.push_str(&format!("(from {named})"));
-            }
         }
         let index = self.commits.len();
         if let Some(id) = id {
@@ -431,8 +419,9 @@ impl Reader {
             merge: false,
             label: Self::label(id.as_deref(), &tags),
             marked: Vec::new(),
+            merged_branch: None,
         };
-        self.push(number, id, commit, None)
+        self.push(number, id, commit)
     }
 
     fn branch(&mut self, number: usize, tokens: &[Token]) -> Result<()> {
@@ -516,8 +505,9 @@ impl Reader {
             merge: true,
             label: Self::label(id.as_deref(), &tags),
             marked: Vec::new(),
+            merged_branch: other,
         };
-        self.push(number, id, commit, Some(&name))
+        self.push(number, id, commit)
     }
 
     fn cherry_pick(&mut self, number: usize, tokens: &[Token]) -> Result<()> {
@@ -570,7 +560,22 @@ impl Reader {
             merge: false,
             label: Self::label(None, &tags),
             marked: Vec::new(),
+            merged_branch: None,
         };
-        self.push(number, None, commit, None)
+        self.push(number, None, commit)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn parsing_keeps_marked_parent_references_until_a_label_is_drawn() {
+        let source = "gitGraph\ncommit id: \"origin\"\nbranch saved\ncheckout main\ncommit\nmerge saved\nmerge saved";
+        let reader = super::parse(source).unwrap();
+        for commit in &reader.commits[2..] {
+            assert_eq!(commit.marked, [0]);
+            assert!(commit.label.is_empty());
+        }
+        assert!(super::git_graph_fitted(source, Some(5)).is_err());
     }
 }

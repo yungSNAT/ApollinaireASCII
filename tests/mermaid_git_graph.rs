@@ -511,3 +511,13 @@ fn git_graph_routes_a_delayed_child_to_a_lane_on_the_left() {
         "{drawing:?}"
     );
 }
+
+#[test]
+fn a_delayed_child_preserves_the_marked_parent_on_the_same_lane_cell() {
+    let source = "gitGraph\ncommit id: \"A\"\nbranch dev\ncheckout main\ncommit id: \"B\"\ncheckout dev\ncommit id: \"D\"\ncherry-pick id: \"A\"\nbranch saved\ncheckout dev\ncommit\ncheckout main\nmerge saved";
+    let drawing = rows(source);
+    assert!(
+        drawing.iter().any(|row| row == "*<>%  |  [cherry-pick:A]"),
+        "{drawing:?}"
+    );
+}

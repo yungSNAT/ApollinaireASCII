@@ -1,8 +1,9 @@
 //! Lane placement, parent links, labels and the ASCII drawing for a parsed Git graph.
 
-use super::{Branch, Kind, LANE, Reader};
+use super::{Branch, Commit, Kind, LANE, Reader};
 use crate::diagram::graph::wrap_lines;
 use crate::{Frame, MAX_HEIGHT, MAX_WIDTH, Result};
+use std::borrow::Cow;
 
 /// Lanes in Mermaid's order: an explicit `order`, else `0.<place>` read as a number, the main
 /// branch's place being 0; a stable sort keeps ties in the order made.
@@ -35,6 +36,34 @@ fn wrapped(text: &str, width: usize) -> Result<Vec<String>> {
         return Err(too_tall());
     }
     Ok(wrap_lines(text, width))
+}
+
+/// Materialise only the row being drawn. Other commits retain indices into the parsed graph.
+fn display_label<'a>(reader: &'a Reader, commit: &'a Commit) -> Cow<'a, str> {
+    let mut label = Cow::Borrowed(commit.label.as_str());
+    for &parent in &commit.marked {
+        let fallback = commit
+            .merged_branch
+            .unwrap_or(reader.commits[parent].branch);
+        let name = reader
+            .ids
+            .iter()
+            .find_map(|(id, &at)| (at == parent).then_some(id.as_str()))
+            .unwrap_or(&reader.branches[fallback].name);
+        let already_named = label
+            .match_indices("cherry-pick:")
+            .any(|(at, prefix)| label[at + prefix.len()..].starts_with(name));
+        if !already_named {
+            let row = label.to_mut();
+            if !row.is_empty() {
+                row.push(' ');
+            }
+            row.push_str("(from ");
+            row.push_str(name);
+            row.push(')');
+        }
+    }
+    label
 }
 
 pub(super) fn draw(reader: &Reader, max_width: Option<usize>) -> Result<Frame> {
@@ -105,7 +134,10 @@ pub(super) fn draw(reader: &Reader, max_width: Option<usize>) -> Result<Frame> {
         }
         let cells = String::from_utf8_lossy(row).into_owned();
         let mut entry = Vec::new();
-        for (index, part) in wrapped(&commit.label, label_room)?.into_iter().enumerate() {
+        for (index, part) in wrapped(&display_label(reader, commit), label_room)?
+            .into_iter()
+            .enumerate()
+        {
             let lanes = if index == 0 { &cells } else { &blank };
             entry.push(if part.is_empty() {
                 lanes.clone()
@@ -201,7 +233,9 @@ fn hop(row: &mut [u8], at: usize, lane: usize, into_commit: bool) {
             *cell = b'-';
         }
     }
-    row[lane] = b'+';
+    if row[lane] != b'*' {
+        row[lane] = b'+';
+    }
     let rightward = lane > at;
     let (cell, head) = match (into_commit, rightward) {
         (true, true) => (at + 1, b'<'),
