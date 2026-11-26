@@ -398,7 +398,11 @@ fn a_whole_frame_live_write_cannot_strand_an_element() {
         &start,
         json!({"id": 1, "op": "element_add", "kind": "box", "x": 5, "y": 2, "width": 4, "height": 3}),
     );
-    let (refused, unchanged) = ask(&p, json!({"id": 2, "op": "write", "text": "ab"}));
+    let revision = ask(&p, json!({"id": 9, "op": "read"})).0.unwrap()["revision"].clone();
+    let (refused, unchanged) = ask(
+        &p,
+        json!({"id": 2, "op": "write", "revision": revision, "text": "ab"}),
+    );
     let error = refused.unwrap_err();
     assert!(
         error.contains("Element e1 would leave the 2 x 1 frame"),
@@ -408,13 +412,13 @@ fn a_whole_frame_live_write_cannot_strand_an_element() {
     // A batch takes the same path.
     let (refused, _) = ask(
         &p,
-        json!({"id": 3, "op": "batch", "writes": [{"text": "ab"}]}),
+        json!({"id": 3, "op": "batch", "writes": [{"revision": revision, "text": "ab"}]}),
     );
     assert!(refused.unwrap_err().contains("would leave"));
     // A write the element still fits in keeps it, lists it and saves a file that loads.
     let (_, grown) = apply(
         &p,
-        json!({"id": 4, "op": "write", "text": "############\n############\n############\n############\n############\n############"}),
+        json!({"id": 4, "op": "write", "revision": revision, "text": "############\n############\n############\n############\n############\n############"}),
     );
     let (listed, _) = ask(&grown, json!({"id": 5, "op": "elements"}));
     assert_ne!(listed.unwrap()["elements"][0]["drifted"], 0);
