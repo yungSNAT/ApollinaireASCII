@@ -186,8 +186,19 @@ fn malformed_files_are_refused_with_a_reason_and_never_panic() {
             "claims 65 x 1 cells",
         ),
         (
-            file(&[font(1, 0, "Z", &[(b'Z', 0, 1, b"")])]),
-            "claims 0 x 1 cells",
+            file(&[font(1, 0, "Y", &[(b'Y', 1, 33, b"x")])]),
+            "claims 1 x 33 cells",
+        ),
+        (
+            // Fonts whose 94 glyphs all point at one 64 x 32 glyph: a few hundred bytes each
+            // claim 192,512 cells, so the file is refused long before 1 MiB.
+            {
+                let mut shared = font(1, 0, "Big", &[(b'!', 64, 32, b"")]);
+                let offsets = 4 + 1 + 12 + 4 + 1 + 1 + 2;
+                shared[offsets..offsets + 188].fill(0);
+                file(&vec![shared; 30])
+            },
+            "past 4194304 cells",
         ),
         (
             file(&[font(1, 0, "L", &[(b'L', 2, 1, b"abc")])]),
@@ -206,6 +217,18 @@ fn malformed_files_are_refused_with_a_reason_and_never_panic() {
         let error = thedraw::parse(&bytes).unwrap_err();
         assert!(error.contains(message), "{message}: {error}");
     }
+    // A glyph of no cells is empty, not an error, and a font of only such glyphs still letters.
+    let empty = thedraw::parse(&file(&[font(1, 0, "Z ", &[(b'Z', 0, 1, b"")])])).unwrap();
+    assert_eq!(empty[0].name, "Z");
+    let flf = empty[0].to_flf();
+    lettering::validate_font(&flf).unwrap();
+    assert_eq!(
+        lettering::render("Z", "standard", Some(&flf), Alignment::Left, None)
+            .unwrap()
+            .text()
+            .trim(),
+        ""
+    );
     // A glyph without its closing zero runs into the end of the data.
     let mut open = file(&[block()]);
     open.truncate(open.len() - 2);

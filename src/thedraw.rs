@@ -20,6 +20,9 @@ pub const MAX_TDF_BYTES: usize = 1024 * 1024;
 /// by other editors.
 const MAX_GLYPH_WIDTH: usize = 64;
 const MAX_GLYPH_HEIGHT: usize = 32;
+/// Cells a file's glyphs may cover together. Glyphs can share and overlap their bytes, so a
+/// small file could otherwise claim far more cells than it holds; real fonts stay far below.
+const MAX_TDF_CELLS: usize = 4 * MAX_TDF_BYTES;
 const MAGIC: &[u8; 20] = b"\x13TheDraw FONTS file\x1a";
 const FONT_MARK: [u8; 4] = [0x55, 0xaa, 0x00, 0xff];
 /// The mark, name length, 12 name bytes, 4 reserved bytes, type, spacing, data size and the
@@ -62,6 +65,7 @@ pub fn parse(bytes: &[u8]) -> Result<Vec<Font>> {
     }
     let mut fonts = Vec::new();
     let mut at = MAGIC.len();
+    let mut cells = 0;
     // A zero byte, or the end of the file, ends the list.
     while bytes.get(at).is_some_and(|&byte| byte != 0) {
         let number = fonts.len() + 1;
@@ -83,7 +87,9 @@ pub fn parse(bytes: &[u8]) -> Result<Vec<Font>> {
             .iter()
             .take_while(|&&byte| byte != 0)
             .map(|&byte| char::from(ascii(byte)))
-            .collect();
+            .collect::<String>()
+            .trim_end()
+            .to_owned();
         let kind = match header[21] {
             0 => Kind::Outline,
             1 => Kind::Block,
@@ -108,7 +114,7 @@ pub fn parse(bytes: &[u8]) -> Result<Vec<Font>> {
             .zip(b'!'..=b'~')
             .map(|(offset, letter)| match u16::from_le_bytes(*offset) {
                 NO_GLYPH => Ok(None),
-                offset => glyph(data, usize::from(offset), kind)
+                offset => glyph(data, usize::from(offset), kind, &mut cells)
                     .map(Some)
                     .map_err(|error| {
                         format!(
@@ -137,16 +143,22 @@ fn ascii(byte: u8) -> u8 {
     crate::ansi::GLYPHS[usize::from(byte)]
 }
 
-/// The rows of the glyph at `offset` in `data`.
-fn glyph(data: &[u8], offset: usize, kind: Kind) -> Result<Vec<Vec<u8>>> {
+/// The rows of the glyph at `offset` in `data`, counting its cells into `cells`.
+fn glyph(data: &[u8], offset: usize, kind: Kind, cells: &mut usize) -> Result<Vec<Vec<u8>>> {
     let (&width, &height) = data
         .get(offset)
         .zip(data.get(offset + 1))
         .ok_or("starts past the end of the font's glyphs")?;
     let (width, height) = (usize::from(width), usize::from(height));
-    if !(1..=MAX_GLYPH_WIDTH).contains(&width) || !(1..=MAX_GLYPH_HEIGHT).contains(&height) {
+    if width > MAX_GLYPH_WIDTH || height > MAX_GLYPH_HEIGHT {
         return Err(format!(
-            "claims {width} x {height} cells; glyphs are 1 to {MAX_GLYPH_WIDTH} wide and 1 to {MAX_GLYPH_HEIGHT} high"
+            "claims {width} x {height} cells; glyphs are at most {MAX_GLYPH_WIDTH} wide and {MAX_GLYPH_HEIGHT} high"
+        ));
+    }
+    *cells += width * height;
+    if *cells > MAX_TDF_CELLS {
+        return Err(format!(
+            "takes the file's glyphs past {MAX_TDF_CELLS} cells; real fonts need far fewer"
         ));
     }
     let mut rows = vec![vec![b' '; width]; height];
@@ -206,10 +218,15 @@ impl Font {
     /// width; `spacing` columns follow every glyph.
     pub fn to_flf(&self) -> String {
         let defined: Vec<&Vec<Vec<u8>>> = self.glyphs.iter().flatten().collect();
-        let height = defined.iter().map(|rows| rows.len()).max().unwrap_or(1);
-        let widest = defined.iter().map(|rows| rows[0].len()).max().unwrap_or(1);
-        let average =
-            defined.iter().map(|rows| rows[0].len()).sum::<usize>() / defined.len().max(1);
+        let width = |rows: &&Vec<Vec<u8>>| rows.first().map_or(0, Vec::len);
+        let height = defined
+            .iter()
+            .map(|rows| rows.len())
+            .max()
+            .unwrap_or(0)
+            .max(1);
+        let widest = defined.iter().map(width).max().unwrap_or(0);
+        let average = defined.iter().map(width).sum::<usize>() / defined.len().max(1);
         let space = vec![vec![b' '; (average / 2).max(1)]];
         // A hard blank the glyphs do not draw, so none of their characters turns into a space.
         let used = |byte: &u8| {
