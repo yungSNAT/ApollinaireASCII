@@ -52,6 +52,12 @@ pub(super) fn timeline_fitted(source: &str, max_width: Option<usize>) -> Result<
     if !reader.started {
         return Err("A timeline starts with timeline".into());
     }
+    if reader.in_block {
+        return Err(format!(
+            "The accDescr block opened on line {} is not closed",
+            reader.block_line
+        ));
+    }
     if reader.periods.is_empty() {
         return Err("A timeline needs at least one time period".into());
     }
@@ -68,6 +74,7 @@ struct Period {
 struct Reader {
     started: bool,
     in_block: bool,
+    block_line: usize,
     title: Option<String>,
     sections: Vec<String>,
     periods: Vec<Period>,
@@ -78,6 +85,21 @@ fn keyword<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {
     let head = text.get(..keyword.len())?;
     let rest = &text[keyword.len()..];
     (head.eq_ignore_ascii_case(keyword) && rest.starts_with([' ', '\t'])).then_some(rest)
+}
+
+/// Whether `text` starts an `accTitle:` or `accDescr:` line (`Some(false)`) or an
+/// `accDescr {` block (`Some(true)`), read in any case as Mermaid's timeline lexer does.
+fn accessibility(text: &str) -> Option<bool> {
+    let lower = text.to_ascii_lowercase();
+    let (rest, describes) = match lower.strip_prefix("acctitle") {
+        Some(rest) => (rest, false),
+        None => (lower.strip_prefix("accdescr")?, true),
+    };
+    match rest.trim_start().bytes().next() {
+        Some(b':') => Some(false),
+        Some(b'{') if describes => Some(true),
+        _ => None,
+    }
 }
 
 /// `text` up to a `%%` comment that does not follow `}`.
@@ -137,10 +159,9 @@ impl Reader {
             self.sections.push(decode(number, rest.trim())?);
             return Ok(());
         }
-        let lower = stmt.to_ascii_lowercase();
-        if lower.starts_with("acctitle") || lower.starts_with("accdescr") {
-            self.in_block = lower.starts_with("accdescr") && !stmt.contains(':');
-            self.in_block &= !stmt.contains('}');
+        if let Some(block) = accessibility(stmt) {
+            self.in_block = block && !stmt.contains('}');
+            self.block_line = number;
             return Ok(());
         }
         self.period(number, stmt)

@@ -103,6 +103,12 @@ fn timeline_groups_periods_under_sections() {
 
 #[test]
 fn timeline_reads_mermaid_text_rules() {
+    // Only accTitle and accDescr followed by ':' or '{' are skipped, in any case; a period
+    // whose name starts with those words is drawn.
+    assert_eq!(
+        rows("timeline\naccDescription : event\nACCTITLE: x\nAccDescr {\ny\n}\naccDescr { z }"),
+        ["accDescription o-- event"]
+    );
     // A ':' with no space after it stays in the event; `<br>` starts a line.
     assert_eq!(
         rows("timeline\nMorning : Stand-up at 9:30 : Lunch<br/>at noon"),
@@ -161,6 +167,10 @@ fn timeline_refuses_what_it_cannot_draw_with_the_line() {
         (
             "flowchart\nA",
             "Line 1: a timeline starts with timeline, timeline LR or timeline TD",
+        ),
+        (
+            "timeline\n2002 : x\naccDescr {\n2003 : y",
+            "The accDescr block opened on line 3 is not closed",
         ),
         // Mermaid finds a timeline by its lower-case name.
         (
