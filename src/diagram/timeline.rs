@@ -61,10 +61,20 @@ pub(super) fn timeline_fitted(source: &str, max_width: Option<usize>) -> Result<
     if reader.periods.is_empty() {
         return Err("A timeline needs at least one time period".into());
     }
+    // Mermaid draws no period written before the first section of a timeline that has some.
+    if !reader.sections.is_empty()
+        && let Some(period) = reader.periods.iter().find(|p| p.section.is_none())
+    {
+        return Err(format!(
+            "Line {}: a time period before the first section is not drawn by Mermaid; put it under a section",
+            period.line
+        ));
+    }
     draw(&reader, max_width)
 }
 
 struct Period {
+    line: usize,
     text: String,
     section: Option<usize>,
     events: Vec<String>,
@@ -90,11 +100,15 @@ fn keyword<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {
 /// Whether `text` starts an `accTitle:` or `accDescr:` line (`Some(false)`) or an
 /// `accDescr {` block (`Some(true)`), read in any case as Mermaid's timeline lexer does.
 fn accessibility(text: &str) -> Option<bool> {
-    let lower = text.to_ascii_lowercase();
-    let (rest, describes) = match lower.strip_prefix("acctitle") {
-        Some(rest) => (rest, false),
-        None => (lower.strip_prefix("accdescr")?, true),
+    let head = text.get(..8)?;
+    let describes = if head.eq_ignore_ascii_case("acctitle") {
+        false
+    } else if head.eq_ignore_ascii_case("accdescr") {
+        true
+    } else {
+        return None;
     };
+    let rest = &text[8..];
     match rest.trim_start().bytes().next() {
         Some(b':') => Some(false),
         Some(b'{') if describes => Some(true),
@@ -116,13 +130,29 @@ fn without_comment(text: &str) -> &str {
 
 impl Reader {
     fn line(&mut self, number: usize, line: &str) -> Result<()> {
-        let stmt = line.trim();
-        if stmt.is_empty() || stmt.starts_with("%%") {
-            return Ok(());
-        }
-        if self.in_block {
-            self.in_block = !stmt.contains('}');
-            return Ok(());
+        let mut stmt = line.trim();
+        loop {
+            // An accDescr block's text runs to its '}', comments included; the line goes on
+            // after it.
+            if self.in_block {
+                let Some(at) = stmt.find('}') else {
+                    return Ok(());
+                };
+                self.in_block = false;
+                stmt = stmt[at + 1..].trim();
+            }
+            if stmt.is_empty() || stmt.starts_with("%%") {
+                return Ok(());
+            }
+            match accessibility(stmt) {
+                Some(true) if self.started => {
+                    self.in_block = true;
+                    self.block_line = number;
+                    stmt = &stmt[stmt.find('{').map_or(stmt.len(), |at| at + 1)..];
+                }
+                Some(false) if self.started => return Ok(()),
+                _ => break,
+            }
         }
         let stmt = without_comment(stmt).trim_end();
         if !self.started {
@@ -157,11 +187,6 @@ impl Reader {
                 ));
             }
             self.sections.push(decode(number, rest.trim())?);
-            return Ok(());
-        }
-        if let Some(block) = accessibility(stmt) {
-            self.in_block = block && !stmt.contains('}');
-            self.block_line = number;
             return Ok(());
         }
         self.period(number, stmt)
@@ -201,6 +226,11 @@ impl Reader {
             if event.is_empty() {
                 return Err(format!("Line {number}: an event after ':' is empty"));
             }
+            if events.len() == MAX_HEIGHT {
+                return Err(format!(
+                    "Line {number}: a time period has at most {MAX_HEIGHT} events"
+                ));
+            }
             events.push(decode(number, event)?);
             rest = &after[close..];
         }
@@ -211,6 +241,11 @@ impl Reader {
                     "Line {number}: an event needs a time period before it"
                 ));
             };
+            if last.events.len() + events.len() > MAX_HEIGHT {
+                return Err(format!(
+                    "Line {number}: a time period has at most {MAX_HEIGHT} events"
+                ));
+            }
             last.events.extend(events);
             return Ok(());
         }
@@ -224,6 +259,7 @@ impl Reader {
             ));
         }
         self.periods.push(Period {
+            line: number,
             text: decode(number, text)?,
             section: self.sections.len().checked_sub(1),
             events: events.to_vec(),
@@ -241,29 +277,61 @@ fn entity(text: &str) -> bool {
     name > 0 && text.as_bytes().get(1 + name) == Some(&b';')
 }
 
-/// Text split at each `<br>`, `<br/>` or `<br />`, then wrapped to `width`.
-fn text_lines(text: &str, width: usize) -> Vec<String> {
-    let mut parts = Vec::new();
-    let mut rest = text;
-    loop {
-        let lower = rest.to_ascii_lowercase();
-        let found = lower.match_indices("<br").find_map(|(at, _)| {
-            let tail = lower[at + 3..].trim_start_matches([' ', '\t']);
-            let tail = tail.strip_prefix('/').unwrap_or(tail);
-            tail.starts_with('>')
-                .then(|| (at, lower.len() - tail.len() + 1))
-        });
-        let Some((at, end)) = found else {
-            parts.push(rest.trim());
-            break;
-        };
-        parts.push(rest[..at].trim());
-        rest = &rest[end..];
+/// Each part of `text` between `<br>`, `<br/>` or `<br />` (in any case), trimmed.
+fn each_part(text: &str, mut part: impl FnMut(&str) -> Result<()>) -> Result<()> {
+    let (mut start, mut from) = (0, 0);
+    while let Some(at) = text[from..].find('<').map(|at| at + from) {
+        from = at + 1;
+        if !text
+            .get(at + 1..at + 3)
+            .is_some_and(|name| name.eq_ignore_ascii_case("br"))
+        {
+            continue;
+        }
+        let tail = text[at + 3..].trim_start_matches([' ', '\t']);
+        let tail = tail.strip_prefix('/').unwrap_or(tail);
+        if tail.starts_with('>') {
+            part(text[start..at].trim())?;
+            start = text.len() - tail.len() + 1;
+            from = start;
+        }
     }
-    parts
-        .into_iter()
-        .flat_map(|part| wrap_lines(part, width))
-        .collect()
+    part(text[start..].trim())
+}
+
+fn too_tall() -> String {
+    format!("The timeline needs more than {MAX_HEIGHT} rows; a drawing has at most {MAX_HEIGHT}")
+}
+
+/// Text split at each `<br>`, then wrapped to `width`; refused, before any row is made, when
+/// it needs more rows than a drawing has.
+fn text_lines(text: &str, width: usize) -> Result<Vec<String>> {
+    let mut lines = Vec::new();
+    each_part(text, |part| {
+        let filled = part.bytes().filter(|&b| b != b' ').count();
+        if lines.len() >= MAX_HEIGHT || filled.div_ceil(width) > MAX_HEIGHT {
+            return Err(too_tall());
+        }
+        lines.extend(wrap_lines(part, width));
+        Ok(())
+    })?;
+    Ok(lines)
+}
+
+/// The longest part of `text` between `<br>` breaks.
+fn widest(text: &str) -> usize {
+    let mut widest = 0;
+    let _ = each_part(text, |part| {
+        widest = widest.max(part.len());
+        Ok(())
+    });
+    widest
+}
+
+/// A section heading or a period, in the order drawn.
+enum Entry<'a> {
+    Heading(&'a str),
+    Period(&'a Period),
 }
 
 fn draw(reader: &Reader, max_width: Option<usize>) -> Result<Frame> {
@@ -273,18 +341,33 @@ fn draw(reader: &Reader, max_width: Option<usize>) -> Result<Frame> {
             AXIS + 2
         ));
     }
-    let width = max_width.unwrap_or(DEFAULT_WIDTH);
+    // As Mermaid draws them: with no sections, every period in order; else each section as
+    // written, even one given twice or with none, with every period under a section of its name.
+    let mut entries: Vec<Entry> = Vec::new();
+    if reader.sections.is_empty() {
+        entries.extend(reader.periods.iter().map(Entry::Period));
+    } else {
+        for name in &reader.sections {
+            entries.push(Entry::Heading(name));
+            entries.extend(
+                reader
+                    .periods
+                    .iter()
+                    .filter(|p| p.section.is_some_and(|s| reader.sections[s] == *name))
+                    .map(Entry::Period),
+            );
+            if entries.len() > 2 * MAX_HEIGHT {
+                return Err(too_tall());
+            }
+        }
+    }
     let indent = |period: &Period| if period.section.is_some() { 2 } else { 0 };
+    let width = max_width.unwrap_or(DEFAULT_WIDTH);
     let natural = reader
         .sections
         .iter()
-        .flat_map(|s| text_lines(s, usize::MAX))
-        .map(|line| line.len())
-        .chain(reader.periods.iter().flat_map(|p| {
-            text_lines(&p.text, usize::MAX)
-                .into_iter()
-                .map(move |line| indent(p) + line.len())
-        }))
+        .map(|s| widest(s))
+        .chain(reader.periods.iter().map(|p| indent(p) + widest(&p.text)))
         .max()
         .unwrap_or(1)
         .max(1);
@@ -293,39 +376,39 @@ fn draw(reader: &Reader, max_width: Option<usize>) -> Result<Frame> {
 
     let mut lines: Vec<String> = Vec::new();
     if let Some(title) = &reader.title {
-        lines.extend(text_lines(title, width));
+        lines.extend(text_lines(title, width)?);
         lines.push(String::new());
     }
     let axis = label_width + 1;
-    // Periods before any section, then each section in order with its periods, even none.
-    let groups = std::iter::once(None).chain((0..reader.sections.len()).map(Some));
-    let mut drawn = 0;
-    for group in groups {
-        let periods: Vec<&Period> = reader
-            .periods
-            .iter()
-            .filter(|p| p.section == group)
-            .collect();
-        let bar = if drawn > 0 && drawn < reader.periods.len() {
-            "|"
-        } else {
-            ""
-        };
-        if let Some(at) = group {
-            if lines.last().is_some_and(|l| !l.is_empty()) {
-                lines.push(format!("{:axis$}{bar}", ""));
-            }
-            for line in text_lines(&reader.sections[at], label_width) {
-                lines.push(format!("{line:axis$}{bar}"));
-            }
+    let period_at = |at: usize| matches!(entries.get(at), Some(Entry::Period(_)));
+    let last_period = (0..entries.len()).rev().find(|&at| period_at(at));
+    let mut seen_period = false;
+    for (at, entry) in entries.iter().enumerate() {
+        if lines.len() > MAX_HEIGHT {
+            return Err(too_tall());
         }
-        for (place, period) in periods.into_iter().enumerate() {
-            if place > 0 {
-                lines.push(format!("{:axis$}|", ""));
+        // The axis runs from the first period to the last.
+        let on_axis = seen_period && last_period.is_some_and(|last| at <= last);
+        let bar = if on_axis { "|" } else { "" };
+        let spacer = at > 0
+            && match entry {
+                Entry::Heading(_) => true,
+                Entry::Period(_) => period_at(at - 1),
+            };
+        if spacer {
+            lines.push(format!("{:axis$}{bar}", ""));
+        }
+        match entry {
+            Entry::Heading(name) => {
+                for line in text_lines(name, label_width)? {
+                    lines.push(format!("{line:axis$}{bar}"));
+                }
             }
-            drawn += 1;
-            let last = drawn == reader.periods.len();
-            period_rows(&mut lines, period, label_width, room, last);
+            Entry::Period(period) => {
+                seen_period = true;
+                let last = last_period == Some(at);
+                period_rows(&mut lines, period, label_width, room, last)?;
+            }
         }
     }
     if lines.len() > MAX_HEIGHT {
@@ -344,25 +427,28 @@ fn period_rows(
     label_width: usize,
     room: usize,
     last: bool,
-) {
+) -> Result<()> {
     let indent = if period.section.is_some() && label_width > 2 {
         2
     } else {
         0
     };
-    let left: Vec<String> = text_lines(&period.text, label_width - indent)
+    let left: Vec<String> = text_lines(&period.text, label_width - indent)?
         .into_iter()
         .map(|line| format!("{:indent$}{line}", ""))
         .collect();
     // The axis column and the text after it, one entry a row.
     let mut right: Vec<(char, String)> = Vec::new();
     for (number, event) in period.events.iter().enumerate() {
-        for (row, line) in text_lines(event, room).into_iter().enumerate() {
+        for (row, line) in text_lines(event, room)?.into_iter().enumerate() {
             right.push(match (number, row) {
                 (0, 0) => ('o', format!("-- {line}")),
                 (_, 0) => ('+', format!("-- {line}")),
                 _ => ('|', format!("   {line}")),
             });
+        }
+        if right.len() > MAX_HEIGHT {
+            return Err(too_tall());
         }
     }
     if right.is_empty() {
@@ -387,4 +473,5 @@ fn period_rows(
                 .to_owned(),
         );
     }
+    Ok(())
 }

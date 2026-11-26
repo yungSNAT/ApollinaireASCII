@@ -81,23 +81,62 @@ fn timeline_keeps_periods_and_events_in_order() {
 
 #[test]
 fn timeline_groups_periods_under_sections() {
+    // As Mermaid draws them: each section as written, even one given twice or with no periods,
+    // each with every period under a section of its name.
     assert_eq!(
         rows(
-            "timeline\n2001 : Before\nsection Early\n2002 : One\n2003 : Two\nsection Empty\nsection Late\n2004 : Three"
+            "timeline\nsection Early\n2002 : One\n2003 : Two\nsection Empty\nsection Late\n2004 : Three\nsection Early\n2005 : Four"
         ),
         [
-            "2001   o-- Before",
+            "Early",
+            "  2002 o-- One",
+            "       |",
+            "  2003 o-- Two",
+            "       |",
+            "  2005 o-- Four",
+            "       |",
+            "Empty  |",
+            "       |",
+            "Late   |",
+            "  2004 o-- Three",
             "       |",
             "Early  |",
             "  2002 o-- One",
             "       |",
             "  2003 o-- Two",
             "       |",
-            "Empty  |",
-            "       |",
-            "Late   |",
-            "  2004 o-- Three",
+            "  2005 o-- Four",
         ]
+    );
+}
+
+#[test]
+fn timeline_reads_accessibility_blocks_to_their_end() {
+    // Text after a block's '}' is read; a '%%' inside a block does not hide its '}'.
+    assert_eq!(rows("timeline\naccDescr { a } 2002 : x"), ["2002 o-- x"]);
+    assert_eq!(rows("timeline\naccDescr {\n%% }\n2002 : x"), ["2002 o-- x"]);
+    assert_eq!(
+        rows("timeline\naccDescr {\na\n} 2002 : x\n2003 : y").len(),
+        3
+    );
+}
+
+#[test]
+fn timeline_refuses_text_too_tall_to_draw_before_wrapping_it() {
+    let long = format!("timeline\n2002 : {}", "x".repeat(1 << 20));
+    assert_eq!(
+        mermaid_with_max_width(&long, 7).unwrap_err(),
+        "The timeline needs more than 256 rows; a drawing has at most 256"
+    );
+    let breaks = format!("timeline\n2002 : a{}", "<br>".repeat(1 << 18));
+    assert_eq!(
+        timeline(&breaks).unwrap_err(),
+        "The timeline needs more than 256 rows; a drawing has at most 256"
+    );
+    let events = format!("timeline\n2002{}", " : e".repeat(300));
+    assert_eq!(
+        timeline(&events).unwrap_err(),
+        "Line 2: a time period has at most 256 events"
     );
 }
 
@@ -171,6 +210,10 @@ fn timeline_refuses_what_it_cannot_draw_with_the_line() {
         (
             "timeline\n2002 : x\naccDescr {\n2003 : y",
             "The accDescr block opened on line 3 is not closed",
+        ),
+        (
+            "timeline\n2001 : x\nsection A\n2002 : y",
+            "Line 2: a time period before the first section is not drawn by Mermaid; put it under a section",
         ),
         // Mermaid finds a timeline by its lower-case name.
         (
