@@ -164,3 +164,53 @@ fn edits_check_ids_frames_and_bounds() {
     assert!(apply(&art, &elements, 0, Edit::Delete { id: 1 }, false).is_err());
     assert!(elements[0].fits(5, 2, 2) && !elements[0].fits(5, 2, 1) && !elements[0].fits(0, 2, 2));
 }
+
+#[test]
+fn line_styles_draw_their_own_body_and_text_takes_no_style() {
+    let mut across = shape(Kind::Line, 3, 1, "");
+    across.style = Style::Dotted;
+    assert_eq!(across.render().text(), "...");
+    across.style = Style::Heavy;
+    assert_eq!(across.render().text(), "===");
+    assert_eq!(shape(Kind::Line, 1, 2, "").render().text(), "|\n|");
+    let mut text = shape(Kind::Text, 1, 1, "a");
+    text.style = Style::Heavy;
+    assert_eq!(text.check().unwrap_err(), "A text element has no style");
+}
+
+#[test]
+fn a_parsed_element_needs_an_id_from_e1() {
+    let error = Element::parsed(0, 0, (0, 0), shape(Kind::Text, 1, 1, "a"), None).unwrap_err();
+    assert_eq!(error, "Element ids start at e1");
+}
+
+#[test]
+fn a_project_counts_and_bounds_its_element_cells() {
+    use crate::{Animation, Layer, Layered, MAX_HEIGHT, MAX_WIDTH, TimedFrame, motion::Motion};
+    let layer = |count: u32| Layer {
+        name: "Base".into(),
+        visible: true,
+        locked: false,
+        art: Animation::new(
+            vec![TimedFrame {
+                frame: Frame::blank(MAX_WIDTH, MAX_HEIGHT).unwrap(),
+                duration_ms: 100,
+            }],
+            true,
+        )
+        .unwrap(),
+        motion: Motion::default(),
+        group: None,
+        elements: (1..=count)
+            .map(|id| {
+                let s = shape(Kind::Box, MAX_WIDTH, MAX_HEIGHT, "");
+                Element::parsed(id, 0, (0, 0), s, None).unwrap()
+            })
+            .collect(),
+    };
+    let fits = Layered::new(vec![layer(2)]).unwrap();
+    assert_eq!(fits.element_cells(), 2 * MAX_WIDTH * MAX_HEIGHT);
+    let over = MAX_ELEMENT_CELLS / (MAX_WIDTH * MAX_HEIGHT) + 1;
+    let error = Layered::new(vec![layer(over as u32)]).unwrap_err();
+    assert!(error.contains("cover at most 2000000 cells"), "{error}");
+}

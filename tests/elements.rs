@@ -303,3 +303,63 @@ fn elements_follow_their_frames_and_ids_survive_rebuilds() {
     rebuilt.raise_next_element(1);
     assert_eq!(rebuilt.next_element(), 3);
 }
+
+#[test]
+fn listing_one_layer_skips_the_others_and_names_a_line_s_arrow() {
+    let start = project(&[
+        ("Base", false, &["....\n...."]),
+        ("Top", false, &["    \n    "]),
+    ]);
+    let (_, p) = apply(
+        &start,
+        json!({"id": 1, "op": "element_add", "kind": "line", "x": 0, "y": 0, "width": 3, "arrow": "end", "layer": 1}),
+    );
+    let (base, _) = ask(&p, json!({"op": "elements", "layer": 0}));
+    assert_eq!(base.unwrap()["elements"], json!([]));
+    let (top, _) = ask(&p, json!({"op": "elements", "layer": 1}));
+    let top = top.unwrap();
+    assert_eq!(top["elements"][0]["arrow"], "end");
+    assert_eq!(top["elements"][0]["style"], "plain");
+}
+
+#[test]
+fn element_requests_with_bad_keys_kinds_or_places_are_refused() {
+    let p = project(&[("Base", false, &["....\n...."])]);
+    let (_, p) = apply(
+        &p,
+        json!({"id": 1, "op": "element_add", "kind": "text", "x": 0, "y": 0, "text": "a"}),
+    );
+    let refusals = [
+        (json!({"op": "elements", "colour": "red"}), "Unknown argument colour"),
+        (
+            json!({"op": "element_edit", "element": "e1", "colour": "red"}),
+            "Unknown argument colour",
+        ),
+        (
+            json!({"op": "element_delete", "element": "e1", "colour": "red"}),
+            "Unknown argument colour",
+        ),
+        (
+            json!({"op": "element_add", "x": 0, "y": 0}),
+            "kind must be box, text or line",
+        ),
+        (
+            json!({"op": "element_add", "kind": 5, "x": 0, "y": 0}),
+            "kind must be a string",
+        ),
+        (
+            json!({"op": "element_add", "kind": "text", "text": "a", "x": 0, "y": 0, "layer": 1}),
+            "Layer 1 is not in the project",
+        ),
+        (
+            json!({"op": "element_add", "kind": "text", "text": "a", "x": 0, "y": 0, "frame": 1}),
+            "Frame 1 is not in the project",
+        ),
+    ];
+    for (request, message) in refusals {
+        let (result, updated) = ask(&p, request.clone());
+        let error = result.expect_err(&request.to_string());
+        assert!(error.contains(message), "{request}: {error}");
+        assert!(updated.is_none());
+    }
+}

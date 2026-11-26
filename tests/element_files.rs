@@ -224,3 +224,40 @@ fn the_documented_version_4_example_loads_and_saves_unchanged() {
     let saved: Value = serde_json::from_str(&project.to_json()).unwrap();
     assert_eq!(saved, serde_json::from_str::<Value>(example).unwrap());
 }
+
+#[test]
+fn malformed_element_lists_and_older_layer_lists_are_refused_by_name() {
+    let start = project(&[("Base", false, &["ab\ncd"])]);
+    let (_, p) = apply(
+        &start,
+        json!({"id": 1, "op": "element_add", "kind": "text", "x": 0, "y": 0, "text": "Z"}),
+    );
+    let json: Value = serde_json::from_str(&p.to_json()).unwrap();
+    let refused = |edit: &dyn Fn(&mut Value), message: &str| {
+        let mut file = json.clone();
+        edit(&mut file);
+        let error = Layered::from_json(&file.to_string()).unwrap_err();
+        assert!(error.contains(message), "{message}: {error}");
+    };
+    refused(
+        &|file| file["layers"][0]["elements"] = json!(5),
+        "at most 4096 elements",
+    );
+    refused(
+        &|file| file["layers"][0]["elements"] = json!([5]),
+        "an element with id, frame, kind, x, y, width and height",
+    );
+    refused(
+        &|file| file["layers"][0]["elements"][0]["colour"] = json!("red"),
+        "unknown field `colour`",
+    );
+    for version in [2, 3] {
+        refused(
+            &|file| {
+                file["version"] = json!(version);
+                file.as_object_mut().unwrap().remove("next_element");
+            },
+            "unknown field `elements`",
+        );
+    }
+}
