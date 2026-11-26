@@ -82,22 +82,30 @@ pub(crate) fn mermaid_fitted(source: &str, max_width: Option<usize>) -> Result<c
     if let Some(limit) = max_width {
         graph::check_max_width(limit)?;
     }
-    // A bad byte or a code fence that is unclosed, tagged otherwise or followed by text is
-    // reported before the diagram type.
-    mermaid_lines(source, |_, _| Ok(()))?;
-    let mut statements = source
-        .split('\n')
-        .enumerate()
-        .map(|(index, line)| (index + 1, line.trim()))
-        .filter(|(_, line)| !line.is_empty() && !line.starts_with("%%") && !fence(line));
-    let Some((number, line)) = statements.next() else {
+    // A bad byte, unclosed front matter or a code fence that is unclosed, tagged otherwise or
+    // followed by text is reported before the diagram type. The type is read from the first
+    // statement; one that is a timeline comment defers to the next statement that is not.
+    let (mut first, mut after_comment) = (None, None);
+    mermaid_lines(source, |number, text| {
+        let line = text.trim();
+        if line.is_empty() || line.starts_with("%%") {
+            return Ok(());
+        }
+        match first {
+            None => first = Some((number, line)),
+            Some((_, head)) if after_comment.is_none() && timeline::comment(head) => {
+                if !timeline::comment(line) {
+                    after_comment = Some(line);
+                }
+            }
+            Some(_) => {}
+        }
+        Ok(())
+    })?;
+    let Some((number, line)) = first else {
         return Err(format!("The text is empty: {KINDS}"));
     };
-    if timeline::comment(line)
-        && statements
-            .find(|(_, next)| !timeline::comment(next))
-            .is_some_and(|(_, next)| timeline::header(next))
-    {
+    if timeline::comment(line) && after_comment.is_some_and(timeline::header) {
         return timeline::timeline_fitted(source, max_width);
     }
     match line.split([' ', '\t', ';']).next() {
@@ -272,39 +280,44 @@ fn case_sensitive_accessibility(text: &str) -> Option<bool> {
 
 /// Each line of Mermaid text with its number, inside one optional outer Markdown code fence
 /// (```` ``` ```` or `~~~`, untagged or `mermaid`) that opens on the first line with text.
-/// A byte outside printable ASCII, other than a tab, is refused with its line and column.
-/// Lines are read one at a time, so no copy of a long input is made.
-fn mermaid_lines(source: &str, mut statement: impl FnMut(usize, &str) -> Result<()>) -> Result<()> {
-    let mut lines = source.split('\n').enumerate().map(|(index, line)| {
-        let line = line.strip_suffix('\r').unwrap_or(line);
-        match line
-            .bytes()
-            .enumerate()
-            .find(|(_, b)| *b != b'\t' && !(32..=126).contains(b))
-        {
-            Some((column, byte)) => Err(format!(
-                "Line {}: byte {} is 0x{byte:02x}, not printable ASCII",
-                index + 1,
-                column + 1
-            )),
-            None => Ok((index + 1, line)),
-        }
-    });
-    // The first line with text may open one outer Markdown code fence.
+/// The diagram may open with YAML front matter, as Mermaid reads it: a `---` line, optionally
+/// indented, up to the next line of the same indent and `---`. Nothing in it is drawn, so its
+/// settings are read past, as `%%{init}%%` directives are, and a `title` there is refused.
+/// A byte outside printable ASCII, other than a tab, is refused with its line and column, except
+/// in front matter. Lines are read one at a time, so no copy of a long input is made.
+fn mermaid_lines<'a>(
+    source: &'a str,
+    mut statement: impl FnMut(usize, &'a str) -> Result<()>,
+) -> Result<()> {
+    let mut raw = source
+        .split('\n')
+        .enumerate()
+        .map(|(index, line)| (index + 1, line.strip_suffix('\r').unwrap_or(line)))
+        .peekable();
+    // The first line with text may open one outer Markdown code fence, and the first line with
+    // text after it (or the first line with text when there is none) may open front matter.
+    skip_blank(&mut raw)?;
     let mut opened = None;
-    for line in lines.by_ref() {
-        let (number, text) = line?;
-        let first = text.trim();
-        if first.is_empty() {
-            continue;
+    if let Some(&(number, text)) = raw.peek() {
+        let trimmed = text.trim();
+        if let Some(mark) = ["```", "~~~"].into_iter().find(|f| trimmed.starts_with(f)) {
+            ascii_line(number, text)?;
+            if !fence(trimmed) {
+                return Err(format!("Line {number}: only a mermaid code block is read"));
+            }
+            opened = Some((mark, number));
+            raw.next();
+            skip_blank(&mut raw)?;
         }
-        match ["```", "~~~"].into_iter().find(|f| first.starts_with(f)) {
-            Some(mark) if fence(first) => opened = Some((mark, number)),
-            Some(_) => return Err(format!("Line {number}: only a mermaid code block is read")),
-            None => statement(number, text)?,
-        }
-        break;
     }
+    if let Some((number, indent)) = raw
+        .peek()
+        .and_then(|&(number, text)| Some((number, front_matter_indent(text)?)))
+    {
+        raw.next();
+        front_matter(number, indent, &mut raw)?;
+    }
+    let mut lines = raw.map(|(number, text)| ascii_line(number, text));
     let Some((mark, opened)) = opened else {
         for line in lines {
             let (number, text) = line?;
@@ -328,6 +341,74 @@ fn mermaid_lines(source: &str, mut statement: impl FnMut(usize, &str) -> Result<
     }
     Err(format!(
         "The code block opened on line {opened} is not closed"
+    ))
+}
+
+/// A line, refused with its line and column when it holds a byte outside printable ASCII other
+/// than a tab.
+fn ascii_line(number: usize, line: &str) -> Result<(usize, &str)> {
+    match line
+        .bytes()
+        .enumerate()
+        .find(|(_, b)| *b != b'\t' && !(32..=126).contains(b))
+    {
+        Some((column, byte)) => Err(format!(
+            "Line {number}: byte {} is 0x{byte:02x}, not printable ASCII",
+            column + 1
+        )),
+        None => Ok((number, line)),
+    }
+}
+
+/// Read past blank lines, each still checked for bytes outside printable ASCII.
+fn skip_blank<'a>(
+    lines: &mut std::iter::Peekable<impl Iterator<Item = (usize, &'a str)>>,
+) -> Result<()> {
+    while let Some(&(number, text)) = lines.peek() {
+        if !text.trim().is_empty() {
+            break;
+        }
+        ascii_line(number, text)?;
+        lines.next();
+    }
+    Ok(())
+}
+
+/// The indent of a line that opens front matter (`---` after spaces or tabs, then only
+/// whitespace), or `None`.
+fn front_matter_indent(line: &str) -> Option<&str> {
+    let rest = line.trim_start_matches([' ', '\t']);
+    (rest.trim_end() == "---").then(|| &line[..line.len() - rest.len()])
+}
+
+/// Read front matter opened on line `opened` up to its closing line: the same indent and `---`.
+/// A top-level `title` is refused, since it is not drawn.
+fn front_matter<'a>(
+    opened: usize,
+    indent: &str,
+    lines: &mut impl Iterator<Item = (usize, &'a str)>,
+) -> Result<()> {
+    for (number, text) in lines {
+        let Some(rest) = text.strip_prefix(indent) else {
+            continue;
+        };
+        if rest.trim_end() == "---" {
+            return Ok(());
+        }
+        let key = rest.trim_start_matches(['"', '\'']);
+        if key.strip_prefix("title").is_some_and(|after| {
+            after
+                .trim_start_matches(['"', '\''])
+                .trim_start()
+                .starts_with(':')
+        }) {
+            return Err(format!(
+                "Line {number}: a title in front matter is not drawn"
+            ));
+        }
+    }
+    Err(format!(
+        "The front matter opened on line {opened} is not closed"
     ))
 }
 
