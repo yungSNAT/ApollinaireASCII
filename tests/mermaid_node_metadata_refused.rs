@@ -365,11 +365,11 @@ fn node_metadata_outside_its_grammar_is_refused_with_its_line() {
         ("A@{	label: x }", "Line 2: text holds a tab"),
         (
             "A@{ label: x #x3B; y }",
-            "Line 2: node metadata at column 2 has a hexadecimal entity code",
+            "Line 2: node metadata at column 2 has a label holding #x, which may start a hexadecimal entity code",
         ),
         (
             "A@{ label: \"x #X3b; y\" }",
-            "Line 2: node metadata at column 2 has a hexadecimal entity code",
+            "Line 2: node metadata at column 2 has a label holding #x, which may start a hexadecimal entity code",
         ),
         (
             "A@{ shape: rect }&B --> C",
@@ -382,6 +382,62 @@ fn node_metadata_outside_its_grammar_is_refused_with_its_line() {
         (
             "A[x]& B --> C",
             "Line 2: an & is read only with a space on each side",
+        ),
+        (
+            "A@{ label: x #99999999; y }",
+            "Line 2: node metadata at column 2 has a label holding a decimal code that names no character",
+        ),
+        (
+            "A@{ label: x #55296; y }",
+            "Line 2: node metadata at column 2 has a label holding a decimal code that names no character",
+        ),
+        (
+            "A@{ label: \"x #57343; y\" }",
+            "Line 2: node metadata at column 2 has a label holding a decimal code that names no character",
+        ),
+        (
+            "A@{ label: x #99999999999; y }",
+            "Line 2: node metadata at column 2 has a label holding a decimal code that names no character",
+        ),
+        (
+            "A@{ label: x #1114112; y }",
+            "Line 2: node metadata at column 2 has a label holding a decimal code that names no character",
+        ),
+        (
+            "A@{ label: x #1114111; y }",
+            "Line 2: #1114111; is not an entity for a printable ASCII character",
+        ),
+        (
+            "A@{ label: x #0; y }",
+            "Line 2: #0; is not an entity for a printable ASCII character",
+        ),
+        (
+            "A@{ label: x #128; y }",
+            "Line 2: #128; is not an entity for a printable ASCII character",
+        ),
+        (
+            "A@{ label: \"lifestyle:#59; b\" }",
+            "Line 2: node metadata at column 2 is on a line holding style or classDef before a #",
+        ),
+        (
+            "A@{ label: \"classDef:#59; b\" }",
+            "Line 2: node metadata at column 2 is on a line holding style or classDef before a #",
+        ),
+        (
+            "B[style] --> A@{ label: \"a:#59; b\" }",
+            "Line 2: node metadata at column 15 is on a line holding style or classDef before a #",
+        ),
+        (
+            "B[classDef] --> A@{ label: \"a:#59; b\" }",
+            "Line 2: node metadata at column 18 is on a line holding style or classDef before a #",
+        ),
+        (
+            "B[style];A@{ label: \"a:#59; b\" }",
+            "Line 2: node metadata at column 11 is on a line holding style or classDef before a #",
+        ),
+        (
+            "B[style:#] --> A@{ shape: rect };C",
+            "Line 2: node metadata at column 17 is on a line holding style or classDef before a #",
         ),
     ];
     let mut wrong = Vec::new();

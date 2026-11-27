@@ -21,6 +21,20 @@ fn node_metadata_names_a_shape_and_label_as_brackets_do() {
         ("A@{ label : x }", "A[x]"),
         ("A@{ label: a#b }", "A[a#b]"),
         ("A@{ label: x #59; y }", "A[x #59; y]"),
+        ("A@{ label: x #00059; y }", "A[x #00059; y]"),
+        ("A@{ label: \"a #; b\" }", "A[\"a #; b\"]"),
+        (
+            "A@{ label: \"a:#59; b\" } --> B[style]",
+            "A[\"a:#59; b\"] --> B[style]",
+        ),
+        (
+            "B[Style] --> A@{ label: \"a:#59; b\" }",
+            "B[Style] --> A[\"a:#59; b\"]",
+        ),
+        (
+            "B[style] --> A@{ label: \"a:b; c\" }",
+            "B[style] --> A[\"a:b; c\"]",
+        ),
         ("A@{ shape: \"cyl\", label: Store }", "A[Store]"),
         ("A[Old]@{ label: New }", "A[New]"),
         (
