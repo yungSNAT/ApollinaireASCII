@@ -40,6 +40,11 @@ fn node_metadata_names_a_shape_and_label_as_brackets_do() {
         ("A@{ label: x #lt; y }", "A[x #lt; y]"),
         ("A[Old]@{ shape: hex }", "A[Old]"),
         (
+            "L_1_2 --> L_a_b_c & L_a_b_ & L --> L_a_b_1x",
+            "L_1_2 --> L_a_b_c & L_a_b_ & L --> L_a_b_1x",
+        ),
+        ("A@{ label: \"a^b\" }", "A[\"a^b\"]"),
+        (
             "A@{ label: x }
 A@{ shape: hex }",
             "A[x]",
@@ -109,14 +114,6 @@ A@{ shape: hex }",
         "lined-process",
         "lin-proc",
         "shaded-process",
-        "sm-circ",
-        "start",
-        "small-circle",
-        "fr-circ",
-        "stop",
-        "framed-circle",
-        "hourglass",
-        "collate",
         "brace",
         "comment",
         "brace-l",
@@ -199,6 +196,80 @@ A@{ shape: hex }",
 #[test]
 fn node_metadata_outside_its_grammar_is_refused_with_its_line() {
     let refused = [
+        (
+            "A@{ shape: sm-circ }",
+            "Line 2: the shape sm-circ is drawn with no text",
+        ),
+        (
+            "A@{ shape: start }",
+            "Line 2: the shape start is drawn with no text",
+        ),
+        (
+            "A@{ shape: small-circle }",
+            "Line 2: the shape small-circle is drawn with no text",
+        ),
+        (
+            "A@{ shape: fr-circ }",
+            "Line 2: the shape fr-circ is drawn with no text",
+        ),
+        (
+            "A@{ shape: stop }",
+            "Line 2: the shape stop is drawn with no text",
+        ),
+        (
+            "A@{ shape: framed-circle }",
+            "Line 2: the shape framed-circle is drawn with no text",
+        ),
+        (
+            "A@{ shape: hourglass }",
+            "Line 2: the shape hourglass is drawn with no text",
+        ),
+        (
+            "A@{ shape: collate }",
+            "Line 2: the shape collate is drawn with no text",
+        ),
+        (
+            "A@{ label: m } & A[n] --> B",
+            "Line 2: a node named twice in one group is not read",
+        ),
+        (
+            "X --> A@{ label: m } & A[n]",
+            "Line 2: a node named twice in one group is not read",
+        ),
+        (
+            "A@{ label: m } & A[n]",
+            "Line 2: a node named twice in one group is not read",
+        ),
+        (
+            "A & B & A --> C",
+            "Line 2: a node named twice in one group is not read",
+        ),
+        ("A@{ shape: \" rect \" }", "Line 2: no such shape:  rect "),
+        ("A@{ shape: ' rect ' }", "Line 2: no such shape:  rect "),
+        (
+            "A@{ label: 'a^b' }",
+            "Line 2: node metadata at column 2 has a value outside plain or quoted text",
+        ),
+        (
+            "A --> B\nL_A_B_0@{ label: x }",
+            "Line 3: the node name L_A_B_0 can be a link's name",
+        ),
+        (
+            "A --> B\nL_A_B_0",
+            "Line 3: the node name L_A_B_0 can be a link's name",
+        ),
+        (
+            "L_x_y_12 --> B",
+            "Line 2: the node name L_x_y_12 can be a link's name",
+        ),
+        (
+            "A@{ label: fa:fa-user }",
+            "Line 2: node metadata at column 2 has a label Mermaid draws as other than text",
+        ),
+        (
+            "A@{ label: \"a $$xy$$\" }",
+            "Line 2: node metadata at column 2 has a label Mermaid draws as other than text",
+        ),
         ("A@{ shape: Rect }", "Line 2: no such shape: Rect"),
         (
             "A@{ shape: lean_right }",
@@ -349,43 +420,43 @@ fn node_metadata_outside_its_grammar_is_refused_with_its_line() {
         ),
         (
             "A@{ label: \"`x`\" }",
-            "Line 2: node metadata at column 2 has a label Mermaid reads as Markdown",
+            "Line 2: node metadata at column 2 has a label Mermaid draws as other than text",
         ),
         (
             "A@{ label: a*b* }",
-            "Line 2: node metadata at column 2 has a label Mermaid reads as Markdown",
+            "Line 2: node metadata at column 2 has a label Mermaid draws as other than text",
         ),
         (
             "A@{ label: x_y }",
-            "Line 2: node metadata at column 2 has a label Mermaid reads as Markdown",
+            "Line 2: node metadata at column 2 has a label Mermaid draws as other than text",
         ),
         (
             "A@{ label: a~b }",
-            "Line 2: node metadata at column 2 has a label Mermaid reads as Markdown",
+            "Line 2: node metadata at column 2 has a label Mermaid draws as other than text",
         ),
         (
             "A@{ label: a&amp;b }",
-            "Line 2: node metadata at column 2 has a label Mermaid reads as Markdown",
+            "Line 2: node metadata at column 2 has a label Mermaid draws as other than text",
         ),
         (
             "A@{ label: \"a<br>b\" }",
-            "Line 2: node metadata at column 2 has a label Mermaid reads as Markdown",
+            "Line 2: node metadata at column 2 has a label Mermaid draws as other than text",
         ),
         (
             "A@{ label: \"a [b]\" }",
-            "Line 2: node metadata at column 2 has a label Mermaid reads as Markdown",
+            "Line 2: node metadata at column 2 has a label Mermaid draws as other than text",
         ),
         (
             "A@{ label: http://x }",
-            "Line 2: node metadata at column 2 has a label Mermaid reads as Markdown",
+            "Line 2: node metadata at column 2 has a label Mermaid draws as other than text",
         ),
         (
             "A@{ label: Www.x.com }",
-            "Line 2: node metadata at column 2 has a label Mermaid reads as Markdown",
+            "Line 2: node metadata at column 2 has a label Mermaid draws as other than text",
         ),
         (
             "A@{ label: a@b }",
-            "Line 2: node metadata at column 2 has a label Mermaid reads as Markdown",
+            "Line 2: node metadata at column 2 has a label Mermaid draws as other than text",
         ),
         (
             "A@{ label: \"a\\b\" }",
