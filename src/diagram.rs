@@ -303,10 +303,12 @@ fn mermaid_lines_with<'a>(
     mut setting: impl FnMut(usize, &[&'a str], &'a str) -> Result<()>,
     mut statement: impl FnMut(usize, &'a str) -> Result<()>,
 ) -> Result<()> {
+    // Lines end in `\n`, `\r\n` or a lone `\r`, as Mermaid's `cleanupText` makes each `\n`.
     let mut raw = source
         .split('\n')
+        .flat_map(|line| line.strip_suffix('\r').unwrap_or(line).split('\r'))
         .enumerate()
-        .map(|(index, line)| (index + 1, line.strip_suffix('\r').unwrap_or(line)))
+        .map(|(index, line)| (index + 1, line))
         .peekable();
     // The first line with text may open one outer Markdown code fence, and the first line with
     // text after it (or the first line with text when there is none) may open front matter.
@@ -400,7 +402,7 @@ fn front_matter_indent(line: &str) -> Option<&str> {
 /// whitespace, and a line after it. The opening runs on over the blank lines after it whilst a
 /// closing line stays at least 2 lines further on; the body is the lines after that, up to the
 /// first closing line past its first line. A top-level `title` is refused, since it is not
-/// drawn; each `key: value` line goes to `setting`, and a block scalar's lines are its text.
+/// drawn, as are a top-level explicit key (`?`) and an escaped key, which may name one; each `key: value` line goes to `setting`, and a block scalar's lines are its text.
 fn front_matter<'a, I: Iterator<Item = (usize, &'a str)> + Clone>(
     opened: usize,
     indent: &str,
@@ -454,6 +456,19 @@ fn front_matter<'a, I: Iterator<Item = (usize, &'a str)> + Clone>(
                 "Line {number}: a title in front matter is not drawn"
             ));
         }
+        let explicit = content
+            .strip_prefix('?')
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with([' ', '\t']));
+        if keys.is_empty() && explicit {
+            return Err(format!(
+                "Line {number}: an explicit key (?) at the top of front matter is not read"
+            ));
+        }
+        if escaped_key(content) {
+            return Err(format!(
+                "Line {number}: an escaped key in front matter is not read"
+            ));
+        }
         // Only the block form is read; any other place or form of the key is refused, so none
         // is dropped whilst Mermaid reads it.
         let under_git_graph = keys.iter().map(|&(_, key)| key).eq(["config", "gitGraph"]);
@@ -471,6 +486,11 @@ fn front_matter<'a, I: Iterator<Item = (usize, &'a str)> + Clone>(
         } else if value.starts_with(['|', '>']) {
             scalar = Some(depth);
         } else {
+            if key == "mainBranchName" && value.starts_with('"') && value.contains('\\') {
+                return Err(format!(
+                    "Line {number}: an escaped mainBranchName is not read"
+                ));
+            }
             let mut path: Vec<&str> = keys.iter().map(|&(_, key)| key).collect();
             path.push(key);
             setting(number, &path, unquote(value))?;
@@ -498,6 +518,34 @@ fn word(line: &str, name: &str) -> bool {
         !line[..at].chars().next_back().is_some_and(part)
             && !line[at + name.len()..].chars().next().is_some_and(part)
     })
+}
+
+/// Whether a line holds a double-quoted key (before `:` or after `?`) with an escape, which is
+/// not decoded, so its name is unknown.
+fn escaped_key(line: &str) -> bool {
+    let mut rest = line;
+    while let Some(open) = rest.find('"') {
+        let (before, body) = (&rest[..open], &rest[open + 1..]);
+        let mut chars = body.char_indices();
+        let (mut escaped, mut close) = (false, None);
+        while let Some((at, c)) = chars.next() {
+            if c == '\\' {
+                escaped = true;
+                chars.next();
+            } else if c == '"' {
+                close = Some(at);
+                break;
+            }
+        }
+        let Some(close) = close else {
+            return false;
+        };
+        rest = &body[close + 1..];
+        if escaped && (rest.trim_start().starts_with(':') || before.trim_end().ends_with('?')) {
+            return true;
+        }
+    }
+    false
 }
 
 /// Whether a line holds `key` as a key of a flow mapping (`{..}`) anywhere.

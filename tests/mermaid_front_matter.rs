@@ -36,6 +36,11 @@ fn every_family_draws_the_same_after_front_matter() {
         assert_eq!(mermaid(&fenced).unwrap().text(), plain, "{source}");
         let indented = format!("  ---\n  config:\n    theme: dark\n  ---\n{source}");
         assert_eq!(mermaid(&indented).unwrap().text(), plain, "{source}");
+        // Mermaid turns `\r\n` and a lone `\r` into `\n` before it reads anything.
+        for ending in ["\r", "\r\n"] {
+            let ended = format!("{FRONT}{source}").replace('\n', ending);
+            assert_eq!(mermaid(&ended).unwrap().text(), plain, "{ended:?}");
+        }
     }
 }
 
@@ -72,6 +77,19 @@ fn front_matter_is_refused_when_unclosed_titled_or_not_first() {
             "  ---\ntitle: Pets\n  ---\npie\n  \"a\" : 1",
             "Line 2: a title in front matter is not drawn",
         ),
+        // A top-level explicit key may be a title, and an escaped key is not decoded.
+        (
+            "---\n? title\n: Pets\n---\npie\n  \"a\" : 1",
+            "Line 2: an explicit key (?) at the top of front matter is not read",
+        ),
+        (
+            "---\n\"ti\\u0074le\": Pets\n---\npie\n  \"a\" : 1",
+            "Line 2: an escaped key in front matter is not read",
+        ),
+        (
+            "---\n{\"ti\\x74le\" : Pets}\n---\npie\n  \"a\" : 1",
+            "Line 2: an escaped key in front matter is not read",
+        ),
         // The closing line follows at least one line of body, and a line follows it.
         (
             "---\n---\ngraph TD\n  A-->B\n",
@@ -100,6 +118,12 @@ fn front_matter_is_refused_when_unclosed_titled_or_not_first() {
     let described = "---\ndescription: >-\n  title: x and mainBranchName: y\n---\npie\n  \"a\" : 1";
     assert_eq!(
         mermaid(described).unwrap().text(),
+        mermaid("pie\n  \"a\" : 1").unwrap().text()
+    );
+    // Escapes in values, a nested explicit key and an unclosed quote are read past.
+    let escaped = "---\ndescription: \"a \\\"b\\\"\" and \"c\"\nconfig:\n  ? theme\n  : dark\nnote: \"open\n---\npie\n  \"a\" : 1";
+    assert_eq!(
+        mermaid(escaped).unwrap().text(),
         mermaid("pie\n  \"a\" : 1").unwrap().text()
     );
 }
@@ -182,5 +206,23 @@ fn front_matter_names_the_main_branch_of_a_git_graph_as_a_directive_does() {
         mermaid("---\nconfig:\n  gitGraph:\n    mainBranchName: ''\n---\ngitGraph\n  commit")
             .unwrap_err(),
         "Line 4: mainBranchName names a branch"
+    );
+    // An escaped key or value is not decoded, so it is refused, not read as another name.
+    for front in [
+        "config:\n  gitGraph:\n    \"mainBranch\\u004eame\": trunk",
+        "config:\n  gitGraph:\n    ? \"mainBranch\\u004eame\"\n    : trunk",
+    ] {
+        assert_eq!(
+            mermaid(&format!("---\n{front}\n---\n{branches}")).unwrap_err(),
+            "Line 4: an escaped key in front matter is not read",
+            "{front}"
+        );
+    }
+    assert_eq!(
+        mermaid(&format!(
+            "---\nconfig:\n  gitGraph:\n    mainBranchName: \"tr\\u0075nk\"\n---\n{branches}"
+        ))
+        .unwrap_err(),
+        "Line 4: an escaped mainBranchName is not read"
     );
 }
