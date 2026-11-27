@@ -447,13 +447,12 @@ fn front_matter<'a, I: Iterator<Item = (usize, &'a str)> + Clone>(
         while keys.last().is_some_and(|&(at, _)| at >= depth) {
             keys.pop();
         }
-        let title = Err(format!(
-            "Line {number}: a title in front matter is not drawn"
-        ));
         if keys.is_empty()
             && (keyed(content, "title") || content.starts_with('{') && flow_keyed(content, "title"))
         {
-            return title;
+            return Err(format!(
+                "Line {number}: a title in front matter is not drawn"
+            ));
         }
         // Only the block form is read; any other place or form of the key is refused, so none
         // is dropped whilst Mermaid reads it.
