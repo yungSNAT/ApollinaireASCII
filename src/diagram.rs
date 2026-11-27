@@ -442,7 +442,7 @@ fn front_matter_indent(line: &str) -> Option<&str> {
 /// and a top-level `title` are refused as either. So quoted values over several lines, plain
 /// ones continuing a value on its key's line, flow values, tags, anchors, aliases, sequences,
 /// explicit, quoted and merge keys, tabs, repeated keys and document markers outside a block
-/// scalar's text are refused, whatever they hold.
+/// scalar's text (but for `...` in a plain one's) are refused, whatever they hold.
 /// Lines end in `\n`, `\r\n` or a lone `\r`, as [`mermaid_lines_with`] splits them.
 fn front_matter<'a, I: Iterator<Item = (usize, &'a str)> + Clone>(
     opened: usize,
