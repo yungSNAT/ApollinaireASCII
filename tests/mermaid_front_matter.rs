@@ -90,6 +90,23 @@ fn front_matter_is_refused_when_unclosed_titled_or_not_first() {
             "---\n{\"ti\\x74le\" : Pets}\n---\npie\n  \"a\" : 1",
             "Line 2: an escaped key in front matter is not read",
         ),
+        // So may a top-level alias, tagged, anchored or merge key.
+        (
+            "---\nt: &t title\n*t : Pets\n---\npie\n  \"a\" : 1",
+            "Line 3: an alias, tag, anchor or merge key at the top of front matter is not read",
+        ),
+        (
+            "---\nbase: &b {title: Pets}\n<<: *b\n---\npie\n  \"a\" : 1",
+            "Line 3: an alias, tag, anchor or merge key at the top of front matter is not read",
+        ),
+        (
+            "---\n!!str title: Pets\n---\npie\n  \"a\" : 1",
+            "Line 2: an alias, tag, anchor or merge key at the top of front matter is not read",
+        ),
+        (
+            "---\n&k title: Pets\n---\npie\n  \"a\" : 1",
+            "Line 2: an alias, tag, anchor or merge key at the top of front matter is not read",
+        ),
         // The closing line follows at least one line of body, and a line follows it.
         (
             "---\n---\ngraph TD\n  A-->B\n",

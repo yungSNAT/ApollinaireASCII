@@ -402,7 +402,9 @@ fn front_matter_indent(line: &str) -> Option<&str> {
 /// whitespace, and a line after it. The opening runs on over the blank lines after it whilst a
 /// closing line stays at least 2 lines further on; the body is the lines after that, up to the
 /// first closing line past its first line. A top-level `title` is refused, since it is not
-/// drawn, as are a top-level explicit key (`?`) and an escaped key, which may name one; each `key: value` line goes to `setting`, and a block scalar's lines are its text.
+/// drawn, as are an escaped key and a top-level explicit (`?`), alias, tagged, anchored or
+/// merge key, which may name one; each `key: value` line goes to `setting`, and a block
+/// scalar's lines are its text.
 fn front_matter<'a, I: Iterator<Item = (usize, &'a str)> + Clone>(
     opened: usize,
     indent: &str,
@@ -462,6 +464,14 @@ fn front_matter<'a, I: Iterator<Item = (usize, &'a str)> + Clone>(
         if keys.is_empty() && explicit {
             return Err(format!(
                 "Line {number}: an explicit key (?) at the top of front matter is not read"
+            ));
+        }
+        if keys.is_empty()
+            && (content.starts_with(['*', '!', '&'])
+                || key_value(content).is_some_and(|(key, _)| key == "<<"))
+        {
+            return Err(format!(
+                "Line {number}: an alias, tag, anchor or merge key at the top of front matter is not read"
             ));
         }
         if escaped_key(content) {
