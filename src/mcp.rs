@@ -836,11 +836,13 @@ mod tests {
         "mcp",
         "claude-hook",
     ];
-    /// Arguments no tool takes: files and directories, which the server never names.
+    /// Arguments no tool takes: files and directories, which the server never names, and
+    /// `font_index`, which picks a font in a font file.
     const NOT_TAKEN: &[&str] = &[
         "output",
         "output_dir",
         "font_file",
+        "font_index",
         "art_file",
         "design_file",
     ];

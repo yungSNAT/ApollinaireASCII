@@ -15,7 +15,7 @@ use apollinaire_ascii::{
     generator::{self, Algorithm, MazeStyle, Phase},
     lettering,
     model::{self, Light, Spin},
-    rexpaint,
+    rexpaint, thedraw,
 };
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use rayon::prelude::*;
@@ -194,9 +194,13 @@ enum Command {
         /// Bundled font or style; `apollinaire list` names them.
         #[arg(long, default_value = "standard")]
         font: String,
-        /// Plain FIGlet .flf or TOIlet .tlf font drawn in printable ASCII.
+        /// Plain FIGlet .flf or TOIlet .tlf font drawn in printable ASCII, or a TheDraw .tdf
+        /// font, redrawn in printable ASCII.
         #[arg(long)]
         font_file: Option<PathBuf>,
+        /// Which font of a TheDraw .tdf file to use, from 1.
+        #[arg(long, requires = "font_file", value_name = "N")]
+        font_index: Option<usize>,
         /// Align each line of lettering within --width.
         #[arg(long, value_enum, default_value = "left")]
         align: Align,
@@ -520,7 +524,17 @@ enum Command {
     /// Print this manual page as roff, for `apollinaire man | man -l -`.
     Man,
 }
+/// Runs the command on an 8 MiB stack: `run` is one large match, and a debug build's frame for
+/// it outgrows the 1 MiB main thread stack Windows gives.
 fn main() -> std::process::ExitCode {
+    std::thread::Builder::new()
+        .stack_size(8 << 20)
+        .spawn(command)
+        .expect("the command thread starts")
+        .join()
+        .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+}
+fn command() -> std::process::ExitCode {
     let args = Args::parse();
     let hook = matches!(args.command, Command::ClaudeHook(_));
     match run(args) {
@@ -595,13 +609,17 @@ fn run(args: Args) -> Result<()> {
             text,
             font,
             font_file,
+            font_index,
             align,
             width,
             wrap,
             horizontal,
             vertical,
         } => {
-            let custom = font_file.as_ref().map(|p| read_text(p)).transpose()?;
+            let custom = font_file
+                .as_ref()
+                .map(|p| read_font(p, font_index))
+                .transpose()?;
             let layout = |layout| match layout {
                 Layout::Default => lettering::Layout::Default,
                 Layout::Full => lettering::Layout::Full,
@@ -1284,6 +1302,33 @@ fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>> {
         return Err(exceeds);
     }
     Ok(bytes)
+}
+/// A font file's FIGlet or TOIlet text, or a TheDraw font's, redrawn in printable ASCII.
+fn read_font(path: &Path, index: Option<usize>) -> Result<String> {
+    let bytes = read_bounded(path, MAX_INPUT_BYTES)?;
+    if !thedraw::is_tdf(&bytes) {
+        if index.is_some() {
+            return Err("--font-index picks a font of a TheDraw .tdf file".into());
+        }
+        return utf8(bytes);
+    }
+    let fonts = thedraw::parse(&bytes)?;
+    let chosen = index.unwrap_or(1);
+    let font = chosen
+        .checked_sub(1)
+        .and_then(|at| fonts.get(at))
+        .ok_or_else(|| {
+            let names: Vec<String> = fonts
+                .iter()
+                .enumerate()
+                .map(|(at, font)| format!("{} {}", at + 1, font.name))
+                .collect();
+            format!(
+                "--font-index {chosen} is not in the file, which holds {}",
+                names.join(", ")
+            )
+        })?;
+    Ok(font.to_flf())
 }
 fn read_text(path: &Path) -> Result<String> {
     utf8(read_bounded(path, MAX_INPUT_BYTES)?)

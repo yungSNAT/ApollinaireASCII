@@ -41,3 +41,10 @@ path = "fuzz_targets/project_json.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "thedraw"
+path = "fuzz_targets/thedraw.rs"
+test = false
+doc = false
+bench = false
