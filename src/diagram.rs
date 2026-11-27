@@ -511,13 +511,15 @@ fn front_matter<'a, I: Iterator<Item = (usize, &'a str)> + Clone>(
                 "Line {number}: a title in front matter is not drawn"
             ));
         }
-        if let Some((_, read)) = levels.last_mut() {
-            if read.contains(&key) {
-                return Err(format!(
-                    "Line {number}: a key repeated in front matter is not YAML"
-                ));
-            }
+        // `levels` always holds the current mapping here.
+        if levels.last_mut().is_some_and(|(_, read)| {
+            let repeated = read.contains(&key);
             read.push(key);
+            repeated
+        }) {
+            return Err(format!(
+                "Line {number}: a key repeated in front matter is not YAML"
+            ));
         }
         let value = scalar(rest);
         if key == "mainBranchName" {
