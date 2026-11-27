@@ -7,12 +7,14 @@ use std::{path::Path, process::ExitCode};
 
 mod deb;
 mod manifests;
+mod rpm;
 mod shared;
 mod speed;
 mod suites;
 
 const USAGE: &str = "Usage:
   xtask deb <release folder> <version> <amd64|arm64> <output .deb>
+  xtask rpm <release folder> <version> <x86_64|aarch64> <output .rpm>
   xtask manifests <tag> <SHA256SUMS.txt> <output folder>
   xtask speed <apollinaire> <ascii-image-converter> <chafa> [work folder]
   xtask editors <apollinaire>
@@ -25,6 +27,9 @@ fn main() -> ExitCode {
     let result = match args.as_slice() {
         ["deb", src, version, arch, out] => {
             deb::build(Path::new(src), version, arch, Path::new(out))
+        }
+        ["rpm", src, version, arch, out] => {
+            rpm::build(Path::new(src), version, arch, Path::new(out))
         }
         ["manifests", tag, sums, out] => manifests::write(tag, Path::new(sums), Path::new(out)),
         ["speed", apo, aic, chafa] => speed::run(apo, aic, chafa, None),

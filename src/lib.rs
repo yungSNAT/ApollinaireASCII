@@ -17,6 +17,7 @@ pub mod bubble;
 pub mod canvas;
 pub mod diagram;
 pub mod effects;
+pub mod elements;
 pub mod export;
 pub mod frame;
 pub mod generator;

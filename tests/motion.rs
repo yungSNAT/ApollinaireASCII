@@ -44,6 +44,7 @@ fn layer(name: &str, art: Animation, motion: Motion) -> Layer {
         art,
         motion,
         group: None,
+        elements: Vec::new(),
     }
 }
 fn texts(project: &Layered) -> Vec<String> {
@@ -323,7 +324,7 @@ fn malformed_motion_is_refused() {
     assert!(Layered::from_json(&with_motion(3, ok.clone())).is_ok());
     for (version, motion, message) in [
         (2, ok.clone(), "unknown field `motion`"),
-        (4, ok, "version 1, 2 or 3"),
+        (5, ok, "version 1, 2, 3 or 4"),
         (3, json!({"opacity":[]}), "unknown field `opacity`"),
         (3, json!({"x":[]}), "invalid length 0"),
         (

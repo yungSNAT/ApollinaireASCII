@@ -16,4 +16,5 @@ claude --plugin-dir ~/ApollinaireASCII/editors/claude-code
 - `hooks/hooks.json`: `PostToolUse` hook matching `Write|Edit|MultiEdit` that runs `apollinaire claude-hook`. When a modified `.md`, `.markdown` or `.mdx` file contains fenced `mermaid` blocks, the hook renders them to pure printable ASCII and returns them in `hookSpecificOutput.additionalContext` without modifying the Markdown source file on disk.
 - `apollinaire claude-hook`: Rust subcommand in `apollinaire`. Fails closed with exit code 2 (`apollinaire-mermaid: ...`) when `APOLLINAIRE_MAX_WIDTH` is out of range (1 to 512, default 80), input JSON is invalid, a file escapes the workspace or a diagram fails to render. Also supports direct Markdown replacement on stdout with `--markdown [--file PATH] [--max-width COLS]`.
 - `skills/mermaid-ascii/SKILL.md`: skill documenting single-diagram, Markdown and hook rendering commands.
+- `skills/apollinaire/SKILL.md`: skill for the whole CLI, so an agent asked for ASCII art, a banner, a table, a tree, a diagram or a picture as text picks the right `apollinaire` command.
 - `tests/claude_hook/`: integration test suite for the Claude hook subcommand.
