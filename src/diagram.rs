@@ -401,10 +401,30 @@ fn front_matter_indent(line: &str) -> Option<&str> {
 /// (`diagram-api/regexes.ts`). A closing line has the opening's indent, `---` and only
 /// whitespace, and a line after it. The opening runs on over the blank lines after it whilst a
 /// closing line stays at least 2 lines further on; the body is the lines after that, up to the
-/// first closing line past its first line. A top-level `title` is refused, since it is not
-/// drawn, as are an escaped key and a top-level explicit (`?`), alias, tagged, anchored or
-/// merge key, which may name one; each `key: value` line goes to `setting`, and a block
-/// scalar's lines are its text.
+/// first closing line past its first line.
+///
+/// The body is YAML, which Mermaid reads with js-yaml's `JSON_SCHEMA`. Each form is read as
+/// Mermaid reads it or refused with its line, never read another way (the table test in
+/// `tests/mermaid_front_matter.rs` has a row for each):
+/// - Block mappings: each `key: value` line goes to `setting` with the keys it sits under; only
+///   `config` > `gitGraph` > `mainBranchName` is used. The name in another key's plain or quoted
+///   value is text; anywhere else (another place, a flow collection, a sequence item, an
+///   explicit key, a line with an anchor) it is refused.
+/// - Flow mappings and sequences (`{..}`, `[..]`, after any tag or anchor): read past when they
+///   close on their line; one left open, or closed with nothing open, is refused on that line.
+/// - A top-level `title` is refused, since it is not drawn, as are a top-level explicit (`?`),
+///   alias, tagged, anchored or merge (`<<`) key and an escaped double-quoted key anywhere,
+///   which may name one. Explicit keys below the top are read past.
+/// - A block scalar's lines (`|`, `>`) are its text.
+/// - A `mainBranchName` value is read only whole on its line: a plain scalar YAML types as a
+///   string, or a quoted one closed on the line with no escape or doubled quote, each with at
+///   most a comment after it. Refused: an alias, anchor or tag, a block scalar, a flow
+///   collection, an escape, a doubled or unclosed quote, text after the closing quote, an empty
+///   value, a value continued on the next line, a plain value that starts with a digit, `+`,
+///   `-`, `.` or an indicator (`#*&!|>[]{}%@` and backtick, `?:,`) or holds `: `, or ends in
+///   `:`, and the null and boolean words (`~`, `null`, `Null`, `NULL`, `true`, `True`, `TRUE`,
+///   `false`, `False`, `FALSE`), which YAML does not type as text.
+/// - Lines end in `\n`, `\r\n` or a lone `\r`, as [`mermaid_lines_with`] splits them.
 fn front_matter<'a, I: Iterator<Item = (usize, &'a str)> + Clone>(
     opened: usize,
     indent: &str,
@@ -490,6 +510,12 @@ fn front_matter<'a, I: Iterator<Item = (usize, &'a str)> + Clone>(
                 "Line {number}: an escaped key in front matter is not read"
             ));
         }
+        // So no flow collection is open from an earlier line, and each line is read alone.
+        if flow_start(content).is_some_and(|flow| !flow_closes(flow)) {
+            return Err(format!(
+                "Line {number}: a flow collection in front matter is read only when it opens and closes on its line"
+            ));
+        }
         // Only the block form is read; any other place or form of the key is refused, so none
         // is dropped whilst Mermaid reads it.
         // The name in a block line's plain or quoted value is text, unless an anchor there could
@@ -498,7 +524,7 @@ fn front_matter<'a, I: Iterator<Item = (usize, &'a str)> + Clone>(
         let in_value = !content.starts_with(['-', '?'])
             && !content.contains('&')
             && key_value(content).is_some_and(|(key, value)| {
-                !word(key, "mainBranchName") && !value.starts_with(['{', '['])
+                !word(key, "mainBranchName") && !properties(value).starts_with(['{', '['])
             });
         if word(content, "mainBranchName")
             && !in_value
@@ -553,8 +579,8 @@ fn word(line: &str, name: &str) -> bool {
 }
 
 /// Whether a `mainBranchName` value (the text after its `:`) is one this reader takes whole: a
-/// plain scalar, or a quoted one with no escape or doubled quote, each with at most a comment
-/// after it.
+/// plain scalar YAML types as a string, or a quoted one with no escape or doubled quote, each
+/// with at most a comment after it.
 fn whole_name(rest: &str) -> bool {
     let rest = rest.trim();
     match rest.as_bytes().first() {
@@ -563,8 +589,90 @@ fn whole_name(rest: &str) -> bool {
             let after = rest[end + 2..].trim_start();
             !rest[1..=end].contains('\\') && (after.is_empty() || after.starts_with('#'))
         }),
-        Some(first) => !b"#*&!|>[{%@`".contains(first),
+        Some(first) => {
+            let plain = rest
+                .find(" #")
+                .or_else(|| rest.find("\t#"))
+                .map_or(rest, |at| rest[..at].trim_end());
+            // Digits, signs and `.` start YAML's numbers; the indicators start other nodes.
+            !b"#*&!|>[]{}%@`?:,-+.".contains(first)
+                && !first.is_ascii_digit()
+                && !plain.contains(": ")
+                && !plain.contains(":\t")
+                && !plain.ends_with(':')
+                && ![
+                    "~", "null", "Null", "NULL", "true", "True", "TRUE", "false", "False", "FALSE",
+                ]
+                .contains(&plain)
+        }
     }
+}
+
+/// A node's text after any tag (`!..`) or anchor (`&..`) before it.
+fn properties(mut node: &str) -> &str {
+    while let Some(rest) = node.strip_prefix(['!', '&']) {
+        let end = rest
+            .find([' ', '\t', '{', '[', ',', '}', ']'])
+            .unwrap_or(rest.len());
+        node = rest[end..].trim_start();
+    }
+    node
+}
+
+/// Where a flow collection (`{..}` or `[..]`) starts on a front matter line: at its start, after
+/// any `- `, `? ` or `: ` indicators, or at a block mapping's value, each after any tag or
+/// anchor; or `None`.
+fn flow_start(content: &str) -> Option<&str> {
+    let mut item = content;
+    while let Some(rest) = ["- ", "? ", ": ", "-\t", "?\t", ":\t"]
+        .into_iter()
+        .find_map(|indicator| item.strip_prefix(indicator))
+    {
+        item = rest.trim_start();
+    }
+    fn flow(node: &str) -> Option<&str> {
+        let node = properties(node);
+        node.starts_with(['{', '[']).then_some(node)
+    }
+    flow(item).or_else(|| {
+        let (_, value) = key_value(item).filter(|(_, value)| !value.is_empty())?;
+        // A non-empty value from `key_value` is a slice of `item`; take the rest of
+        // the line from where it starts, so a comment inside quotes is not cut off.
+        let at = (value.as_ptr() as usize).checked_sub(item.as_ptr() as usize)?;
+        flow(item.get(at..)?)
+    })
+}
+
+/// Whether the flow collection that `flow` starts with closes on its line, reading past quoted
+/// scalars (a quote opens one only where a node starts) and stopping at a comment.
+fn flow_closes(flow: &str) -> bool {
+    let (mut depth, mut quote, mut previous) = (0usize, None, ' ');
+    let mut chars = flow.chars().peekable();
+    while let Some(c) = chars.next() {
+        match quote {
+            Some('"') if c == '\\' => {
+                chars.next();
+            }
+            Some('\'') if c == '\'' && chars.peek() == Some(&'\'') => {
+                chars.next();
+            }
+            Some(q) if c == q => quote = None,
+            Some(_) => {}
+            None => match c {
+                '"' | '\'' if "{[,:? \t".contains(previous) => quote = Some(c),
+                '{' | '[' => depth += 1,
+                // A close with nothing open is not YAML.
+                '}' | ']' => match depth.checked_sub(1) {
+                    Some(open) => depth = open,
+                    None => return false,
+                },
+                '#' if previous == ' ' || previous == '\t' => break,
+                _ => {}
+            },
+        }
+        previous = c;
+    }
+    quote.is_none() && depth == 0
 }
 
 /// Whether a line holds a double-quoted key (before `:` or after `?`) with an escape, which is
