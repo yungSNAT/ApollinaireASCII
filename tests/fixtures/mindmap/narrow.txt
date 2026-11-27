@@ -1,0 +1,8 @@
+A root whose text is   
+long                   
+|-- A child with a long
+|   name               
+|   `-- A grandchild   
+|       with an even   
+|       longer name    
+`-- Short              

@@ -254,11 +254,11 @@ enum Command {
         input: PathBuf,
     },
     /// Lay out a Mermaid flowchart, sequence, state, class or ER diagram, Gantt or pie chart,
-    /// Git graph, timeline or user journey as ASCII: the subset docs/CLI.md lists.
+    /// Git graph, timeline, user journey or mindmap as ASCII: the subset docs/CLI.md lists.
     Diagram {
         /// A Mermaid diagram (`flowchart`, `graph`, `sequenceDiagram`, `stateDiagram-v2`,
-        /// `classDiagram`, `erDiagram`, `gantt`, `pie`, `gitGraph`, `timeline` or
-        /// `journey`), a Markdown document with `--markdown`, or `-` for stdin.
+        /// `classDiagram`, `erDiagram`, `gantt`, `pie`, `gitGraph`, `timeline`,
+        /// `journey` or `mindmap`), a Markdown document with `--markdown`, or `-` for stdin.
         input: PathBuf,
         /// Fit the diagram within this many columns (1 to 512) by reflowing or wrapping text.
         #[arg(long)]

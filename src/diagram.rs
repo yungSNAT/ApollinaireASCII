@@ -30,6 +30,7 @@ mod git_graph;
 mod graph;
 mod journey;
 mod markdown;
+mod mindmap;
 mod pie;
 mod sequence;
 mod state;
@@ -43,16 +44,17 @@ pub use journey::journey;
 #[doc(hidden)]
 pub use markdown::fenced_blocks;
 pub use markdown::render_markdown;
+pub use mindmap::mindmap;
 pub use pie::pie;
 pub use sequence::sequence;
 pub use state::state_diagram;
 pub use timeline::timeline;
 
 /// Lay out Mermaid text as a [`flowchart`], [`sequence`], [`state_diagram`], [`class_diagram`],
-/// [`er_diagram`], [`gantt`] or [`pie`] chart, [`git_graph`], [`timeline`] or user [`journey`],
-/// chosen by its first statement: `flowchart` or `graph`, `sequenceDiagram`, `stateDiagram-v2`
-/// (or `stateDiagram`), `classDiagram`, `erDiagram`, `gantt`, `pie`, `gitGraph`, `timeline` or
-/// `journey`.
+/// [`er_diagram`], [`gantt`] or [`pie`] chart, [`git_graph`], [`timeline`], user [`journey`] or
+/// [`mindmap`], chosen by its first statement: `flowchart` or `graph`, `sequenceDiagram`,
+/// `stateDiagram-v2` (or `stateDiagram`), `classDiagram`, `erDiagram`, `gantt`, `pie`, `gitGraph`,
+/// `timeline`, `journey` or `mindmap`.
 ///
 /// ```
 /// use apollinaire_ascii::diagram::mermaid;
@@ -81,7 +83,7 @@ pub fn mermaid_with_max_width(source: &str, max_width: usize) -> Result<crate::F
 }
 
 pub(crate) fn mermaid_fitted(source: &str, max_width: Option<usize>) -> Result<crate::Frame> {
-    const KINDS: &str = "a Mermaid diagram starts with flowchart, graph, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, gantt, pie, gitGraph, timeline or journey";
+    const KINDS: &str = "a Mermaid diagram starts with flowchart, graph, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, gantt, pie, gitGraph, timeline, journey or mindmap";
     if let Some(limit) = max_width {
         graph::check_max_width(limit)?;
     }
@@ -121,6 +123,7 @@ pub(crate) fn mermaid_fitted(source: &str, max_width: Option<usize>) -> Result<c
         Some("gitGraph" | "gitGraph:") => git_graph::git_graph_fitted(source, max_width),
         Some("timeline") => timeline::timeline_fitted(source, max_width),
         Some("journey") => journey::journey_fitted(source, max_width),
+        Some("mindmap") => mindmap::mindmap_fitted(source, max_width),
         _ if timeline::header(line) => timeline::timeline_fitted(source, max_width),
         // Another diagram type is named as such; anything else gets the flowchart's own error.
         Some(word)
@@ -873,25 +876,38 @@ pub fn tree(outline: &str) -> Result<crate::Frame> {
     if nodes.is_empty() {
         return Err("A tree needs at least one line of text".into());
     }
+    let depths: Vec<usize> = nodes.iter().map(|node| node.0).collect();
+    let rows: Vec<String> = branches(&depths)
+        .into_iter()
+        .zip(&nodes)
+        .map(|((branch, _), &(_, label))| branch + label)
+        .collect();
+    crate::Frame::from_text_padded(&rows.join("\n"))
+}
+
+/// For nodes listed parent first, each at most one level deeper than the node before, the
+/// branch drawn before each node's text as `tree --charset=ascii` draws it, and the prefix for
+/// a further line of the same text.
+fn branches(depths: &[usize]) -> Vec<(String, String)> {
     // From the last node back, `later[d]` says whether a node at depth d follows before any
     // shallower node, so the branch at that depth carries on below.
     let mut later: Vec<bool> = Vec::new();
-    let mut rows = Vec::with_capacity(nodes.len());
-    for &(depth, label) in nodes.iter().rev() {
+    let mut prefixes = Vec::with_capacity(depths.len());
+    for &depth in depths.iter().rev() {
         later.resize(depth + 1, false);
-        let mut row = String::new();
+        let (mut branch, mut further) = (String::new(), String::new());
         for (level, &continues) in later.iter().enumerate().skip(1) {
-            row.push_str(match (level == depth, continues) {
+            branch.push_str(match (level == depth, continues) {
                 (false, true) => "|   ",
                 (false, false) => "    ",
                 (true, true) => "|-- ",
                 (true, false) => "`-- ",
             });
+            further.push_str(if continues { "|   " } else { "    " });
         }
-        row.push_str(label);
-        rows.push(row);
+        prefixes.push((branch, further));
         later[depth] = true;
     }
-    rows.reverse();
-    crate::Frame::from_text_padded(&rows.join("\n"))
+    prefixes.reverse();
+    prefixes
 }

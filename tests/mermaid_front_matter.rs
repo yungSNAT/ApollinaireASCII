@@ -17,6 +17,7 @@ const FAMILIES: &[&str] = &[
     "gitGraph\n  commit",
     "timeline\n  2026 : A",
     "journey\n  section Day\n  Wake: 3: Me",
+    "mindmap\n  root",
 ];
 
 /// Front matter as Mermaid's own test fixtures write it: a description (here with a byte outside
@@ -105,7 +106,7 @@ fn front_matter_is_refused_when_unclosed_titled_or_not_first() {
         ),
         (
             "---\n\n---\n",
-            "The text is empty: a Mermaid diagram starts with flowchart, graph, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, gantt, pie, gitGraph, timeline or journey",
+            "The text is empty: a Mermaid diagram starts with flowchart, graph, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, gantt, pie, gitGraph, timeline, journey or mindmap",
         ),
     ] {
         assert_eq!(mermaid(source).unwrap_err(), error, "{source:?}");
