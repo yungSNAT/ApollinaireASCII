@@ -363,6 +363,26 @@ fn node_metadata_outside_its_grammar_is_refused_with_its_line() {
             "Line 2: node metadata at column 2 has a value outside plain or quoted text",
         ),
         ("A@{	label: x }", "Line 2: text holds a tab"),
+        (
+            "A@{ label: x #x3B; y }",
+            "Line 2: node metadata at column 2 has a hexadecimal entity code",
+        ),
+        (
+            "A@{ label: \"x #X3b; y\" }",
+            "Line 2: node metadata at column 2 has a hexadecimal entity code",
+        ),
+        (
+            "A@{ shape: rect }&B --> C",
+            "Line 2: an & is read only with a space on each side",
+        ),
+        (
+            "A@{ shape: rect } &B --> C",
+            "Line 2: an & is read only with a space on each side",
+        ),
+        (
+            "A[x]& B --> C",
+            "Line 2: an & is read only with a space on each side",
+        ),
     ];
     let mut wrong = Vec::new();
     for (body, error) in refused {

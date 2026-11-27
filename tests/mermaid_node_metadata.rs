@@ -28,6 +28,7 @@ fn node_metadata_names_a_shape_and_label_as_brackets_do() {
             "A --> B[Out]",
         ),
         ("A@{ shape: lean-r } & B --> C", "A & B --> C"),
+        ("A@{ shape: rect } & B --> C", "A & B --> C"),
         ("A --> B\nB@{ label: Later }", "A --> B[Later]"),
         ("A@{ label: First }\nA[Second]", "A[Second]"),
         ("A@{ shape: rect };B", "A;B"),

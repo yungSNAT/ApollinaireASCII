@@ -26,7 +26,8 @@ use std::collections::HashMap;
 ///   `-->|text|` or `-- text -->`, takes a rank of its own between its ends.
 /// - Entity codes in text: `#59;` for `;`, `#quot;` for `"`, and any decimal code or HTML name
 ///   for a printable ASCII character; a hexadecimal code such as `#x3B;` stays as written.
-/// - Chains (`A --> B --> C`) and groups (`A & B --> C`, linking every pair).
+/// - Chains (`A --> B --> C`) and groups (`A & B --> C`, linking every pair), with a space on
+///   each side of each `&`, as Mermaid requires.
 /// - `classDef`, `class`, `style` and `linkStyle` statements and `:::class` suffixes are
 ///   skipped: the output has no colour.
 ///
@@ -36,8 +37,8 @@ use std::collections::HashMap;
 ///   once, with values plain (starting with an ASCII letter, with no `: `, `:` at the end, ` #`
 ///   other than an entity code, or any of `[]{}^'"`) or quoted with no quote of either kind or
 ///   `\` inside, and no `^` in single quotes. A label holding any of ``*_`~\<>&[]@``, `://`,
-///   `www.`, `:fa-` or `$$`, which Mermaid draws as Markdown, an icon or maths, is refused, as
-///   are other keys, a value YAML reads as a number, null or boolean, metadata after a
+///   `www.`, `:fa-` or `$$`, which Mermaid draws as Markdown, an icon or maths, or `#x` in any
+///   case, which may start a hexadecimal entity code, is refused, as are other keys, a value YAML reads as a number, null or boolean, metadata after a
 ///   `:::class` and metadata not closed on its line.
 /// - A node named twice in one `&` group, and a node name of the form `L_<from>_<to>_<n>`,
 ///   which Mermaid reads as a link's name, are refused.
@@ -263,11 +264,16 @@ impl Parser {
     fn group(&mut self, c: &mut Cursor) -> Result<Vec<usize>> {
         let mut nodes = vec![self.node(c)?];
         loop {
+            let before = c.at;
             c.skip_spaces();
             if !c.eat("&") {
                 return Ok(nodes);
             }
+            let spaced = c.at - 1 > before;
             c.skip_spaces();
+            if !spaced || c.line.as_bytes()[c.at - 1] == b'&' {
+                return Err(c.error("an & is read only with a space on each side"));
+            }
             let node = self.node(c)?;
             if nodes.contains(&node) {
                 return Err(c.error("a node named twice in one group is not read"));
@@ -552,6 +558,9 @@ fn metadata(c: &mut Cursor) -> Result<Option<String>> {
         || label.contains("$$")
     {
         return Err(fault(c, "has a label Mermaid draws as other than text"));
+    }
+    if lower.contains("#x") {
+        return Err(fault(c, "has a hexadecimal entity code"));
     }
     super::decode(c.number, label).map(Some)
 }
