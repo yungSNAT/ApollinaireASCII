@@ -150,6 +150,13 @@ fn front_matter_names_the_main_branch_of_a_git_graph_as_a_directive_does() {
         ("{config: {gitGraph: {\n  mainBranchName: trunk}}}", 3),
         ("config:\n  mainBranchName: trunk", 3),
         ("mainBranchName: trunk", 2),
+        // An explicit key, and the name as a value or alias, are refused too.
+        ("config:\n  gitGraph:\n    ? mainBranchName\n    : trunk", 4),
+        ("config:\n  gitGraph:\n    - mainBranchName: trunk", 4),
+        (
+            "name: &b trunk\nconfig:\n  gitGraph: {\"mainBranchName\": *b}",
+            4,
+        ),
     ] {
         assert_eq!(
             mermaid(&format!("---\n{front}\n---\n{branches}")).unwrap_err(),
@@ -160,7 +167,8 @@ fn front_matter_names_the_main_branch_of_a_git_graph_as_a_directive_does() {
         );
     }
     // A key that only ends in the name is another setting.
-    let lookalike = "---\nconfig:\n  xmainBranchName: trunk\n---\ngitGraph\n  commit";
+    let lookalike =
+        "---\nconfig:\n  xmainBranchName: trunk\n  mainBranchName_old: x\n---\ngitGraph\n  commit";
     assert_eq!(
         mermaid(lookalike).unwrap().text(),
         mermaid("gitGraph\n  commit").unwrap().text()

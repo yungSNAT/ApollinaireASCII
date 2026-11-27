@@ -458,8 +458,7 @@ fn front_matter<'a, I: Iterator<Item = (usize, &'a str)> + Clone>(
         // Only the block form is read; any other place or form of the key is refused, so none
         // is dropped whilst Mermaid reads it.
         let under_git_graph = keys.iter().map(|&(_, key)| key).eq(["config", "gitGraph"]);
-        if flow_keyed(content, "mainBranchName")
-            || keyed(content, "mainBranchName") && !under_git_graph
+        if word(content, "mainBranchName") && !(keyed(content, "mainBranchName") && under_git_graph)
         {
             return Err(format!(
                 "Line {number}: mainBranchName is read only on its own line under config: and gitGraph:"
@@ -491,6 +490,15 @@ fn keyed(line: &str, key: &str) -> bool {
                 .trim_start()
                 .starts_with(':')
         })
+}
+
+/// Whether `line` holds `name` as a whole word, with no letter, digit, `_` or `-` either side.
+fn word(line: &str, name: &str) -> bool {
+    let part = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-';
+    line.match_indices(name).any(|(at, _)| {
+        !line[..at].chars().next_back().is_some_and(part)
+            && !line[at + name.len()..].chars().next().is_some_and(part)
+    })
 }
 
 /// Whether a line holds `key` as a key of a flow mapping (`{..}`) anywhere.
