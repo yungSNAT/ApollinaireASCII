@@ -420,6 +420,12 @@ fn front_matter_indent(line: &str) -> Option<&str> {
 /// - A value is one line: a plain scalar, which starts with none of `- ? : , [ ] { } # & * ! |
 ///   > ' " % @` and backtick, and holds no `: ` and does not end in `:`; or a scalar in single or
 ///   double quotes, closed on the line, with no quote of its kind or `\` inside.
+/// - Or a value is a block scalar, read past as text: `|` or `>`, then at most one chomping
+///   indicator (`-` or `+`) and one indentation indicator (1 to 9) in either order, and at most
+///   a comment. Its text is the blank lines after it and the lines at least as deep as its first
+///   line deeper than the key, or as the key's indent and the indentation indicator; the first
+///   other line ends it. A blank line before the text with more spaces than the text's indent
+///   is refused, since js-yaml takes those spaces as the indent.
 /// - Mappings nest by indent, at most 3 deep: the line after `key:` opens its mapping when it
 ///   is deeper, and the keys of one mapping share one indent and are not repeated.
 /// - A top-level `title` is refused, since it is not drawn. `config` > `gitGraph` >
@@ -428,8 +434,10 @@ fn front_matter_indent(line: &str) -> Option<&str> {
 ///   `Null`, `NULL`, `true`, `True`, `TRUE`, `false`, `False`, `FALSE`), in printable ASCII
 ///   with no `#`, which could start an entity code. The key anywhere else is refused.
 ///
-/// So multi-line, block and flow values, tags, anchors, aliases, sequences, explicit, quoted and
-/// merge keys, tabs, repeated keys and document markers inside are refused, whatever they hold.
+/// The rules on characters apply inside a block scalar too, and `mainBranchName` and a
+/// top-level `title` are refused as block scalars. So other multi-line values, flow values,
+/// tags, anchors, aliases, sequences, explicit, quoted and merge keys, tabs, repeated keys and
+/// document markers outside a block scalar's text are refused, whatever they hold.
 /// Lines end in `\n`, `\r\n` or a lone `\r`, as [`mermaid_lines_with`] splits them.
 fn front_matter<'a, I: Iterator<Item = (usize, &'a str)> + Clone>(
     opened: usize,
@@ -463,6 +471,9 @@ fn front_matter<'a, I: Iterator<Item = (usize, &'a str)> + Clone>(
     let mut levels: Vec<(usize, Vec<&str>)> = Vec::new();
     // A key just read with no value, which opens a mapping when the next line is deeper.
     let mut opens = None;
+    // An open block scalar: its key's indent, its text's indent once known, and the most spaces
+    // on a blank line before its first line of text.
+    let mut block: Option<(usize, Option<usize>, usize)> = None;
     // The body runs to the first closing line past its first line, which `last` guarantees.
     let mut first = true;
     let body = lines.take_while(|&(_, text)| std::mem::take(&mut first) || !closes(text));
@@ -479,6 +490,25 @@ fn front_matter<'a, I: Iterator<Item = (usize, &'a str)> + Clone>(
         let content = line.trim_start_matches(' ');
         let depth = line.len() - content.len();
         let content = content.trim_end_matches(' ');
+        // A block scalar's text runs over blank lines and the lines at its text's indent (the
+        // first line deeper than its key, unless an indicator gives it); js-yaml takes a blank
+        // line before the text deeper than the text's indent as the indent instead.
+        if let Some((at, indented, blank)) = &mut block {
+            match *indented {
+                _ if content.is_empty() => *blank = (*blank).max(depth),
+                Some(indent) if depth >= indent => {}
+                None if depth > *at => {
+                    if *blank > depth {
+                        return Err(not_read());
+                    }
+                    *indented = Some(depth);
+                }
+                _ => block = None,
+            }
+            if block.is_some() {
+                continue;
+            }
+        }
         if content.is_empty()
             || content.starts_with('#')
             || index == 0 && depth == 0 && content == "---"
@@ -544,7 +574,10 @@ fn front_matter<'a, I: Iterator<Item = (usize, &'a str)> + Clone>(
             }
         }
         match value {
-            None => return Err(not_read()),
+            None => {
+                let indicator = block_scalar(rest).ok_or_else(not_read)?;
+                block = Some((depth, indicator.map(|n| depth + n), 0));
+            }
             Some(None) => opens = Some(key),
             Some(Some(text)) => {
                 let mut path = keys.clone();
@@ -608,6 +641,25 @@ fn scalar(rest: &str) -> Option<Option<&str>> {
             .then_some(Some(text))
         }
     }
+}
+
+/// A block scalar's header (`|` or `>`, at most one chomping indicator `-` or `+` and one
+/// indentation indicator 1 to 9 in either order, and at most a comment): `Some` with the
+/// indentation indicator, or `None` when the value is not one.
+fn block_scalar(rest: &str) -> Option<Option<usize>> {
+    let header = rest.strip_prefix(['|', '>'])?;
+    let header = header
+        .find(" #")
+        .map_or(header, |at| header[..at].trim_end_matches(' '));
+    let (mut chomp, mut indent) = (false, None);
+    for c in header.chars() {
+        match c {
+            '-' | '+' if !chomp => chomp = true,
+            '1'..='9' if indent.is_none() => indent = Some(c as usize - '0' as usize),
+            _ => return None,
+        }
+    }
+    Some(indent)
 }
 
 /// Whether js-yaml's `JSON_SCHEMA` reads a plain scalar as text: its null, boolean, integer

@@ -227,6 +227,49 @@ fn front_matter_is_read_only_in_its_grammar() {
         (block("trunk").replace('\n', "\r\n"), "trunk"),
         (block("trunk").replace('\n', "\r"), "trunk"),
         (block("trunk\r"), "trunk"),
+        // Block scalars (`|` literal, `>` folded, with an optional chomping indicator and an
+        // indentation indicator in either order) under any key but mainBranchName are text that
+        // runs over the lines deeper than the key (or at least as deep as the indicator gives).
+        // Each line inside is text, whatever it looks like.
+        (format!("description: >\n  A long\n  text.\n{}", block("trunk")), "trunk"),
+        (format!("description: |\n  line one\n\n  line two\n{}", block("trunk")), "trunk"),
+        (
+            format!("description: >-\n  Verifies that a node, declared: here,\n  [stays] {{anchored}} & *so* # not a comment\n  'quoted' \"too\" `code` %d @x ? - |\n{}", block("trunk")),
+            "trunk",
+        ),
+        (format!("note: |+\n  kept\n\n\n{}", block("trunk")), "trunk"),
+        (format!("note: |2\n    indented more\n  text\n{}", block("trunk")), "trunk"),
+        (format!("note: >1-\n  text\n{}", block("trunk")), "trunk"),
+        (format!("note: >-2\n  text\n{}", block("trunk")), "trunk"),
+        (format!("note: >- # folded\n  text\n{}", block("trunk")), "trunk"),
+        ("config:\n  gitGraph: |\n    mainBranchName: trunk".into(), "main"),
+        (
+            "description: |\n  mainBranchName: trunk\n  title: x\n  ---\n  ...\n  # heading".into(),
+            "main",
+        ),
+        (format!("description: >\n{}", block("trunk")), "trunk"),
+        (format!("{}\ndescription: |-", block("trunk")), "trunk"),
+        (format!("{}\ndescription: >-\n  last", block("trunk")), "trunk"),
+        (
+            under("    note: >\n      x: y\n    mainBranchName: trunk"),
+            "trunk",
+        ),
+        (format!("note: |\n  a\n      \n  b\n{}", block("trunk")), "trunk"),
+        (format!("note: >\n  text\n # c\n{}", block("trunk")), "trunk"),
+        (format!("note: >\n      deep\n      text\n{}", block("trunk")), "trunk"),
+        (format!("note: |\n \n  text\n{}", block("trunk")), "trunk"),
+        (
+            under("    note: |2\n        x\n    mainBranchName: trunk"),
+            "trunk",
+        ),
+        (
+            format!("description: >-\n  a\n  b\n{}", block("trunk")).replace('\n', "\r\n"),
+            "trunk",
+        ),
+        (
+            "config:\n  note: >\n   x\n  gitGraph:\n    mainBranchName: trunk".into(),
+            "trunk",
+        ),
     ];
     let refused: Vec<(String, usize, &str)> = vec![
         // Round 8 and round 9 inputs, verbatim (the reviewer's c01 to c19, c22, c24 and c30).
@@ -302,7 +345,6 @@ fn front_matter_is_read_only_in_its_grammar() {
         // A top-level title, and other lines outside the grammar.
         ("title: Pets".into(), 2, TITLE),
         ("config:\n  look: a: b".into(), 3, NOT_READ),
-        ("description: >-\n  text".into(), 2, NOT_READ),
         ("description: \"a \\\"b\\\"\"".into(), 2, NOT_READ),
         ("config:\n  <<: {theme: dark}".into(), 3, NOT_READ),
         ("config :\n  look: x".into(), 2, NOT_READ),
@@ -313,6 +355,38 @@ fn front_matter_is_read_only_in_its_grammar() {
         (block("tr\n      unk"), 5, NOT_READ),
         ("a: 1\t".into(), 2, NOT_READ),
         ("a: x\u{2028}y".into(), 2, NOT_READ),
+        // Block scalars refused: a tab, a header outside `|` or `>` with at most one chomping
+        // indicator and one indentation indicator of 1 to 9 and a comment, a `<word` inside, a
+        // blank line deeper than the text after it, a line between the key's indent and the
+        // text's, a block mainBranchName or title.
+        (format!("note: |\n  a\tb\n{}", block("trunk")), 3, NOT_READ),
+        (format!("note: |\n\ta\n{}", block("trunk")), 3, NOT_READ),
+        (format!("note: >-x\n  t\n{}", block("trunk")), 2, NOT_READ),
+        (format!("note: >0\n  t\n{}", block("trunk")), 2, NOT_READ),
+        (format!("note: >--\n  t\n{}", block("trunk")), 2, NOT_READ),
+        (format!("note: >11\n  t\n{}", block("trunk")), 2, NOT_READ),
+        (format!("note: >-#c\n  t\n{}", block("trunk")), 2, NOT_READ),
+        (format!("note: > text\n{}", block("trunk")), 2, NOT_READ),
+        (format!("note: |+-\n  t\n{}", block("trunk")), 2, NOT_READ),
+        (block(">-\n      trunk"), 4, PLAIN),
+        ("title: >\n  Pets".into(), 2, TITLE),
+        (
+            format!("note: >\n      \n  text\n{}", block("trunk")),
+            4,
+            NOT_READ,
+        ),
+        (
+            format!("note: |4\n    a\n  b: 1\n{}", block("trunk")),
+            4,
+            NOT_READ,
+        ),
+        ("config:\n  note: >\n      a\n    b: 1".into(), 5, NOT_READ),
+        (
+            format!("description: >\n  see <b>bold</b>\n{}", block("trunk")),
+            3,
+            NOT_READ,
+        ),
+        ("note: >\nnext: 1\n  x: 2".into(), 4, NOT_READ),
     ];
     let mut wrong: Vec<String> = accepted
         .into_iter()
