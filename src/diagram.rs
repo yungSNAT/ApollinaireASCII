@@ -85,22 +85,30 @@ pub(crate) fn mermaid_fitted(source: &str, max_width: Option<usize>) -> Result<c
     if let Some(limit) = max_width {
         graph::check_max_width(limit)?;
     }
-    // A bad byte or a code fence that is unclosed, tagged otherwise or followed by text is
-    // reported before the diagram type.
-    mermaid_lines(source, |_, _| Ok(()))?;
-    let mut statements = source
-        .split('\n')
-        .enumerate()
-        .map(|(index, line)| (index + 1, line.trim()))
-        .filter(|(_, line)| !line.is_empty() && !line.starts_with("%%") && !fence(line));
-    let Some((number, line)) = statements.next() else {
+    // A bad byte, unclosed front matter or a code fence that is unclosed, tagged otherwise or
+    // followed by text is reported before the diagram type. The type is read from the first
+    // statement; one that is a timeline comment defers to the next statement that is not.
+    let (mut first, mut after_comment) = (None, None);
+    mermaid_lines(source, |number, text| {
+        let line = text.trim();
+        if line.is_empty() || line.starts_with("%%") {
+            return Ok(());
+        }
+        match first {
+            None => first = Some((number, line)),
+            Some((_, head)) if after_comment.is_none() && timeline::comment(head) => {
+                if !timeline::comment(line) {
+                    after_comment = Some(line);
+                }
+            }
+            Some(_) => {}
+        }
+        Ok(())
+    })?;
+    let Some((number, line)) = first else {
         return Err(format!("The text is empty: {KINDS}"));
     };
-    if timeline::comment(line)
-        && statements
-            .find(|(_, next)| !timeline::comment(next))
-            .is_some_and(|(_, next)| timeline::header(next))
-    {
+    if timeline::comment(line) && after_comment.is_some_and(timeline::header) {
         return timeline::timeline_fitted(source, max_width);
     }
     match line.split([' ', '\t', ';']).next() {
@@ -276,39 +284,56 @@ fn case_sensitive_accessibility(text: &str) -> Option<bool> {
 
 /// Each line of Mermaid text with its number, inside one optional outer Markdown code fence
 /// (```` ``` ```` or `~~~`, untagged or `mermaid`) that opens on the first line with text.
-/// A byte outside printable ASCII, other than a tab, is refused with its line and column.
-/// Lines are read one at a time, so no copy of a long input is made.
-fn mermaid_lines(source: &str, mut statement: impl FnMut(usize, &str) -> Result<()>) -> Result<()> {
-    let mut lines = source.split('\n').enumerate().map(|(index, line)| {
-        let line = line.strip_suffix('\r').unwrap_or(line);
-        match line
-            .bytes()
-            .enumerate()
-            .find(|(_, b)| *b != b'\t' && !(32..=126).contains(b))
-        {
-            Some((column, byte)) => Err(format!(
-                "Line {}: byte {} is 0x{byte:02x}, not printable ASCII",
-                index + 1,
-                column + 1
-            )),
-            None => Ok((index + 1, line)),
-        }
-    });
-    // The first line with text may open one outer Markdown code fence.
+/// The diagram may open with YAML front matter, as [`front_matter`] reads it; blank lines before
+/// it are read past, as Mermaid's page loader trims them. Nothing in it is drawn, so its settings
+/// are read past, as `%%{init}%%` directives are, and a `title` there is refused.
+/// A byte outside printable ASCII, other than a tab, is refused with its line and column, except
+/// in front matter. Lines are read one at a time, so no copy of a long input is made.
+fn mermaid_lines<'a>(
+    source: &'a str,
+    statement: impl FnMut(usize, &'a str) -> Result<()>,
+) -> Result<()> {
+    mermaid_lines_with(source, |_, _, _| Ok(()), statement)
+}
+
+/// [`mermaid_lines`], also giving `setting` each `key: value` line of front matter with its line
+/// number, the keys it sits under and its own key, and the value unquoted.
+fn mermaid_lines_with<'a>(
+    source: &'a str,
+    mut setting: impl FnMut(usize, &[&'a str], &'a str) -> Result<()>,
+    mut statement: impl FnMut(usize, &'a str) -> Result<()>,
+) -> Result<()> {
+    // Lines end in `\n`, `\r\n` or a lone `\r`, as Mermaid's `cleanupText` makes each `\n`.
+    let mut raw = source
+        .split('\n')
+        .flat_map(|line| line.strip_suffix('\r').unwrap_or(line).split('\r'))
+        .enumerate()
+        .map(|(index, line)| (index + 1, line))
+        .peekable();
+    // The first line with text may open one outer Markdown code fence, and the first line with
+    // text after it (or the first line with text when there is none) may open front matter.
+    skip_blank(&mut raw)?;
     let mut opened = None;
-    for line in lines.by_ref() {
-        let (number, text) = line?;
-        let first = text.trim();
-        if first.is_empty() {
-            continue;
+    if let Some(&(number, text)) = raw.peek() {
+        let trimmed = text.trim();
+        if let Some(mark) = ["```", "~~~"].into_iter().find(|f| trimmed.starts_with(f)) {
+            ascii_line(number, text)?;
+            if !fence(trimmed) {
+                return Err(format!("Line {number}: only a mermaid code block is read"));
+            }
+            opened = Some((mark, number));
+            raw.next();
+            skip_blank(&mut raw)?;
         }
-        match ["```", "~~~"].into_iter().find(|f| first.starts_with(f)) {
-            Some(mark) if fence(first) => opened = Some((mark, number)),
-            Some(_) => return Err(format!("Line {number}: only a mermaid code block is read")),
-            None => statement(number, text)?,
-        }
-        break;
     }
+    if let Some((number, indent)) = raw
+        .peek()
+        .and_then(|&(number, text)| Some((number, front_matter_indent(text)?)))
+    {
+        raw.next();
+        front_matter(number, indent, &mut raw, &mut setting)?;
+    }
+    let mut lines = raw.map(|(number, text)| ascii_line(number, text));
     let Some((mark, opened)) = opened else {
         for line in lines {
             let (number, text) = line?;
@@ -333,6 +358,263 @@ fn mermaid_lines(source: &str, mut statement: impl FnMut(usize, &str) -> Result<
     Err(format!(
         "The code block opened on line {opened} is not closed"
     ))
+}
+
+/// A line, refused with its line and column when it holds a byte outside printable ASCII other
+/// than a tab.
+fn ascii_line(number: usize, line: &str) -> Result<(usize, &str)> {
+    match line
+        .bytes()
+        .enumerate()
+        .find(|(_, b)| *b != b'\t' && !(32..=126).contains(b))
+    {
+        Some((column, byte)) => Err(format!(
+            "Line {number}: byte {} is 0x{byte:02x}, not printable ASCII",
+            column + 1
+        )),
+        None => Ok((number, line)),
+    }
+}
+
+/// Read past blank lines, each still checked for bytes outside printable ASCII.
+fn skip_blank<'a>(
+    lines: &mut std::iter::Peekable<impl Iterator<Item = (usize, &'a str)>>,
+) -> Result<()> {
+    while let Some(&(number, text)) = lines.peek() {
+        if !text.trim().is_empty() {
+            break;
+        }
+        ascii_line(number, text)?;
+        lines.next();
+    }
+    Ok(())
+}
+
+/// The indent of a line that opens front matter (`---` after spaces or tabs, then only
+/// whitespace), or `None`.
+fn front_matter_indent(line: &str) -> Option<&str> {
+    let rest = line.trim_start_matches([' ', '\t']);
+    (rest.trim_end() == "---").then(|| &line[..line.len() - rest.len()])
+}
+
+/// Read front matter opened on line `opened`, as Mermaid 12.3.0's `matchFrontMatter` does
+/// (`diagram-api/regexes.ts`). A closing line has the opening's indent, `---` and only
+/// whitespace, and a line after it. The opening runs on over the blank lines after it whilst a
+/// closing line stays at least 2 lines further on; the body is the lines after that, up to the
+/// first closing line past its first line.
+///
+/// The body is YAML, which Mermaid dedents by the opening's indent and reads with js-yaml's
+/// `JSON_SCHEMA`. This reader accepts only the grammar below, which js-yaml reads the same way,
+/// and refuses the front matter at the first line outside it, naming the line:
+/// - Every line holds only printable characters: no tab or other control character, and none of
+///   U+0085, U+2028, U+2029, U+FEFF, U+FFFE and U+FFFF; and no `<` before a letter, digit or
+///   `_`, since Mermaid's `cleanupText` rewrites the quotes in such a tag first.
+/// - A line is blank, a comment (`#` after any spaces), `---` unindented as the body's first
+///   line (a document start), or `key:` or `key: value` after spaces, each with at most a comment
+///   (` #` onwards) after it.
+/// - A key is ASCII letters, digits, `_` and `-`, starting with a letter or `_`, and not a
+///   null or boolean word (below), then `:` and a space or the line end.
+/// - A value is one line: a plain scalar, which starts with none of `- ? : , [ ] { } # & * ! |
+///   > ' " % @` and backtick, and holds no `: ` and does not end in `:`; or a scalar in single or
+///   double quotes, closed on the line, with no quote of its kind or `\` inside.
+/// - Mappings nest by indent, at most 3 deep: the line after `key:` opens its mapping when it
+///   is deeper, and the keys of one mapping share one indent and are not repeated.
+/// - A top-level `title` is refused, since it is not drawn. `config` > `gitGraph` >
+///   `mainBranchName` names the Git graph's main branch; it must be a quoted value or a plain
+///   one YAML types as text (not starting with a digit, `+` or `.`, and none of `~`, `null`,
+///   `Null`, `NULL`, `true`, `True`, `TRUE`, `false`, `False`, `FALSE`), in printable ASCII
+///   with no `#`, which could start an entity code. The key anywhere else is refused.
+///
+/// So multi-line, block and flow values, tags, anchors, aliases, sequences, explicit, quoted and
+/// merge keys, tabs, repeated keys and document markers inside are refused, whatever they hold.
+/// Lines end in `\n`, `\r\n` or a lone `\r`, as [`mermaid_lines_with`] splits them.
+fn front_matter<'a, I: Iterator<Item = (usize, &'a str)> + Clone>(
+    opened: usize,
+    indent: &str,
+    lines: &mut std::iter::Peekable<I>,
+    setting: &mut impl FnMut(usize, &[&'a str], &'a str) -> Result<()>,
+) -> Result<()> {
+    let closes = |text: &str| {
+        text.strip_prefix(indent)
+            .is_some_and(|rest| rest.trim_end() == "---")
+    };
+    let not_closed = || format!("The front matter opened on line {opened} is not closed");
+    let mut scan = lines.clone();
+    let mut last = None;
+    while let Some((number, text)) = scan.next() {
+        if closes(text) && scan.peek().is_some() {
+            last = Some(number);
+        }
+    }
+    let last = last
+        .filter(|&last| last >= opened + 2)
+        .ok_or_else(not_closed)?;
+    while let Some(&(number, text)) = lines.peek() {
+        if !text.trim().is_empty() || number + 2 > last {
+            break;
+        }
+        lines.next();
+    }
+    // The keys above the current line, and each open mapping's indent and the keys read in it.
+    let mut keys: Vec<&str> = Vec::new();
+    let mut levels: Vec<(usize, Vec<&str>)> = Vec::new();
+    // A key just read with no value, which opens a mapping when the next line is deeper.
+    let mut opens = None;
+    // The body runs to the first closing line past its first line, which `last` guarantees.
+    let mut first = true;
+    let body = lines.take_while(|&(_, text)| std::mem::take(&mut first) || !closes(text));
+    for (index, (number, text)) in body.enumerate() {
+        let not_read =
+            || format!("Line {number}: front matter is read only as block key: value lines");
+        // Mermaid dedents each line that starts with the opening's indent.
+        let line = text.strip_prefix(indent).unwrap_or(text);
+        // Mermaid's cleanupText rewrites `="..."` after a `<word` (to a `>`, across lines)
+        // before the YAML is read, so no such text is read.
+        if !line.chars().all(yaml_printable) || html_tag(line) {
+            return Err(not_read());
+        }
+        let content = line.trim_start_matches(' ');
+        let depth = line.len() - content.len();
+        let content = content.trim_end_matches(' ');
+        if content.is_empty()
+            || content.starts_with('#')
+            || index == 0 && depth == 0 && content == "---"
+        {
+            continue;
+        }
+        match opens.take() {
+            Some(key) if levels.last().is_some_and(|&(at, _)| depth > at) => {
+                if levels.len() == 3 {
+                    return Err(not_read());
+                }
+                keys.push(key);
+                levels.push((depth, Vec::new()));
+            }
+            _ => {
+                if levels.is_empty() {
+                    levels.push((depth, Vec::new()));
+                }
+                while levels.len() > 1 && levels.last().is_some_and(|&(at, _)| at > depth) {
+                    levels.pop();
+                    keys.pop();
+                }
+                if levels.last().is_some_and(|&(at, _)| at != depth) {
+                    return Err(not_read());
+                }
+            }
+        }
+        let Some((key, rest)) = key_value(content) else {
+            return Err(not_read());
+        };
+        if keys.is_empty() && key == "title" {
+            return Err(format!(
+                "Line {number}: a title in front matter is not drawn"
+            ));
+        }
+        // `levels` always holds the current mapping here.
+        if levels.last_mut().is_some_and(|(_, read)| {
+            let repeated = read.contains(&key);
+            read.push(key);
+            repeated
+        }) {
+            return Err(format!(
+                "Line {number}: a key repeated in front matter is not YAML"
+            ));
+        }
+        let value = scalar(rest);
+        if key == "mainBranchName" {
+            if keys != ["config", "gitGraph"] {
+                return Err(format!(
+                    "Line {number}: mainBranchName is read only on its own line under config: and gitGraph:"
+                ));
+            }
+            if !value.flatten().is_some_and(|name| {
+                // `#` may start an entity code, which Mermaid does not decode here, and a
+                // name is drawn in printable ASCII.
+                !name.contains('#')
+                    && name.bytes().all(|b| (32..=126).contains(&b))
+                    && (rest.starts_with(['"', '\'']) || text_typed(name))
+            }) {
+                return Err(format!(
+                    "Line {number}: mainBranchName is read only as a plain or quoted name on its line"
+                ));
+            }
+        }
+        match value {
+            None => return Err(not_read()),
+            Some(None) => opens = Some(key),
+            Some(Some(text)) => {
+                let mut path = keys.clone();
+                path.push(key);
+                setting(number, &path, text)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Whether a line holds `<` and a word character, which Mermaid's cleanupText reads as a tag.
+fn html_tag(line: &str) -> bool {
+    line.match_indices('<')
+        .any(|(at, _)| line[at + 1..].starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_'))
+}
+
+/// Whether js-yaml reads a character in front matter as printable text.
+fn yaml_printable(c: char) -> bool {
+    !c.is_control()
+        && !matches!(
+            c,
+            '\u{85}' | '\u{2028}' | '\u{2029}' | '\u{feff}' | '\u{fffe}' | '\u{ffff}'
+        )
+}
+
+/// A front matter line's key and the text after its `:` (and the spaces after that), or `None`
+/// when the line does not start with a key.
+fn key_value(content: &str) -> Option<(&str, &str)> {
+    let end = content
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-'))
+        .unwrap_or(content.len());
+    let (key, rest) = content.split_at(end);
+    let rest = rest.strip_prefix(':')?;
+    // A null or boolean word is not a text key, so 2 of them can be one key.
+    (key.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+        && text_typed(key)
+        && (rest.is_empty() || rest.starts_with(' ')))
+    .then_some((key, rest.trim_start_matches(' ')))
+}
+
+/// A value: `Some(None)` when there is none (at most a comment), `Some(Some(text))` for a plain
+/// scalar or a quoted one without its quotes, or `None` when it is outside the grammar.
+fn scalar(rest: &str) -> Option<Option<&str>> {
+    let comment = |after: &str| after.is_empty() || after.starts_with(" #");
+    match rest.chars().next() {
+        None | Some('#') => Some(None),
+        Some(quote @ ('"' | '\'')) => {
+            let end = rest[1..].find(quote)? + 1;
+            let text = &rest[1..end];
+            (!text.contains('\\') && comment(rest[end + 1..].trim_end_matches(' ')))
+                .then_some(Some(text))
+        }
+        Some(first) => {
+            let text = rest
+                .find(" #")
+                .map_or(rest, |at| rest[..at].trim_end_matches(' '));
+            (!"-?:,[]{}#&*!|>'\"%@`".contains(first)
+                && !text.contains(": ")
+                && !text.ends_with(':'))
+            .then_some(Some(text))
+        }
+    }
+}
+
+/// Whether js-yaml's `JSON_SCHEMA` reads a plain scalar as text: its null, boolean, integer
+/// and float forms are the listed words or start with a digit, `-`, `+` or `.`.
+fn text_typed(plain: &str) -> bool {
+    !plain.starts_with(|c: char| c.is_ascii_digit() || "+-.".contains(c))
+        && ![
+            "~", "null", "Null", "NULL", "true", "True", "TRUE", "false", "False", "FALSE",
+        ]
+        .contains(&plain)
 }
 
 fn join(existing: u8, stroke: u8) -> u8 {
