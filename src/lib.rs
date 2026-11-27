@@ -32,6 +32,7 @@ pub mod palette;
 mod project_json;
 pub mod rexpaint;
 mod sha256;
+pub mod thedraw;
 pub mod video;
 
 #[cfg(all(target_arch = "wasm32", feature = "web"))]

@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [decode_media, font, model, project_json]
+        target: [decode_media, font, model, project_json, thedraw]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
