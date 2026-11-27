@@ -41,8 +41,9 @@ use std::collections::HashMap;
 ///   maths, `#x` in any case, which may start a hexadecimal entity code, or a decimal code
 ///   naming no character, which Mermaid draws as U+FFFD, is refused, as are other keys, a value
 ///   YAML reads as a number, null or boolean, metadata after a `:::class`, metadata not closed
-///   on its line and metadata on a line holding `style` or `classDef` before a `#`, where
-///   Mermaid leaves an entity code as written.
+///   on its line and metadata on a line holding `style` or `classDef`, then a `:` with no
+///   space before a `#` that has a `;` after it, where Mermaid may leave an entity code as
+///   written.
 /// - A node named twice in one `&` group, and a node name of the form `L_<from>_<to>_<n>`,
 ///   which Mermaid reads as a link's name, are refused.
 ///
@@ -550,10 +551,17 @@ fn metadata(c: &mut Cursor) -> Result<Option<String>> {
         }
     }
     c.at = start + end + 1;
-    if ["style", "classDef"]
-        .into_iter()
-        .any(|word| line.find(word).is_some_and(|at| line[at..].contains('#')))
-    {
+    // Mermaid's `/style.*:\S*#.*;/g` and `/classDef.*:\S*#.*;/g` drop the line's last `;`.
+    let rewritten = |word: &str| {
+        line.find(word).is_some_and(|at| {
+            let rest = &line[at + word.len()..];
+            rest.match_indices('#').any(|(hash, _)| {
+                let run = rest[..hash].rsplit(char::is_whitespace).next();
+                run.unwrap_or_default().contains(':') && rest[hash..].contains(';')
+            })
+        })
+    };
+    if rewritten("style") || rewritten("classDef") {
         return Err(fault(
             c,
             "is on a line holding style or classDef before a #",
