@@ -423,7 +423,7 @@ fn front_matter_indent(line: &str) -> Option<&str> {
 /// - Or a value is a block scalar, read past as text: `|` or `>`, then at most one chomping
 ///   indicator (`-` or `+`) and one indentation indicator (1 to 9) in either order, and at most
 ///   a comment. Its text is the blank lines after it and the lines at least as deep as its first
-///   line deeper than the key, or as the key's indent and the indentation indicator; the first
+///   line deeper than the key, or as the key's indent plus the indentation indicator; the first
 ///   other line ends it. A blank line before the text with more spaces than the text's indent
 ///   is refused, since js-yaml takes those spaces as the indent.
 /// - Mappings nest by indent, at most 3 deep: the line after `key:` opens its mapping when it
