@@ -426,6 +426,10 @@ fn front_matter_indent(line: &str) -> Option<&str> {
 ///   line deeper than the key, or as the key's indent plus the indentation indicator; the first
 ///   other line ends it. A blank line before the text with more spaces than the text's indent
 ///   is refused, since js-yaml takes those spaces as the indent.
+/// - Or, after `key:` with no value, a plain scalar over several lines, read past as text: the
+///   next line that is not blank or a comment is deeper than the key and is not `key:` or
+///   `key: value`, and it and each later line deeper than the key is a plain one-line value with
+///   no ` #`; blank lines inside are text, and the first other line ends it.
 /// - Mappings nest by indent, at most 3 deep: the line after `key:` opens its mapping when it
 ///   is deeper, and the keys of one mapping share one indent and are not repeated.
 /// - A top-level `title` is refused, since it is not drawn. `config` > `gitGraph` >
@@ -434,10 +438,11 @@ fn front_matter_indent(line: &str) -> Option<&str> {
 ///   `Null`, `NULL`, `true`, `True`, `TRUE`, `false`, `False`, `FALSE`), in printable ASCII
 ///   with no `#`, which could start an entity code. The key anywhere else is refused.
 ///
-/// The rules on characters apply inside a block scalar too, and `mainBranchName` and a
-/// top-level `title` are refused as block scalars. So other multi-line values, flow values,
-/// tags, anchors, aliases, sequences, explicit, quoted and merge keys, tabs, repeated keys and
-/// document markers outside a block scalar's text are refused, whatever they hold.
+/// The rules on characters apply inside block and multi-line scalars too, and `mainBranchName`
+/// and a top-level `title` are refused as either. So quoted values over several lines, plain
+/// ones continuing a value on its key's line, flow values, tags, anchors, aliases, sequences,
+/// explicit, quoted and merge keys, tabs, repeated keys and document markers outside a block
+/// scalar's text are refused, whatever they hold.
 /// Lines end in `\n`, `\r\n` or a lone `\r`, as [`mermaid_lines_with`] splits them.
 fn front_matter<'a, I: Iterator<Item = (usize, &'a str)> + Clone>(
     opened: usize,
@@ -474,6 +479,8 @@ fn front_matter<'a, I: Iterator<Item = (usize, &'a str)> + Clone>(
     // An open block scalar: its key's indent, its text's indent once known, and the most spaces
     // on a blank line before its first line of text.
     let mut block: Option<(usize, Option<usize>, usize)> = None;
+    // The indent of the key of an open plain scalar over several lines.
+    let mut plain = None;
     // The body runs to the first closing line past its first line, which `last` guarantees.
     let mut first = true;
     let body = lines.take_while(|&(_, text)| std::mem::take(&mut first) || !closes(text));
@@ -509,6 +516,20 @@ fn front_matter<'a, I: Iterator<Item = (usize, &'a str)> + Clone>(
                 continue;
             }
         }
+        // A plain scalar over several lines runs over blank lines and the lines deeper than its
+        // key, each plain text.
+        if let Some(at) = plain {
+            if content.is_empty() {
+                continue;
+            }
+            if depth > at {
+                if !plain_line(content) {
+                    return Err(not_read());
+                }
+                continue;
+            }
+            plain = None;
+        }
         if content.is_empty()
             || content.starts_with('#')
             || index == 0 && depth == 0 && content == "---"
@@ -517,6 +538,14 @@ fn front_matter<'a, I: Iterator<Item = (usize, &'a str)> + Clone>(
         }
         match opens.take() {
             Some(key) if levels.last().is_some_and(|&(at, _)| depth > at) => {
+                // A deeper line that is not a key starts a plain scalar over several lines.
+                if key_value(content).is_none() {
+                    if !plain_line(content) {
+                        return Err(not_read());
+                    }
+                    plain = levels.last().map(|&(at, _)| at);
+                    continue;
+                }
                 if levels.len() == 3 {
                     return Err(not_read());
                 }
@@ -641,6 +670,14 @@ fn scalar(rest: &str) -> Option<Option<&str>> {
             .then_some(Some(text))
         }
     }
+}
+
+/// Whether a line of a plain scalar over several lines is text js-yaml reads into it: a plain
+/// one-line value (so not a comment) with no ` #`, which would end the scalar.
+fn plain_line(content: &str) -> bool {
+    !content.starts_with(['\'', '"'])
+        && !content.contains(" #")
+        && matches!(scalar(content), Some(Some(_)))
 }
 
 /// A block scalar's header (`|` or `>`, at most one chomping indicator `-` or `+` and one
