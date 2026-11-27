@@ -403,28 +403,30 @@ fn front_matter_indent(line: &str) -> Option<&str> {
 /// closing line stays at least 2 lines further on; the body is the lines after that, up to the
 /// first closing line past its first line.
 ///
-/// The body is YAML, which Mermaid reads with js-yaml's `JSON_SCHEMA`. Each form is read as
-/// Mermaid reads it or refused with its line, never read another way (the table test in
-/// `tests/mermaid_front_matter.rs` has a row for each):
-/// - Block mappings: each `key: value` line goes to `setting` with the keys it sits under; only
-///   `config` > `gitGraph` > `mainBranchName` is used. The name in another key's plain or quoted
-///   value is text; anywhere else (another place, a flow collection, a sequence item, an
-///   explicit key, a line with an anchor) it is refused.
-/// - Flow mappings and sequences (`{..}`, `[..]`, after any tag or anchor): read past when they
-///   close on their line; one left open, or closed with nothing open, is refused on that line.
-/// - A top-level `title` is refused, since it is not drawn, as are a top-level explicit (`?`),
-///   alias, tagged, anchored or merge (`<<`) key and an escaped double-quoted key anywhere,
-///   which may name one. Explicit keys below the top are read past.
-/// - A block scalar's lines (`|`, `>`) are its text.
-/// - A `mainBranchName` value is read only whole on its line: a plain scalar YAML types as a
-///   string, or a quoted one closed on the line with no escape or doubled quote, each with at
-///   most a comment after it. Refused: an alias, anchor or tag, a block scalar, a flow
-///   collection, an escape, a doubled or unclosed quote, text after the closing quote, an empty
-///   value, a value continued on the next line, a plain value that starts with a digit, `+`,
-///   `-`, `.` or an indicator (`#*&!|>[]{}%@` and backtick, `?:,`) or holds `: `, or ends in
-///   `:`, and the null and boolean words (`~`, `null`, `Null`, `NULL`, `true`, `True`, `TRUE`,
-///   `false`, `False`, `FALSE`), which YAML does not type as text.
-/// - Lines end in `\n`, `\r\n` or a lone `\r`, as [`mermaid_lines_with`] splits them.
+/// The body is YAML, which Mermaid dedents by the opening's indent and reads with js-yaml's
+/// `JSON_SCHEMA`. This reader accepts only the grammar below, which js-yaml reads the same way,
+/// and refuses the front matter at the first line outside it, naming the line:
+/// - Every line holds only printable characters: no tab or other control character, and none of
+///   U+0085, U+2028, U+2029, U+FEFF, U+FFFE and U+FFFF.
+/// - A line is blank, a comment (`#` after any spaces), `---` as the body's first line (a
+///   document start), or `key:` or `key: value` after spaces, each with at most a comment
+///   (` #` onwards) after it.
+/// - A key is ASCII letters, digits, `_` and `-`, starting with a letter or `_`, then `:` and
+///   a space or the line end.
+/// - A value is one line: a plain scalar, which starts with none of `- ? : , [ ] { } # & * ! |
+///   > ' " % @` and backtick, and holds no `: ` and does not end in `:`; or a scalar in single or
+///   double quotes, closed on the line, with no quote of its kind or `\` inside.
+/// - Mappings nest by indent, at most 3 deep: the line after `key:` opens its mapping when it
+///   is deeper, and the keys of one mapping share one indent and are not repeated.
+/// - A top-level `title` is refused, since it is not drawn. `config` > `gitGraph` >
+///   `mainBranchName` names the Git graph's main branch; it must be a quoted value or a plain
+///   one YAML types as text (not starting with a digit, `+` or `.`, and none of `~`, `null`,
+///   `Null`, `NULL`, `true`, `True`, `TRUE`, `false`, `False`, `FALSE`). The key anywhere else
+///   is refused.
+///
+/// So multi-line, block and flow values, tags, anchors, aliases, sequences, explicit, quoted and
+/// merge keys, tabs, repeated keys and document markers inside are refused, whatever they hold.
+/// Lines end in `\n`, `\r\n` or a lone `\r`, as [`mermaid_lines_with`] splits them.
 fn front_matter<'a, I: Iterator<Item = (usize, &'a str)> + Clone>(
     opened: usize,
     indent: &str,
@@ -452,312 +454,148 @@ fn front_matter<'a, I: Iterator<Item = (usize, &'a str)> + Clone>(
         }
         lines.next();
     }
-    // The keys above the current line, each with its indent; a block scalar's indent.
-    let mut keys: Vec<(usize, &str)> = Vec::new();
-    let mut scalar = None;
-    // The indent of a `mainBranchName` line just read, so a line continuing its value is refused.
-    let mut main = None;
+    // The keys above the current line, and each open mapping's indent and the keys read in it.
+    let mut keys: Vec<&str> = Vec::new();
+    let mut levels: Vec<(usize, Vec<&str>)> = Vec::new();
+    // A key just read with no value, which opens a mapping when the next line is deeper.
+    let mut opens = None;
     // The body runs to the first closing line past its first line, which `last` guarantees.
     let mut first = true;
     let body = lines.take_while(|&(_, text)| std::mem::take(&mut first) || !closes(text));
-    for (number, text) in body {
-        let content = text.trim_start_matches([' ', '\t']);
-        let depth = text.len() - content.len();
-        if content.trim_end().is_empty() || content.starts_with('#') {
+    for (index, (number, text)) in body.enumerate() {
+        let not_read =
+            || format!("Line {number}: front matter is read only as block key: value lines");
+        // Mermaid dedents each line that starts with the opening's indent.
+        let line = text.strip_prefix(indent).unwrap_or(text);
+        if !line.chars().all(yaml_printable) {
+            return Err(not_read());
+        }
+        let content = line.trim_start_matches(' ');
+        let depth = line.len() - content.len();
+        let content = content.trim_end_matches(' ');
+        if content.is_empty() || content.starts_with('#') || index == 0 && content == "---" {
             continue;
         }
-        let unread_main = || {
-            format!(
-                "Line {number}: mainBranchName is read only as a plain or quoted name on its line"
-            )
+        match opens.take() {
+            Some(key) if levels.last().is_some_and(|&(at, _)| depth > at) => {
+                if levels.len() == 3 {
+                    return Err(not_read());
+                }
+                keys.push(key);
+                levels.push((depth, Vec::new()));
+            }
+            _ => {
+                if levels.is_empty() {
+                    levels.push((depth, Vec::new()));
+                }
+                while levels.len() > 1 && levels.last().is_some_and(|&(at, _)| at > depth) {
+                    levels.pop();
+                    keys.pop();
+                }
+                if levels.last().is_some_and(|&(at, _)| at != depth) {
+                    return Err(not_read());
+                }
+            }
+        }
+        let Some((key, rest)) = key_value(content) else {
+            return Err(not_read());
         };
-        if scalar.is_some_and(|at| depth > at) {
-            continue;
-        }
-        // A deeper line after the name continues it, as a plain scalar runs on.
-        if main.take().is_some_and(|at| depth > at) {
-            return Err(unread_main());
-        }
-        scalar = None;
-        while keys.last().is_some_and(|&(at, _)| at >= depth) {
-            keys.pop();
-        }
-        if keys.is_empty()
-            && (keyed(content, "title") || content.starts_with('{') && flow_keyed(content, "title"))
-        {
+        if keys.is_empty() && key == "title" {
             return Err(format!(
                 "Line {number}: a title in front matter is not drawn"
             ));
         }
-        let explicit = content
-            .strip_prefix('?')
-            .is_some_and(|rest| rest.is_empty() || rest.starts_with([' ', '\t']));
-        if keys.is_empty() && explicit {
-            return Err(format!(
-                "Line {number}: an explicit key (?) at the top of front matter is not read"
-            ));
-        }
-        if keys.is_empty()
-            && (content.starts_with(['*', '!', '&'])
-                || key_value(content).is_some_and(|(key, _)| key == "<<"))
-        {
-            return Err(format!(
-                "Line {number}: an alias, tag, anchor or merge key at the top of front matter is not read"
-            ));
-        }
-        if escaped_key(content) {
-            return Err(format!(
-                "Line {number}: an escaped key in front matter is not read"
-            ));
-        }
-        // So no flow collection is open from an earlier line, and each line is read alone.
-        if flow_start(content).is_some_and(|flow| !flow_closes(flow)) {
-            return Err(format!(
-                "Line {number}: a flow collection in front matter is read only when it opens and closes on its line"
-            ));
-        }
-        // Only the block form is read; any other place or form of the key is refused, so none
-        // is dropped whilst Mermaid reads it.
-        // The name in a block line's plain or quoted value is text, unless an anchor there could
-        // bring it back as a key.
-        let under_git_graph = keys.iter().map(|&(_, key)| key).eq(["config", "gitGraph"]);
-        let in_value = !content.starts_with(['-', '?'])
-            && !content.contains('&')
-            && key_value(content).is_some_and(|(key, value)| {
-                !word(key, "mainBranchName") && !properties(value).starts_with(['{', '['])
-            });
-        if word(content, "mainBranchName")
-            && !in_value
-            && !(keyed(content, "mainBranchName") && under_git_graph)
-        {
-            return Err(format!(
-                "Line {number}: mainBranchName is read only on its own line under config: and gitGraph:"
-            ));
-        }
-        let Some((key, value)) = key_value(content) else {
-            continue;
-        };
-        // `keyed` held, so the first `:` ends the key.
-        if key == "mainBranchName" && !whole_name(&content[content.find(':').unwrap_or(0) + 1..]) {
-            return Err(unread_main());
-        }
-        if value.is_empty() {
-            keys.push((depth, key));
-        } else if value.starts_with(['|', '>']) {
-            scalar = Some(depth);
-        } else {
-            if key == "mainBranchName" {
-                main = Some(depth);
+        if let Some((_, read)) = levels.last_mut() {
+            if read.contains(&key) {
+                return Err(format!(
+                    "Line {number}: a key repeated in front matter is not YAML"
+                ));
             }
-            let mut path: Vec<&str> = keys.iter().map(|&(_, key)| key).collect();
-            path.push(key);
-            setting(number, &path, unquote(value))?;
+            read.push(key);
+        }
+        let value = scalar(rest);
+        if key == "mainBranchName" {
+            if keys != ["config", "gitGraph"] {
+                return Err(format!(
+                    "Line {number}: mainBranchName is read only on its own line under config: and gitGraph:"
+                ));
+            }
+            if !value
+                .flatten()
+                .is_some_and(|name| rest.starts_with(['"', '\'']) || text_typed(name))
+            {
+                return Err(format!(
+                    "Line {number}: mainBranchName is read only as a plain or quoted name on its line"
+                ));
+            }
+        }
+        match value {
+            None => return Err(not_read()),
+            Some(None) => opens = Some(key),
+            Some(Some(text)) => {
+                let mut path = keys.clone();
+                path.push(key);
+                setting(number, &path, text)?;
+            }
         }
     }
     Ok(())
 }
 
-/// Whether a front matter line starts with `key` as a key, quoted or not.
-fn keyed(line: &str, key: &str) -> bool {
-    line.trim_start_matches(['"', '\''])
-        .strip_prefix(key)
-        .is_some_and(|after| {
-            after
-                .trim_start_matches(['"', '\''])
-                .trim_start()
-                .starts_with(':')
-        })
+/// Whether js-yaml reads a character in front matter as printable text.
+fn yaml_printable(c: char) -> bool {
+    !c.is_control()
+        && !matches!(
+            c,
+            '\u{85}' | '\u{2028}' | '\u{2029}' | '\u{feff}' | '\u{fffe}' | '\u{ffff}'
+        )
 }
 
-/// Whether `line` holds `name` as a whole word, with no letter, digit, `_` or `-` either side.
-fn word(line: &str, name: &str) -> bool {
-    let part = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-';
-    line.match_indices(name).any(|(at, _)| {
-        !line[..at].chars().next_back().is_some_and(part)
-            && !line[at + name.len()..].chars().next().is_some_and(part)
-    })
+/// A front matter line's key and the text after its `:` (and the spaces after that), or `None`
+/// when the line does not start with a key.
+fn key_value(content: &str) -> Option<(&str, &str)> {
+    let end = content
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-'))
+        .unwrap_or(content.len());
+    let (key, rest) = content.split_at(end);
+    let rest = rest.strip_prefix(':')?;
+    (key.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+        && (rest.is_empty() || rest.starts_with(' ')))
+    .then_some((key, rest.trim_start_matches(' ')))
 }
 
-/// Whether a `mainBranchName` value (the text after its `:`) is one this reader takes whole: a
-/// plain scalar YAML types as a string, or a quoted one with no escape or doubled quote, each
-/// with at most a comment after it.
-fn whole_name(rest: &str) -> bool {
-    let rest = rest.trim();
-    match rest.as_bytes().first() {
-        None => false,
-        Some(&quote @ (b'"' | b'\'')) => rest[1..].find(char::from(quote)).is_some_and(|end| {
-            let after = rest[end + 2..].trim_start();
-            !rest[1..=end].contains('\\') && (after.is_empty() || after.starts_with('#'))
-        }),
+/// A value: `Some(None)` when there is none (at most a comment), `Some(Some(text))` for a plain
+/// scalar or a quoted one without its quotes, or `None` when it is outside the grammar.
+fn scalar(rest: &str) -> Option<Option<&str>> {
+    let comment = |after: &str| after.is_empty() || after.starts_with(" #");
+    match rest.chars().next() {
+        None | Some('#') => Some(None),
+        Some(quote @ ('"' | '\'')) => {
+            let end = rest[1..].find(quote)? + 1;
+            let text = &rest[1..end];
+            (!text.contains('\\') && comment(rest[end + 1..].trim_end_matches(' ')))
+                .then_some(Some(text))
+        }
         Some(first) => {
-            let plain = rest
+            let text = rest
                 .find(" #")
-                .or_else(|| rest.find("\t#"))
-                .map_or(rest, |at| rest[..at].trim_end());
-            // Digits, signs and `.` start YAML's numbers; the indicators start other nodes.
-            !b"#*&!|>[]{}%@`?:,-+.".contains(first)
-                && !first.is_ascii_digit()
-                && !plain.contains(": ")
-                && !plain.contains(":\t")
-                && !plain.ends_with(':')
-                && ![
-                    "~", "null", "Null", "NULL", "true", "True", "TRUE", "false", "False", "FALSE",
-                ]
-                .contains(&plain)
+                .map_or(rest, |at| rest[..at].trim_end_matches(' '));
+            (!"-?:,[]{}#&*!|>'\"%@`".contains(first)
+                && !text.contains(": ")
+                && !text.ends_with(':'))
+            .then_some(Some(text))
         }
     }
 }
 
-/// A node's text after any tag (`!..`) or anchor (`&..`) before it.
-fn properties(mut node: &str) -> &str {
-    while let Some(rest) = node.strip_prefix(['!', '&']) {
-        let end = rest
-            .find([' ', '\t', '{', '[', ',', '}', ']'])
-            .unwrap_or(rest.len());
-        node = rest[end..].trim_start();
-    }
-    node
-}
-
-/// Where a flow collection (`{..}` or `[..]`) starts on a front matter line: at its start, after
-/// any `- `, `? ` or `: ` indicators, or at a block mapping's value, each after any tag or
-/// anchor; or `None`.
-fn flow_start(content: &str) -> Option<&str> {
-    let mut item = content;
-    while let Some(rest) = ["- ", "? ", ": ", "-\t", "?\t", ":\t"]
-        .into_iter()
-        .find_map(|indicator| item.strip_prefix(indicator))
-    {
-        item = rest.trim_start();
-    }
-    fn flow(node: &str) -> Option<&str> {
-        let node = properties(node);
-        node.starts_with(['{', '[']).then_some(node)
-    }
-    flow(item).or_else(|| {
-        let (_, value) = key_value(item).filter(|(_, value)| !value.is_empty())?;
-        // A non-empty value from `key_value` is a slice of `item`; take the rest of
-        // the line from where it starts, so a comment inside quotes is not cut off.
-        let at = (value.as_ptr() as usize).checked_sub(item.as_ptr() as usize)?;
-        flow(item.get(at..)?)
-    })
-}
-
-/// Whether the flow collection that `flow` starts with closes on its line, reading past quoted
-/// scalars (a quote opens one only where a node starts) and stopping at a comment.
-fn flow_closes(flow: &str) -> bool {
-    let (mut depth, mut quote, mut previous) = (0usize, None, ' ');
-    let mut chars = flow.chars().peekable();
-    while let Some(c) = chars.next() {
-        match quote {
-            Some('"') if c == '\\' => {
-                chars.next();
-            }
-            Some('\'') if c == '\'' && chars.peek() == Some(&'\'') => {
-                chars.next();
-            }
-            Some(q) if c == q => quote = None,
-            Some(_) => {}
-            None => match c {
-                '"' | '\'' if "{[,:? \t".contains(previous) => quote = Some(c),
-                '{' | '[' => depth += 1,
-                // A close with nothing open is not YAML.
-                '}' | ']' => match depth.checked_sub(1) {
-                    Some(open) => depth = open,
-                    None => return false,
-                },
-                '#' if previous == ' ' || previous == '\t' => break,
-                _ => {}
-            },
-        }
-        previous = c;
-    }
-    quote.is_none() && depth == 0
-}
-
-/// Whether a line holds a double-quoted key (before `:` or after `?`) with an escape, which is
-/// not decoded, so its name is unknown.
-fn escaped_key(line: &str) -> bool {
-    let mut rest = line;
-    while let Some(open) = rest.find('"') {
-        let (before, body) = (&rest[..open], &rest[open + 1..]);
-        let mut chars = body.char_indices();
-        let (mut escaped, mut close) = (false, None);
-        while let Some((at, c)) = chars.next() {
-            if c == '\\' {
-                escaped = true;
-                chars.next();
-            } else if c == '"' {
-                close = Some(at);
-                break;
-            }
-        }
-        let Some(close) = close else {
-            return false;
-        };
-        rest = &body[close + 1..];
-        if escaped && (rest.trim_start().starts_with(':') || before.trim_end().ends_with('?')) {
-            return true;
-        }
-    }
-    false
-}
-
-/// Whether a line holds `key` as a key of a flow mapping (`{..}`) anywhere.
-fn flow_keyed(line: &str, key: &str) -> bool {
-    line.match_indices(key).any(|(at, _)| {
-        line[..at]
-            .trim_end_matches(['"', '\''])
-            .trim_end()
-            .ends_with(['{', ','])
-            && keyed(&line[at..], key)
-    })
-}
-
-/// A block mapping line's key and value (with no comment), or `None`.
-fn key_value(line: &str) -> Option<(&str, &str)> {
-    let (key, rest) = match line.as_bytes().first() {
-        Some(&quote @ (b'"' | b'\'')) => {
-            let end = line[1..].find(char::from(quote))? + 1;
-            (
-                &line[1..end],
-                line[end + 1..].trim_start().strip_prefix(':')?,
-            )
-        }
-        _ => {
-            let at = line.match_indices(':').map(|(at, _)| at).find(|&at| {
-                line[at + 1..]
-                    .chars()
-                    .next()
-                    .is_none_or(|c| c == ' ' || c == '\t')
-            })?;
-            (line[..at].trim_end(), &line[at + 1..])
-        }
-    };
-    let rest = rest.trim();
-    let value = match rest.as_bytes().first() {
-        Some(&quote @ (b'"' | b'\'')) => rest[1..]
-            .find(char::from(quote))
-            .map_or(rest, |end| &rest[..end + 2]),
-        _ => rest
-            .find(" #")
-            .or_else(|| rest.find("\t#"))
-            .map_or(rest, |at| rest[..at].trim_end()),
-    };
-    Some((key, if value.starts_with('#') { "" } else { value }))
-}
-
-/// A YAML scalar without its surrounding quotes.
-fn unquote(value: &str) -> &str {
-    for quote in ['"', '\''] {
-        if let Some(inner) = value
-            .strip_prefix(quote)
-            .and_then(|v| v.strip_suffix(quote))
-        {
-            return inner;
-        }
-    }
-    value
+/// Whether js-yaml's `JSON_SCHEMA` reads a plain scalar as text: its null, boolean, integer
+/// and float forms are the listed words or start with a digit, `-`, `+` or `.`.
+fn text_typed(plain: &str) -> bool {
+    !plain.starts_with(|c: char| c.is_ascii_digit() || "+-.".contains(c))
+        && ![
+            "~", "null", "Null", "NULL", "true", "True", "TRUE", "false", "False", "FALSE",
+        ]
+        .contains(&plain)
 }
 
 fn join(existing: u8, stroke: u8) -> u8 {

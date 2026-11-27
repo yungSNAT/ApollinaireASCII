@@ -66,46 +66,33 @@ fn front_matter_is_refused_when_unclosed_titled_or_not_first() {
         ),
         (
             "---\n\"title\" : Pets\n---\npie\n  \"a\" : 1",
-            "Line 2: a title in front matter is not drawn",
+            "Line 2: front matter is read only as block key: value lines",
         ),
-        // A top-level title in a flow mapping, or less indented than the opening, is still one.
+        // A top-level flow mapping is not read; a title less indented than the opening is one.
         (
             "---\n{title: Pets}\n---\npie\n  \"a\" : 1",
-            "Line 2: a title in front matter is not drawn",
+            "Line 2: front matter is read only as block key: value lines",
         ),
         (
             "  ---\ntitle: Pets\n  ---\npie\n  \"a\" : 1",
             "Line 2: a title in front matter is not drawn",
         ),
-        // A top-level explicit key may be a title, and an escaped key is not decoded.
+        // Any other form that may name a title is outside the grammar.
         (
             "---\n? title\n: Pets\n---\npie\n  \"a\" : 1",
-            "Line 2: an explicit key (?) at the top of front matter is not read",
+            "Line 2: front matter is read only as block key: value lines",
         ),
         (
             "---\n\"ti\\u0074le\": Pets\n---\npie\n  \"a\" : 1",
-            "Line 2: an escaped key in front matter is not read",
+            "Line 2: front matter is read only as block key: value lines",
         ),
-        (
-            "---\n{\"ti\\x74le\" : Pets}\n---\npie\n  \"a\" : 1",
-            "Line 2: an escaped key in front matter is not read",
-        ),
-        // So may a top-level alias, tagged, anchored or merge key.
         (
             "---\nt: &t title\n*t : Pets\n---\npie\n  \"a\" : 1",
-            "Line 3: an alias, tag, anchor or merge key at the top of front matter is not read",
-        ),
-        (
-            "---\nbase: &b {title: Pets}\n<<: *b\n---\npie\n  \"a\" : 1",
-            "Line 3: an alias, tag, anchor or merge key at the top of front matter is not read",
+            "Line 2: front matter is read only as block key: value lines",
         ),
         (
             "---\n!!str title: Pets\n---\npie\n  \"a\" : 1",
-            "Line 2: an alias, tag, anchor or merge key at the top of front matter is not read",
-        ),
-        (
-            "---\n&k title: Pets\n---\npie\n  \"a\" : 1",
-            "Line 2: an alias, tag, anchor or merge key at the top of front matter is not read",
+            "Line 2: front matter is read only as block key: value lines",
         ),
         // The closing line follows at least one line of body, and a line follows it.
         (
@@ -131,18 +118,6 @@ fn front_matter_is_refused_when_unclosed_titled_or_not_first() {
     );
     // Front matter after the first statement is not front matter.
     assert!(mermaid("pie\n---\n\"a\" : 1").is_err());
-    // A block scalar's lines are text, not keys.
-    let described = "---\ndescription: >-\n  title: x and mainBranchName: y\n---\npie\n  \"a\" : 1";
-    assert_eq!(
-        mermaid(described).unwrap().text(),
-        mermaid("pie\n  \"a\" : 1").unwrap().text()
-    );
-    // Escapes in values, a nested explicit key and an unclosed quote are read past.
-    let escaped = "---\ndescription: \"a \\\"b\\\"\" and \"c\"\nconfig:\n  ? theme\n  : dark\nnote: \"open\n---\npie\n  \"a\" : 1";
-    assert_eq!(
-        mermaid(escaped).unwrap().text(),
-        mermaid("pie\n  \"a\" : 1").unwrap().text()
-    );
 }
 
 #[test]
@@ -177,16 +152,17 @@ fn front_matter_names_the_main_branch_of_a_git_graph_as_a_directive_does() {
         );
         assert_eq!(mermaid(&front).unwrap().text(), directive, "{value}");
     }
-    let quoted = format!(
-        "---\n\"config\": # settings\n  sequence:\n    mirrorActors: false\n  'gitGraph':\n    mainBranchName: 'trunk' # a comment\n---\n{branches}"
+    let commented = format!(
+        "---\nconfig: # settings\n  sequence:\n    mirrorActors: false\n\n  # the graph\n  gitGraph:\n    mainBranchName: 'trunk' # a comment\n---\n{branches}"
     );
-    assert_eq!(mermaid(&quoted).unwrap().text(), directive);
-    // A key that only ends in the name is another setting.
-    let lookalike =
-        "---\nconfig:\n  xmainBranchName: trunk\n  mainBranchName_old: x\n---\ngitGraph\n  commit";
+    assert_eq!(mermaid(&commented).unwrap().text(), directive);
+    // Mermaid dedents indented front matter by its opening's indent.
+    let indented = "  ---\n  config:\n    gitGraph:\n      mainBranchName: trunk\n  ---\n  gitGraph\n    commit\n";
     assert_eq!(
-        mermaid(lookalike).unwrap().text(),
-        mermaid("gitGraph\n  commit").unwrap().text()
+        mermaid(indented).unwrap().text(),
+        mermaid("%%{init: {'gitGraph': {'mainBranchName': 'trunk'}}}%%\ngitGraph\n  commit")
+            .unwrap()
+            .text()
     );
     // A directive wins over front matter, as Mermaid merges them.
     let both = format!(
@@ -200,24 +176,18 @@ fn front_matter_names_the_main_branch_of_a_git_graph_as_a_directive_does() {
     );
 }
 
+const NOT_READ: &str = "front matter is read only as block key: value lines";
 const OWN_LINE: &str = "mainBranchName is read only on its own line under config: and gitGraph:";
 const PLAIN: &str = "mainBranchName is read only as a plain or quoted name on its line";
-const FLOW: &str =
-    "a flow collection in front matter is read only when it opens and closes on its line";
 const TITLE: &str = "a title in front matter is not drawn";
-const TOP: &str = "an alias, tag, anchor or merge key at the top of front matter is not read";
-const EXPLICIT: &str = "an explicit key (?) at the top of front matter is not read";
-const ESCAPED: &str = "an escaped key in front matter is not read";
+const REPEAT: &str = "a key repeated in front matter is not YAML";
 
-/// Front matter after its opening line, and the main branch drawn or the line and error.
-type Row = (String, Result<&'static str, (usize, &'static str)>);
-
-/// Every YAML form the front matter reader meets, each read as Mermaid 12.3.0 reads it (js-yaml,
-/// `JSON_SCHEMA`) or refused with its line: `Ok(name)` draws a Git graph whose main branch is
-/// `name`, `Err((line, message))` refuses it. `src/diagram.rs` (`front_matter`) states the same
-/// list.
+/// The front matter grammar `front_matter` in `src/diagram.rs` states, in 2 parts: forms it
+/// accepts, with the main branch each draws (`main` when nothing names it), as Mermaid 12.3.0
+/// reads them (js-yaml, `JSON_SCHEMA`); and forms it refuses, with the line and error, among
+/// them every input an independent review found read wrongly in rounds 8 and 9, verbatim.
 #[test]
-fn every_yaml_form_is_read_as_mermaid_reads_it_or_refused() {
+fn front_matter_is_read_only_in_its_grammar() {
     let git = "gitGraph\n  commit\n  branch dev\n  commit";
     let main = |name: &str| {
         mermaid(&format!(
@@ -226,129 +196,132 @@ fn every_yaml_form_is_read_as_mermaid_reads_it_or_refused() {
         .unwrap()
         .text()
     };
-    let block = |value: &str| format!("config:\n  gitGraph:\n    mainBranchName: {value}");
-    let rows: Vec<Row> = vec![
-        // Block mappings: only config > gitGraph > mainBranchName names the branch.
-        (block("trunk"), Ok("trunk")),
+    let under = |rest: &str| format!("config:\n  gitGraph:\n{rest}");
+    let block = |value: &str| under(&format!("    mainBranchName: {value}"));
+    let accepted: Vec<(String, &str)> = vec![
+        (block("trunk"), "trunk"),
         (
-            "\"config\":\n  'gitGraph':\n    \"mainBranchName\": trunk".into(),
-            Ok("trunk"),
-        ),
-        ("config:\n  mainBranchName: trunk".into(), Err((3, OWN_LINE))),
-        ("mainBranchName: trunk".into(), Err((2, OWN_LINE))),
-        ("config:\n  gitGraph:\n    - mainBranchName: trunk".into(), Err((4, OWN_LINE))),
-        // The name inside another key's plain or quoted value is text.
-        (
-            "description: mainBranchName\nnote: \"mainBranchName here\"\nconfig:\n  look: mainBranchName".into(),
-            Ok("main"),
+            "config:\n  theme: base\n  themeVariables:\n    primaryColor: '#ff0000'\n  gitGraph: # settings\n    showBranches: true\n    mainBranchName: develop  # default\n    rotateCommitLabel: false".into(),
+            "develop",
         ),
         (
-            "config:\n  xmainBranchName: trunk\n  mainBranchName_old: x".into(),
-            Ok("main"),
+            "description: A diagram \u{2014} with {braces}, [brackets] and a:colon\n\n# a comment\nconfig:\n  look: handDrawn\n  fontSize: 16\n  gitGraph:\n    mainBranchName: trunk".into(),
+            "trunk",
         ),
-        // Flow mappings and sequences on one line: read past, and refused when they hold the
-        // name, which is read only in block form.
+        // The name inside another key's value, or in a longer key, is text.
         (
-            "config:\n  themeVariables: {primaryColor: '#fff', b: 'it''s }', c: \"\\\"}\", a: [1, \"}\"]} # {\n  gitGraph:\n    mainBranchName: trunk".into(),
-            Ok("trunk"),
+            "description: mainBranchName\nnote: \"mainBranchName here\"\nconfig:\n  look: mainBranchName\n  xmainBranchName: trunk\n  mainBranchName_old: x".into(),
+            "main",
         ),
-        ("{config: {gitGraph: {mainBranchName: trunk}}}".into(), Err((2, OWN_LINE))),
-        ("config:\n  gitGraph: {mainBranchName: trunk}".into(), Err((3, OWN_LINE))),
-        ("config:\n  gitGraph: { 'mainBranchName' : trunk }".into(), Err((3, OWN_LINE))),
-        ("{title: Pets}".into(), Err((2, TITLE))),
-        // A flow collection left open, or closed with nothing open, is refused on that line.
-        ("config:\n  gitGraph: {\n    mainBranchName: trunk\n  }".into(), Err((3, FLOW))),
-        ("config:\n  gitGraph: {\n    x: 1, mainBranchName: trunk\n  }".into(), Err((3, FLOW))),
-        ("{config: {gitGraph: {\n  mainBranchName: trunk}}}".into(), Err((2, FLOW))),
-        ("config:\n  gitGraph:\n    x: [\n      a, {mainBranchName: trunk}]".into(), Err((4, FLOW))),
-        ("config:\n  look: {a: 'open\n    b'}".into(), Err((3, FLOW))),
-        ("- [a,\n  b]".into(), Err((2, FLOW))),
-        ("config:\n  look: &a [1,\n    2]".into(), Err((3, FLOW))),
-        ("config:\n  look: {a: 1}}".into(), Err((3, FLOW))),
-        // Tags.
-        ("config:\n  gitGraph: !!map {mainBranchName: trunk}".into(), Err((3, OWN_LINE))),
-        (block("!!str trunk"), Err((4, PLAIN))),
-        ("!!str title: Pets".into(), Err((2, TOP))),
-        ("description: !!str mainBranchName".into(), Ok("main")),
-        // Anchors and aliases.
-        (block("&b trunk"), Err((4, PLAIN))),
-        (block("*b"), Err((4, PLAIN))),
-        ("&k title: Pets".into(), Err((2, TOP))),
-        ("t: &t title\n*t : Pets".into(), Err((3, TOP))),
-        ("d: &a mainBranchName".into(), Err((2, OWN_LINE))),
-        (
-            "name: &b trunk\nconfig:\n  gitGraph: {\"mainBranchName\": *b}".into(),
-            Err((4, OWN_LINE)),
-        ),
-        // Merge keys (plain keys under JSON_SCHEMA; refused, as another schema merges them).
-        ("base: &b {title: Pets}\n<<: *b".into(), Err((3, TOP))),
-        ("config:\n  gitGraph:\n    <<: {mainBranchName: trunk}".into(), Err((4, OWN_LINE))),
-        // Explicit keys: refused at the top and for the name, read past elsewhere.
-        ("? title\n: Pets".into(), Err((2, EXPLICIT))),
-        ("config:\n  gitGraph:\n    ? mainBranchName\n    : trunk".into(), Err((4, OWN_LINE))),
-        (
-            "config:\n  ? theme\n  : dark\n  gitGraph:\n    mainBranchName: trunk".into(),
-            Ok("trunk"),
-        ),
-        // Escaped keys are not decoded.
-        ("config:\n  gitGraph:\n    \"mainBranch\\u004eame\": trunk".into(), Err((4, ESCAPED))),
-        ("\"ti\\u0074le\": Pets".into(), Err((2, ESCAPED))),
-        // Quoted scalars: read whole when closed on the line with no escape or doubled quote.
-        (block("'trunk'"), Ok("trunk")),
-        (block("\"trunk\" # a comment"), Ok("trunk")),
-        (block("\"1.0\""), Ok("1.0")),
-        (block("\"tr\\u0075nk\""), Err((4, PLAIN))),
-        (block("'it''s'"), Err((4, PLAIN))),
-        (block("'trunk' x"), Err((4, PLAIN))),
-        (block("\"trunk"), Err((4, PLAIN))),
-        // Plain scalars: read as text only when YAML types them as a string on one line.
-        (block("trunk  # the default branch"), Ok("trunk")),
-        (block("release/v1"), Ok("release/v1")),
-        (block("tr\n      unk"), Err((5, PLAIN))),
-        (block("\n      trunk"), Err((4, PLAIN))),
-        (block("# a comment\n      trunk"), Err((4, PLAIN))),
-        (block("- trunk"), Err((4, PLAIN))),
-        (block("a: b"), Err((4, PLAIN))),
-        (block("trunk:"), Err((4, PLAIN))),
-        (block("? trunk"), Err((4, PLAIN))),
-        (block(", trunk"), Err((4, PLAIN))),
-        (block("}trunk"), Err((4, PLAIN))),
-        (block("[trunk]"), Err((4, PLAIN))),
-        // Block scalars: refused as the name, read past elsewhere.
-        (block("|\n      trunk"), Err((4, PLAIN))),
-        (block(">-\n      trunk"), Err((4, PLAIN))),
-        ("description: >-\n  title: x and mainBranchName: y".into(), Ok("main")),
-        // Null, booleans and numbers are not text, so they are refused as the name.
-        (block("~"), Err((4, PLAIN))),
-        (block("null"), Err((4, PLAIN))),
-        (block("Null"), Err((4, PLAIN))),
-        (block("NULL"), Err((4, PLAIN))),
-        (block(""), Err((4, PLAIN))),
-        (block("true"), Err((4, PLAIN))),
-        (block("False"), Err((4, PLAIN))),
-        (block("1"), Err((4, PLAIN))),
-        (block("-1"), Err((4, PLAIN))),
-        (block("+1"), Err((4, PLAIN))),
-        (block("1.0"), Err((4, PLAIN))),
-        (block("0x10"), Err((4, PLAIN))),
-        (block("0o17"), Err((4, PLAIN))),
-        (block("1e3"), Err((4, PLAIN))),
-        (block(".inf"), Err((4, PLAIN))),
-        (block(".NaN"), Err((4, PLAIN))),
-        // Line endings: `\r\n` and a lone `\r` end lines, as Mermaid's cleanupText makes `\n`.
-        (block("trunk").replace('\n', "\r\n"), Ok("trunk")),
-        (block("trunk").replace('\n', "\r"), Ok("trunk")),
-        (block("trunk\r"), Ok("trunk")),
+        (block("'trunk'"), "trunk"),
+        (block("\"trunk\" # a comment"), "trunk"),
+        (block("\"release/2.0\""), "release/2.0"),
+        (block("\"1.0\""), "1.0"),
+        (block("trunk  # the default branch"), "trunk"),
+        (block("release/v1"), "release/v1"),
+        (block("Main Line"), "Main Line"),
+        (block("~trunk"), "~trunk"),
+        (block("yes"), "yes"),
+        // `\r\n` and a lone `\r` end lines, as Mermaid's cleanupText makes `\n`.
+        (block("trunk").replace('\n', "\r\n"), "trunk"),
+        (block("trunk").replace('\n', "\r"), "trunk"),
+        (block("trunk\r"), "trunk"),
     ];
-    let wrong: Vec<String> = rows
+    let refused: Vec<(String, usize, &str)> = vec![
+        // Round 8 and round 9 inputs, verbatim (the reviewer's c01 to c19, c22, c24 and c30).
+        ("---\nconfig:\n  gitGraph: {\n    x: 1, mainBranchName: trunk\n  }\n---\ngitGraph\n  commit\n".into(), 3, NOT_READ),
+        ("---\nconfig:\n  gitGraph: !!map {mainBranchName: trunk}\n---\ngitGraph\n  commit\n".into(), 3, NOT_READ),
+        ("---\nconfig:\n  gitGraph:\n    x: \"a\n      mainBranchName: trunk\n      b\"\n---\ngitGraph\n  commit\n".into(), 4, NOT_READ),
+        ("---\nconfig:\n  gitGraph:\n    x: 'a\n    mainBranchName: trunk\n    b'\n---\ngitGraph\n  commit\n".into(), 4, NOT_READ),
+        ("---\nconfig:\n  gitGraph:\n    x: \"a\\\"\n      mainBranchName: trunk\n      \"\n---\ngitGraph\n  commit\n".into(), 4, NOT_READ),
+        ("---\nconfig:\n  gitGraph:\n    x: !!str |\n      mainBranchName: trunk\n---\ngitGraph\n  commit\n".into(), 4, NOT_READ),
+        ("---\nconfig:\n  gitGraph:\n    x: &a |\n      mainBranchName: trunk\n---\ngitGraph\n  commit\n".into(), 4, NOT_READ),
+        ("---\nconfig:\n  gitGraph:\n    - |\n      mainBranchName: trunk\n---\ngitGraph\n  commit\n".into(), 4, NOT_READ),
+        ("---\nconfig:\n  gitGraph:\n    ? |\n      mainBranchName: trunk\n    : x\n---\ngitGraph\n  commit\n".into(), 4, NOT_READ),
+        ("---\nconfig:\n  gitGraph:\n    - x: 1\n      mainBranchName: trunk\n---\ngitGraph\n  commit\n".into(), 4, NOT_READ),
+        ("---\nconfig:\n  gitGraph:\n    -\n      mainBranchName: trunk\n---\ngitGraph\n  commit\n".into(), 4, NOT_READ),
+        ("---\nconfig:\n  gitGraph:\n    'it''s':\n      mainBranchName: trunk\n---\ngitGraph\n  commit\n".into(), 4, NOT_READ),
+        ("---\nconfig:\n  gitGraph:\n    {a: 1}:\n      mainBranchName: trunk\n---\ngitGraph\n  commit\n".into(), 4, NOT_READ),
+        ("---\nconfig:\n  gitGraph:\n    ? \"mainBranch\\\n      Name\"\n    : trunk\n---\ngitGraph\n  commit\n".into(), 4, NOT_READ),
+        ("---\nconfig:\n  ? gitGraph\n  : mainBranchName: trunk\n---\ngitGraph\n  commit\n".into(), 3, NOT_READ),
+        ("---\nconfig:\n  gitGraph: !<tag:yaml.org,2002:map> {mainBranchName: trunk}\n---\ngitGraph\n  commit\n".into(), 3, NOT_READ),
+        ("---\nconfig:\n  gitGraph:\n    mainBranchName: a\n    mainBranchName: b\n---\ngitGraph\n  commit\n".into(), 5, REPEAT),
+        ("---\nconfig:\n  gitGraph:\n    mainBranchName: trunk\n  gitGraph:\n    showBranches: true\n---\ngitGraph\n  commit\n".into(), 5, REPEAT),
+        ("---\nconfig:\n\tgitGraph:\n\t\tmainBranchName: trunk\n---\ngitGraph\n  commit\n".into(), 3, NOT_READ),
+        ("---\nconfig:\n  gitGraph:\n    \"mainBranchName\":trunk\n---\ngitGraph\n  commit\n".into(), 4, NOT_READ),
+        ("---\nconfig:\n  gitGraph:\n    x: a\n      mainBranchName: trunk\n---\ngitGraph\n  commit\n".into(), 5, NOT_READ),
+        ("---\nx: 1\n...\nconfig:\n  gitGraph:\n    mainBranchName: trunk\n---\ngitGraph\n  commit\n".into(), 3, NOT_READ),
+    ];
+    let wrapped: Vec<(String, usize, &str)> = vec![
+        // Round 8's null, boolean and number values, and other values not read as text.
+        (block("~"), 4, PLAIN),
+        (block("null"), 4, PLAIN),
+        (block("NULL"), 4, PLAIN),
+        (block("1.0"), 4, PLAIN),
+        (block("0x10"), 4, PLAIN),
+        (block("true"), 4, PLAIN),
+        (block("False"), 4, PLAIN),
+        (block("+1"), 4, PLAIN),
+        (block(".inf"), 4, PLAIN),
+        (block("2026-release"), 4, PLAIN),
+        (block(""), 4, PLAIN),
+        (block("*b"), 4, PLAIN),
+        (block("&b trunk"), 4, PLAIN),
+        (block("!!str trunk"), 4, PLAIN),
+        (block("|"), 4, PLAIN),
+        (block("[trunk]"), 4, PLAIN),
+        (block("- trunk"), 4, PLAIN),
+        (block("a: b"), 4, PLAIN),
+        (block("trunk:"), 4, PLAIN),
+        (block("\"tr\\u0075nk\""), 4, PLAIN),
+        (block("'it''s'"), 4, PLAIN),
+        (block("'trunk' x"), 4, PLAIN),
+        (block("'trunk'#c"), 4, PLAIN),
+        (block("\"trunk"), 4, PLAIN),
+        // The key anywhere else, or the name as a key in another form.
+        ("config:\n  mainBranchName: trunk".into(), 3, OWN_LINE),
+        ("mainBranchName: trunk".into(), 2, OWN_LINE),
+        (
+            "config:\n  gitGraph: {mainBranchName: trunk}".into(),
+            3,
+            NOT_READ,
+        ),
+        ("d: &a mainBranchName".into(), 2, NOT_READ),
+        (under("    \"mainBranch\\u004eame\": trunk"), 4, NOT_READ),
+        // A top-level title, and other lines outside the grammar.
+        ("title: Pets".into(), 2, TITLE),
+        ("config:\n  look: a: b".into(), 3, NOT_READ),
+        ("description: >-\n  text".into(), 2, NOT_READ),
+        ("description: \"a \\\"b\\\"\"".into(), 2, NOT_READ),
+        ("config:\n  <<: {theme: dark}".into(), 3, NOT_READ),
+        ("config :\n  look: x".into(), 2, NOT_READ),
+        ("1st: x".into(), 2, NOT_READ),
+        ("a: 1\n  b: 2".into(), 3, NOT_READ),
+        ("  a: 1\nb: 2".into(), 3, NOT_READ),
+        ("config:\n  a:\n    b:\n      c: 1".into(), 5, NOT_READ),
+        (block("tr\n      unk"), 5, NOT_READ),
+        ("a: 1\t".into(), 2, NOT_READ),
+        ("a: x\u{2028}y".into(), 2, NOT_READ),
+    ];
+    let mut wrong: Vec<String> = accepted
         .into_iter()
-        .filter_map(|(front, expected)| {
+        .filter_map(|(front, name)| {
             let drawn = mermaid(&format!("---\n{front}\n---\n{git}")).map(|chart| chart.text());
-            let expected = expected
-                .map(main)
-                .map_err(|(line, message)| format!("Line {line}: {message}"));
-            (drawn != expected).then(|| format!("{front:?}: {drawn:?}"))
+            (drawn != Ok(main(name))).then(|| format!("{front:?}: {drawn:?}"))
         })
         .collect();
+    let wrapped = wrapped
+        .into_iter()
+        .map(|(front, line, error)| (format!("---\n{front}\n---\n{git}"), line, error));
+    wrong.extend(
+        refused
+            .into_iter()
+            .chain(wrapped)
+            .filter_map(|(source, line, error)| {
+                let drawn = mermaid(&source).map(|chart| chart.text());
+                (drawn != Err(format!("Line {line}: {error}")))
+                    .then(|| format!("{source:?}: {drawn:?}"))
+            }),
+    );
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
