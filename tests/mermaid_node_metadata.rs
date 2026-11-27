@@ -1,0 +1,494 @@
+// Copyright 2026 Ryan Duguid
+// SPDX-License-Identifier: MIT
+
+//! Mermaid node metadata, `A@{ shape: .., label: .. }`, read as Mermaid 12.3.0 reads it.
+
+use apollinaire_ascii::diagram::flowchart;
+
+/// Each accepted chart draws exactly as the chart written with brackets beside it: every shape
+/// is the same box, and `label` is the box's text.
+#[test]
+fn node_metadata_names_a_shape_and_label_as_brackets_do() {
+    let same = [
+        ("A@{ shape: rect }", "A"),
+        ("A@{shape: diam}", "A"),
+        ("A@{ shape: rect, label: Start here }", "A[Start here]"),
+        (
+            "A@{ label: \"Start, then } stop\" }",
+            "A[\"Start, then } stop\"]",
+        ),
+        ("A@{ label: 'Start, then stop' }", "A[\"Start, then stop\"]"),
+        ("A@{ label : x }", "A[x]"),
+        ("A@{ label: a#b }", "A[a#b]"),
+        ("A@{ label: x #59; y }", "A[x #59; y]"),
+        ("A@{ shape: \"cyl\", label: Store }", "A[Store]"),
+        ("A[Old]@{ label: New }", "A[New]"),
+        (
+            "A@{ shape: hex } --> B@{ shape: doc, label: Out }",
+            "A --> B[Out]",
+        ),
+        ("A@{ shape: lean-r } & B --> C", "A & B --> C"),
+        ("A --> B\nB@{ label: Later }", "A --> B[Later]"),
+        ("A@{ label: First }\nA[Second]", "A[Second]"),
+        ("A@{ shape: rect };B", "A;B"),
+        ("A@{ }", "A"),
+        ("A@{}", "A"),
+        ("A@{ label: x}", "A[x]"),
+        ("A@{ label: \"  x  \" }", "A[x]"),
+        ("A@{ shape: rect , label: x }", "A[x]"),
+        ("A@{ label: a:b }", "A[a:b]"),
+        ("A@{ label: x #lt; y }", "A[x #lt; y]"),
+        ("A[Old]@{ shape: hex }", "A[Old]"),
+        (
+            "A@{ label: x }
+A@{ shape: hex }",
+            "A[x]",
+        ),
+    ];
+    let shapes = [
+        "rect",
+        "proc",
+        "process",
+        "rectangle",
+        "rounded",
+        "event",
+        "stadium",
+        "terminal",
+        "pill",
+        "fr-rect",
+        "subprocess",
+        "subproc",
+        "framed-rectangle",
+        "subroutine",
+        "cyl",
+        "db",
+        "database",
+        "cylinder",
+        "datastore",
+        "data-store",
+        "folder",
+        "directory",
+        "bucket",
+        "console",
+        "browser",
+        "person",
+        "circle",
+        "circ",
+        "bang",
+        "cloud",
+        "diam",
+        "decision",
+        "diamond",
+        "question",
+        "hex",
+        "hexagon",
+        "prepare",
+        "lean-r",
+        "lean-right",
+        "in-out",
+        "lean-l",
+        "lean-left",
+        "out-in",
+        "trap-b",
+        "priority",
+        "trapezoid-bottom",
+        "trapezoid",
+        "trap-t",
+        "manual",
+        "trapezoid-top",
+        "inv-trapezoid",
+        "dbl-circ",
+        "double-circle",
+        "doublecircle",
+        "text",
+        "notch-rect",
+        "card",
+        "notched-rectangle",
+        "lin-rect",
+        "lined-rectangle",
+        "lined-process",
+        "lin-proc",
+        "shaded-process",
+        "sm-circ",
+        "start",
+        "small-circle",
+        "fr-circ",
+        "stop",
+        "framed-circle",
+        "hourglass",
+        "collate",
+        "brace",
+        "comment",
+        "brace-l",
+        "brace-r",
+        "braces",
+        "doc",
+        "document",
+        "delay",
+        "half-rounded-rectangle",
+        "h-cyl",
+        "das",
+        "horizontal-cylinder",
+        "lin-cyl",
+        "disk",
+        "lined-cylinder",
+        "curv-trap",
+        "curved-trapezoid",
+        "display",
+        "div-rect",
+        "div-proc",
+        "divided-rectangle",
+        "divided-process",
+        "tri",
+        "extract",
+        "triangle",
+        "win-pane",
+        "internal-storage",
+        "window-pane",
+        "notch-pent",
+        "loop-limit",
+        "notched-pentagon",
+        "flip-tri",
+        "manual-file",
+        "flipped-triangle",
+        "sl-rect",
+        "manual-input",
+        "sloped-rectangle",
+        "docs",
+        "documents",
+        "st-doc",
+        "stacked-document",
+        "st-rect",
+        "procs",
+        "processes",
+        "stacked-rectangle",
+        "bow-rect",
+        "stored-data",
+        "bow-tie-rectangle",
+        "tag-doc",
+        "tagged-document",
+        "tag-rect",
+        "tagged-rectangle",
+        "tag-proc",
+        "tagged-process",
+        "flag",
+        "paper-tape",
+        "odd",
+        "lin-doc",
+        "lined-document",
+    ];
+    let mut wrong = Vec::new();
+    let draw = |body: &str| flowchart(&format!("flowchart LR\n{body}"));
+    for (body, brackets) in same {
+        let (got, want) = (draw(body), draw(brackets));
+        if got.is_err() || got.as_ref().map(|f| f.text()) != want.as_ref().map(|f| f.text()) {
+            wrong.push(format!("{body:?}: {:?}", got.map(|f| f.text())));
+        }
+    }
+    for shape in shapes {
+        let body = format!("A@{{ shape: {shape}, label: Box }}");
+        if draw(&body).map(|f| f.text()) != draw("A[Box]").map(|f| f.text()) {
+            wrong.push(format!("{body:?}: {:?}", draw(&body).map(|f| f.text())));
+        }
+    }
+    assert!(wrong.is_empty(), "drawn wrongly:\n{}", wrong.join("\n"));
+}
+
+/// Anything Mermaid refuses, draws without text or with a setting not drawn here, and any
+/// form not proven to read as Mermaid reads it, is refused with its line.
+#[test]
+fn node_metadata_outside_its_grammar_is_refused_with_its_line() {
+    let refused = [
+        ("A@{ shape: Rect }", "Line 2: no such shape: Rect"),
+        (
+            "A@{ shape: lean_right }",
+            "Line 2: no such shape: lean_right",
+        ),
+        ("A@{ shape: squircle }", "Line 2: no such shape: squircle"),
+        (
+            "A@{ shape: constructor }",
+            "Line 2: no such shape: constructor",
+        ),
+        ("A@{ shape: state }", "Line 2: no such shape: state"),
+        ("A@{ shape: icon }", "Line 2: no such shape: icon"),
+        (
+            "A@{ shape: f-circ }",
+            "Line 2: the shape f-circ is drawn with no text",
+        ),
+        (
+            "A@{ shape: junction }",
+            "Line 2: the shape junction is drawn with no text",
+        ),
+        (
+            "A@{ shape: fork }",
+            "Line 2: the shape fork is drawn with no text",
+        ),
+        (
+            "A@{ shape: join }",
+            "Line 2: the shape join is drawn with no text",
+        ),
+        (
+            "A@{ shape: bolt }",
+            "Line 2: the shape bolt is drawn with no text",
+        ),
+        (
+            "A@{ shape: cross-circ }",
+            "Line 2: the shape cross-circ is drawn with no text",
+        ),
+        (
+            "A@{ shape: summary }",
+            "Line 2: the shape summary is drawn with no text",
+        ),
+        (
+            "A@{ icon: fa:user }",
+            "Line 2: node metadata icon is not drawn",
+        ),
+        (
+            "A@{ shape: rect, img: x.png }",
+            "Line 2: node metadata img is not drawn",
+        ),
+        (
+            "A@{ animate: true }",
+            "Line 2: node metadata animate is not drawn",
+        ),
+        (
+            "A@{ shape: rect, shape: hex }",
+            "Line 2: node metadata names shape twice",
+        ),
+        (
+            "A@{ shape: rect",
+            "Line 2: the node metadata at column 2 is not closed",
+        ),
+        (
+            "A@{ shape: rect,",
+            "Line 2: the node metadata at column 2 is not closed",
+        ),
+        (
+            "A@{ shape: rect, }",
+            "Line 2: node metadata at column 2 holds an empty entry",
+        ),
+        (
+            "A@{ shape:rect }",
+            "Line 2: node metadata at column 2 is not key: value",
+        ),
+        (
+            "A@{ rect }",
+            "Line 2: node metadata at column 2 is not key: value",
+        ),
+        (
+            "A@{ label: }",
+            "Line 2: node metadata at column 2 has an empty label",
+        ),
+        (
+            "A@{ label: \"\" }",
+            "Line 2: node metadata at column 2 has an empty label",
+        ),
+        (
+            "A@{ label: 12 }",
+            "Line 2: node metadata at column 2 has a value YAML reads as other than text: 12",
+        ),
+        (
+            "A@{ label: null }",
+            "Line 2: node metadata at column 2 has a value YAML reads as other than text: null",
+        ),
+        (
+            "A@{ label: True }",
+            "Line 2: node metadata at column 2 has a value YAML reads as other than text: True",
+        ),
+        (
+            "A@{ label: ~ }",
+            "Line 2: node metadata at column 2 has a value YAML reads as other than text: ~",
+        ),
+        (
+            "A@{ label: .5 }",
+            "Line 2: node metadata at column 2 has a value YAML reads as other than text: .5",
+        ),
+        (
+            "A@{ label: a: b }",
+            "Line 2: node metadata at column 2 has a value outside plain or quoted text",
+        ),
+        (
+            "A@{ label: a #b }",
+            "Line 2: node metadata at column 2 has a value outside plain or quoted text",
+        ),
+        (
+            "A@{ label: a [b] }",
+            "Line 2: node metadata at column 2 has a value outside plain or quoted text",
+        ),
+        (
+            "A@{ label: a^b }",
+            "Line 2: node metadata at column 2 has a value outside plain or quoted text",
+        ),
+        (
+            "A@{ label: it's }",
+            "Line 2: node metadata at column 2 has a value outside plain or quoted text",
+        ),
+        (
+            "A@{ label: *x }",
+            "Line 2: node metadata at column 2 has a value outside plain or quoted text",
+        ),
+        (
+            "A@{ label: \"a\\nb\" }",
+            "Line 2: node metadata at column 2 has a value outside plain or quoted text",
+        ),
+        (
+            "A@{ label: 'it''s' }",
+            "Line 2: node metadata at column 2 has a value outside plain or quoted text",
+        ),
+        (
+            "A@{ label: 'a}b' }",
+            "Line 2: node metadata at column 2 has a value outside plain or quoted text",
+        ),
+        (
+            "A@{ label: \"a\" b }",
+            "Line 2: node metadata at column 2 has a value outside plain or quoted text",
+        ),
+        (
+            "A@{ label: `x` }",
+            "Line 2: node metadata at column 2 has a value outside plain or quoted text",
+        ),
+        (
+            "A@{ label: \"`x`\" }",
+            "Line 2: node metadata at column 2 has a label Mermaid reads as Markdown",
+        ),
+        (
+            "A@{ label: a*b* }",
+            "Line 2: node metadata at column 2 has a label Mermaid reads as Markdown",
+        ),
+        (
+            "A@{ label: x_y }",
+            "Line 2: node metadata at column 2 has a label Mermaid reads as Markdown",
+        ),
+        (
+            "A@{ label: a~b }",
+            "Line 2: node metadata at column 2 has a label Mermaid reads as Markdown",
+        ),
+        (
+            "A@{ label: a&amp;b }",
+            "Line 2: node metadata at column 2 has a label Mermaid reads as Markdown",
+        ),
+        (
+            "A@{ label: \"a<br>b\" }",
+            "Line 2: node metadata at column 2 has a label Mermaid reads as Markdown",
+        ),
+        (
+            "A@{ label: \"a [b]\" }",
+            "Line 2: node metadata at column 2 has a label Mermaid reads as Markdown",
+        ),
+        (
+            "A@{ label: http://x }",
+            "Line 2: node metadata at column 2 has a label Mermaid reads as Markdown",
+        ),
+        (
+            "A@{ label: Www.x.com }",
+            "Line 2: node metadata at column 2 has a label Mermaid reads as Markdown",
+        ),
+        (
+            "A@{ label: a@b }",
+            "Line 2: node metadata at column 2 has a label Mermaid reads as Markdown",
+        ),
+        (
+            "A@{ label: \"a\\b\" }",
+            "Line 2: node metadata at column 2 has a value outside plain or quoted text",
+        ),
+        ("A@{ label: \"a\tb\" }", "Line 2: text holds a tab"),
+        (
+            "A:::c@{ shape: rect }",
+            "Line 2: node metadata after a class is not read",
+        ),
+        (
+            "A @{ shape: rect }",
+            "Line 2: expected a link such as --> at column 3",
+        ),
+        (
+            "A@{ label: x }:::c",
+            "Line 2: expected a link such as --> at column 15",
+        ),
+        (
+            "A@{ label: x }[y]",
+            "Line 2: expected a link such as --> at column 15",
+        ),
+        (
+            "A@{ shape: rect }@{ label: x }",
+            "Line 2: expected a link such as --> at column 18",
+        ),
+        ("A@{ Label: x }", "Line 2: node metadata Label is not drawn"),
+        (
+            "A@{ label: x, label: y }",
+            "Line 2: node metadata names label twice",
+        ),
+        (
+            "A@{ label: a, b }",
+            "Line 2: node metadata at column 2 is not key: value",
+        ),
+        (
+            "A@{ \"label\": x }",
+            "Line 2: node metadata at column 2 is not key: value",
+        ),
+        (
+            "A@{ shape: }",
+            "Line 2: node metadata at column 2 has an empty shape",
+        ),
+        (
+            "A@{ shape: filled-circle }",
+            "Line 2: the shape filled-circle is drawn with no text",
+        ),
+        (
+            "A@{ shape: crossed-circle }",
+            "Line 2: the shape crossed-circle is drawn with no text",
+        ),
+        (
+            "A@{ shape: com-link }",
+            "Line 2: the shape com-link is drawn with no text",
+        ),
+        (
+            "A@{ shape: lightning-bolt }",
+            "Line 2: the shape lightning-bolt is drawn with no text",
+        ),
+        (
+            "A@{ label: \"  \" }",
+            "Line 2: node metadata at column 2 has an empty label",
+        ),
+        (
+            "A@{ label: -.5 }",
+            "Line 2: node metadata at column 2 has a value YAML reads as other than text: -.5",
+        ),
+        (
+            "A@{ label: FALSE }",
+            "Line 2: node metadata at column 2 has a value YAML reads as other than text: FALSE",
+        ),
+        (
+            "A@{ label: x #59 y }",
+            "Line 2: node metadata at column 2 has a value outside plain or quoted text",
+        ),
+        (
+            "A@{ label: x # y }",
+            "Line 2: node metadata at column 2 has a value outside plain or quoted text",
+        ),
+        (
+            "A@{ label: x: }",
+            "Line 2: node metadata at column 2 has a value outside plain or quoted text",
+        ),
+        (
+            "A@{ label: \"x }",
+            "Line 2: the node metadata at column 2 is not closed",
+        ),
+        (
+            "A@{ label: #59;x }",
+            "Line 2: node metadata at column 2 has a value outside plain or quoted text",
+        ),
+        ("A@{	label: x }", "Line 2: text holds a tab"),
+    ];
+    let mut wrong = Vec::new();
+    for (body, error) in refused {
+        let got = flowchart(&format!("flowchart LR\n{body}")).map(|f| f.text());
+        if got.as_ref().err().map(String::as_str) != Some(error) {
+            wrong.push(format!("{body:?}: {got:?}, want {error:?}"));
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "not refused as expected:\n{}",
+        wrong.join("\n")
+    );
+}
