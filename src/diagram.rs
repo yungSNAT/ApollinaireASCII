@@ -435,6 +435,8 @@ fn front_matter<'a, I: Iterator<Item = (usize, &'a str)> + Clone>(
     // The keys above the current line, each with its indent; a block scalar's indent.
     let mut keys: Vec<(usize, &str)> = Vec::new();
     let mut scalar = None;
+    // The indent of a `mainBranchName` line just read, so a line continuing its value is refused.
+    let mut main = None;
     // The body runs to the first closing line past its first line, which `last` guarantees.
     let mut first = true;
     let body = lines.take_while(|&(_, text)| std::mem::take(&mut first) || !closes(text));
@@ -444,8 +446,17 @@ fn front_matter<'a, I: Iterator<Item = (usize, &'a str)> + Clone>(
         if content.trim_end().is_empty() || content.starts_with('#') {
             continue;
         }
+        let unread_main = || {
+            format!(
+                "Line {number}: mainBranchName is read only as a plain or quoted name on its line"
+            )
+        };
         if scalar.is_some_and(|at| depth > at) {
             continue;
+        }
+        // A deeper line after the name continues it, as a plain scalar runs on.
+        if main.take().is_some_and(|at| depth > at) {
+            return Err(unread_main());
         }
         scalar = None;
         while keys.last().is_some_and(|&(at, _)| at >= depth) {
@@ -481,8 +492,17 @@ fn front_matter<'a, I: Iterator<Item = (usize, &'a str)> + Clone>(
         }
         // Only the block form is read; any other place or form of the key is refused, so none
         // is dropped whilst Mermaid reads it.
+        // The name in a block line's plain or quoted value is text, unless an anchor there could
+        // bring it back as a key.
         let under_git_graph = keys.iter().map(|&(_, key)| key).eq(["config", "gitGraph"]);
-        if word(content, "mainBranchName") && !(keyed(content, "mainBranchName") && under_git_graph)
+        let in_value = !content.starts_with(['-', '?'])
+            && !content.contains('&')
+            && key_value(content).is_some_and(|(key, value)| {
+                !word(key, "mainBranchName") && !value.starts_with(['{', '['])
+            });
+        if word(content, "mainBranchName")
+            && !in_value
+            && !(keyed(content, "mainBranchName") && under_git_graph)
         {
             return Err(format!(
                 "Line {number}: mainBranchName is read only on its own line under config: and gitGraph:"
@@ -491,15 +511,17 @@ fn front_matter<'a, I: Iterator<Item = (usize, &'a str)> + Clone>(
         let Some((key, value)) = key_value(content) else {
             continue;
         };
+        // `keyed` held, so the first `:` ends the key.
+        if key == "mainBranchName" && !whole_name(&content[content.find(':').unwrap_or(0) + 1..]) {
+            return Err(unread_main());
+        }
         if value.is_empty() {
             keys.push((depth, key));
         } else if value.starts_with(['|', '>']) {
             scalar = Some(depth);
         } else {
-            if key == "mainBranchName" && value.starts_with('"') && value.contains('\\') {
-                return Err(format!(
-                    "Line {number}: an escaped mainBranchName is not read"
-                ));
+            if key == "mainBranchName" {
+                main = Some(depth);
             }
             let mut path: Vec<&str> = keys.iter().map(|&(_, key)| key).collect();
             path.push(key);
@@ -528,6 +550,21 @@ fn word(line: &str, name: &str) -> bool {
         !line[..at].chars().next_back().is_some_and(part)
             && !line[at + name.len()..].chars().next().is_some_and(part)
     })
+}
+
+/// Whether a `mainBranchName` value (the text after its `:`) is one this reader takes whole: a
+/// plain scalar, or a quoted one with no escape or doubled quote, each with at most a comment
+/// after it.
+fn whole_name(rest: &str) -> bool {
+    let rest = rest.trim();
+    match rest.as_bytes().first() {
+        None => false,
+        Some(&quote @ (b'"' | b'\'')) => rest[1..].find(char::from(quote)).is_some_and(|end| {
+            let after = rest[end + 2..].trim_start();
+            !rest[1..=end].contains('\\') && (after.is_empty() || after.starts_with('#'))
+        }),
+        Some(first) => !b"#*&!|>[{%@`".contains(first),
+    }
 }
 
 /// Whether a line holds a double-quoted key (before `:` or after `?`) with an escape, which is

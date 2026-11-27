@@ -235,11 +235,37 @@ fn front_matter_names_the_main_branch_of_a_git_graph_as_a_directive_does() {
             "{front}"
         );
     }
+    // A value this reader cannot take whole (escaped, an alias, anchor or tag, a block scalar,
+    // a flow collection, a doubled quote, on the next lines) is refused, not drawn as another
+    // name.
+    for (value, line) in [
+        ("\"tr\\u0075nk\"", 4),
+        ("*b", 4),
+        ("&b trunk", 4),
+        ("!!str trunk", 4),
+        ("|\n      trunk", 4),
+        (">-\n      trunk", 4),
+        ("[trunk]", 4),
+        ("'it''s'", 4),
+        ("'trunk' x", 4),
+        ("\"trunk", 4),
+        ("\n      trunk", 4),
+        ("# a comment\n      trunk", 4),
+        ("tr\n      unk", 5),
+    ] {
+        let front = format!("config:\n  gitGraph:\n    mainBranchName: {value}");
+        assert_eq!(
+            mermaid(&format!("---\n{front}\n---\n{branches}")).unwrap_err(),
+            format!(
+                "Line {line}: mainBranchName is read only as a plain or quoted name on its line"
+            ),
+            "{value:?}"
+        );
+    }
+    // The name in a value is text, not a setting.
+    let mentioned = "---\ndescription: mainBranchName\nnote: \"mainBranchName is documented here\"\nconfig:\n  look: mainBranchName\n---\ngitGraph\n  commit";
     assert_eq!(
-        mermaid(&format!(
-            "---\nconfig:\n  gitGraph:\n    mainBranchName: \"tr\\u0075nk\"\n---\n{branches}"
-        ))
-        .unwrap_err(),
-        "Line 4: an escaped mainBranchName is not read"
+        mermaid(mentioned).unwrap().text(),
+        mermaid("gitGraph\n  commit").unwrap().text()
     );
 }
