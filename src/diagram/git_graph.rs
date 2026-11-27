@@ -76,7 +76,29 @@ fn parse(source: &str) -> Result<Reader> {
         }],
         ..Reader::default()
     };
-    super::mermaid_lines(source, |number, line| reader.line(number, line))?;
+    // Front matter's `config.gitGraph.mainBranchName` names the main branch, as a directive's
+    // does; it comes before every statement, so a directive still overrides it, as in Mermaid.
+    let main = std::cell::Cell::new(None);
+    super::mermaid_lines_with(
+        source,
+        |number, path, value| {
+            if path == ["config", "gitGraph", "mainBranchName"] {
+                main.set(Some((number, value)));
+            }
+            Ok(())
+        },
+        |number, line| {
+            if let Some((at, name)) = main.take() {
+                // Front matter holds no tab, and only its spaces are trimmed.
+                let name = decode(at, name.trim_matches(' '))?;
+                if name.is_empty() {
+                    return Err(format!("Line {at}: mainBranchName names a branch"));
+                }
+                reader.branches[0].name = name;
+            }
+            reader.line(number, line)
+        },
+    )?;
     if !reader.started {
         return Err("A Git graph starts with gitGraph".into());
     }
