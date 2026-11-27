@@ -407,12 +407,13 @@ fn front_matter_indent(line: &str) -> Option<&str> {
 /// `JSON_SCHEMA`. This reader accepts only the grammar below, which js-yaml reads the same way,
 /// and refuses the front matter at the first line outside it, naming the line:
 /// - Every line holds only printable characters: no tab or other control character, and none of
-///   U+0085, U+2028, U+2029, U+FEFF, U+FFFE and U+FFFF.
-/// - A line is blank, a comment (`#` after any spaces), `---` as the body's first line (a
-///   document start), or `key:` or `key: value` after spaces, each with at most a comment
+///   U+0085, U+2028, U+2029, U+FEFF, U+FFFE and U+FFFF; and no `<` before a letter, digit or
+///   `_`, since Mermaid's `cleanupText` rewrites the quotes in such a tag first.
+/// - A line is blank, a comment (`#` after any spaces), `---` unindented as the body's first
+///   line (a document start), or `key:` or `key: value` after spaces, each with at most a comment
 ///   (` #` onwards) after it.
-/// - A key is ASCII letters, digits, `_` and `-`, starting with a letter or `_`, then `:` and
-///   a space or the line end.
+/// - A key is ASCII letters, digits, `_` and `-`, starting with a letter or `_`, and not a
+///   null or boolean word (below), then `:` and a space or the line end.
 /// - A value is one line: a plain scalar, which starts with none of `- ? : , [ ] { } # & * ! |
 ///   > ' " % @` and backtick, and holds no `: ` and does not end in `:`; or a scalar in single or
 ///   double quotes, closed on the line, with no quote of its kind or `\` inside.
@@ -421,8 +422,8 @@ fn front_matter_indent(line: &str) -> Option<&str> {
 /// - A top-level `title` is refused, since it is not drawn. `config` > `gitGraph` >
 ///   `mainBranchName` names the Git graph's main branch; it must be a quoted value or a plain
 ///   one YAML types as text (not starting with a digit, `+` or `.`, and none of `~`, `null`,
-///   `Null`, `NULL`, `true`, `True`, `TRUE`, `false`, `False`, `FALSE`). The key anywhere else
-///   is refused.
+///   `Null`, `NULL`, `true`, `True`, `TRUE`, `false`, `False`, `FALSE`), in printable ASCII
+///   with no `#`, which could start an entity code. The key anywhere else is refused.
 ///
 /// So multi-line, block and flow values, tags, anchors, aliases, sequences, explicit, quoted and
 /// merge keys, tabs, repeated keys and document markers inside are refused, whatever they hold.
@@ -467,13 +468,18 @@ fn front_matter<'a, I: Iterator<Item = (usize, &'a str)> + Clone>(
             || format!("Line {number}: front matter is read only as block key: value lines");
         // Mermaid dedents each line that starts with the opening's indent.
         let line = text.strip_prefix(indent).unwrap_or(text);
-        if !line.chars().all(yaml_printable) {
+        // Mermaid's cleanupText rewrites `="..."` after a `<word` (to a `>`, across lines)
+        // before the YAML is read, so no such text is read.
+        if !line.chars().all(yaml_printable) || html_tag(line) {
             return Err(not_read());
         }
         let content = line.trim_start_matches(' ');
         let depth = line.len() - content.len();
         let content = content.trim_end_matches(' ');
-        if content.is_empty() || content.starts_with('#') || index == 0 && content == "---" {
+        if content.is_empty()
+            || content.starts_with('#')
+            || index == 0 && depth == 0 && content == "---"
+        {
             continue;
         }
         match opens.take() {
@@ -520,10 +526,13 @@ fn front_matter<'a, I: Iterator<Item = (usize, &'a str)> + Clone>(
                     "Line {number}: mainBranchName is read only on its own line under config: and gitGraph:"
                 ));
             }
-            if !value
-                .flatten()
-                .is_some_and(|name| rest.starts_with(['"', '\'']) || text_typed(name))
-            {
+            if !value.flatten().is_some_and(|name| {
+                // `#` may start an entity code, which Mermaid does not decode here, and a
+                // name is drawn in printable ASCII.
+                !name.contains('#')
+                    && name.bytes().all(|b| (32..=126).contains(&b))
+                    && (rest.starts_with(['"', '\'']) || text_typed(name))
+            }) {
                 return Err(format!(
                     "Line {number}: mainBranchName is read only as a plain or quoted name on its line"
                 ));
@@ -540,6 +549,12 @@ fn front_matter<'a, I: Iterator<Item = (usize, &'a str)> + Clone>(
         }
     }
     Ok(())
+}
+
+/// Whether a line holds `<` and a word character, which Mermaid's cleanupText reads as a tag.
+fn html_tag(line: &str) -> bool {
+    line.match_indices('<')
+        .any(|(at, _)| line[at + 1..].starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_'))
 }
 
 /// Whether js-yaml reads a character in front matter as printable text.
@@ -559,7 +574,9 @@ fn key_value(content: &str) -> Option<(&str, &str)> {
         .unwrap_or(content.len());
     let (key, rest) = content.split_at(end);
     let rest = rest.strip_prefix(':')?;
+    // A null or boolean word is not a text key, so 2 of them can be one key.
     (key.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+        && text_typed(key)
         && (rest.is_empty() || rest.starts_with(' ')))
     .then_some((key, rest.trim_start_matches(' ')))
 }

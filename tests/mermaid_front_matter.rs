@@ -251,6 +251,16 @@ fn front_matter_is_read_only_in_its_grammar() {
         ("---\nconfig:\n  gitGraph:\n    \"mainBranchName\":trunk\n---\ngitGraph\n  commit\n".into(), 4, NOT_READ),
         ("---\nconfig:\n  gitGraph:\n    x: a\n      mainBranchName: trunk\n---\ngitGraph\n  commit\n".into(), 5, NOT_READ),
         ("---\nx: 1\n...\nconfig:\n  gitGraph:\n    mainBranchName: trunk\n---\ngitGraph\n  commit\n".into(), 3, NOT_READ),
+        // Round 10 inputs, verbatim (the reviewer's p01 to p07).
+        ("---\nnull: a\nNull: b\nconfig:\n  gitGraph:\n    mainBranchName: trunk\n---\ngitGraph\n  commit\n".into(), 2, NOT_READ),
+        ("---\ntrue: a\nTRUE: b\nconfig:\n  gitGraph:\n    mainBranchName: trunk\n---\ngitGraph\n  commit\n".into(), 2, NOT_READ),
+        ("---\n  ---\nconfig:\n  gitGraph:\n    mainBranchName: trunk\n---\ngitGraph\n  commit\n".into(), 2, NOT_READ),
+        ("---\nconfig:\n  gitGraph:\n    mainBranchName: <a x=\"y\">\n---\ngitGraph\n  commit\n".into(), 4, NOT_READ),
+        ("---\nconfig:\n  gitGraph:\n    mainBranchName: '<b class=\"k\">'\n---\ngitGraph\n  commit\n".into(), 4, NOT_READ),
+        ("---\nconfig:\n  gitGraph:\n    mainBranchName: a#59;b\n---\ngitGraph\n  commit\n".into(), 4, PLAIN),
+        ("---\nconfig:\n  gitGraph:\n    mainBranchName: trunk\u{a0}\n---\ngitGraph\n  commit\n".into(), 4, PLAIN),
+        // The rewrite runs from a `<word` on one line to a `>` on a later one.
+        ("---\n# <a\nconfig:\n  gitGraph:\n    mainBranchName: \"x\" # >\n---\ngitGraph\n  commit\n".into(), 2, NOT_READ),
     ];
     let wrapped: Vec<(String, usize, &str)> = vec![
         // Round 8's null, boolean and number values, and other values not read as text.

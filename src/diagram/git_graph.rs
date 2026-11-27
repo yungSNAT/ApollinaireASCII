@@ -89,7 +89,8 @@ fn parse(source: &str) -> Result<Reader> {
         },
         |number, line| {
             if let Some((at, name)) = main.take() {
-                let name = decode(at, &name.trim().replace('\t', " "))?;
+                // Front matter holds no tab, and only its spaces are trimmed.
+                let name = decode(at, name.trim_matches(' '))?;
                 if name.is_empty() {
                     return Err(format!("Line {at}: mainBranchName names a branch"));
                 }
