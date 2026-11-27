@@ -270,6 +270,27 @@ fn front_matter_is_read_only_in_its_grammar() {
             "config:\n  note: >\n   x\n  gitGraph:\n    mainBranchName: trunk".into(),
             "trunk",
         ),
+        // A plain scalar over several lines: `key:` then lines deeper than the key, none of
+        // which is `key:` or `key: value`, all plain text.
+        (
+            format!("description:\n  Fully interconnects the triangle, sloped-rectangle,\n  flipped-triangle (every shape) under the 'neo' theme/look, & *so* [x] {{y}}\n{}", block("trunk")),
+            "trunk",
+        ),
+        (format!("description:\n    a\n  b\n\n   c\n{}", block("trunk")), "trunk"),
+        (
+            under("    note:\n      some text\n      more\n    mainBranchName: trunk"),
+            "trunk",
+        ),
+        (under("    mainBranchName trunk"), "main"),
+        (format!("note:\n  see http://x.y/z and a:b\n{}", block("trunk")), "trunk"),
+        (format!("note:\n  text\n# c\n{}", block("trunk")), "trunk"),
+        (format!("note:\n  # c\n  text\n{}", block("trunk")), "trunk"),
+        (format!("{}\ndescription:\n  last words", block("trunk")), "trunk"),
+        (
+            format!("description:\n  a\n  b\n{}", block("trunk")).replace('\n', "\r\n"),
+            "trunk",
+        ),
+        (format!("note:\n  a\n      \n  b\n{}", block("trunk")), "trunk"),
     ];
     let refused: Vec<(String, usize, &str)> = vec![
         // Round 8 and round 9 inputs, verbatim (the reviewer's c01 to c19, c22, c24 and c30).
@@ -387,6 +408,53 @@ fn front_matter_is_read_only_in_its_grammar() {
             NOT_READ,
         ),
         ("note: >\nnext: 1\n  x: 2".into(), 4, NOT_READ),
+        // Plain scalars over several lines refused: a line after a mapping's first key, a line
+        // holding `: ` or ` #` or ending in `:`, or starting as a plain scalar may not, a tab or
+        // a `<word`, and mainBranchName or a top-level title written so.
+        (
+            format!("note:\n  a: b\n  plain\n{}", block("trunk")),
+            4,
+            NOT_READ,
+        ),
+        (
+            format!("note:\n  text\n  more: x\n{}", block("trunk")),
+            4,
+            NOT_READ,
+        ),
+        (
+            format!("note:\n  text # c\n  more\n{}", block("trunk")),
+            3,
+            NOT_READ,
+        ),
+        (
+            format!("note:\n  text\n  # c\n  more\n{}", block("trunk")),
+            4,
+            NOT_READ,
+        ),
+        (
+            format!("note:\n  text\n   # c\n   more\n{}", block("trunk")),
+            4,
+            NOT_READ,
+        ),
+        (
+            format!("note:\n  text\n  - x\n{}", block("trunk")),
+            4,
+            NOT_READ,
+        ),
+        (
+            format!("note:\n  text\n  'q'\n{}", block("trunk")),
+            4,
+            NOT_READ,
+        ),
+        (format!("note:\n  a b:\n{}", block("trunk")), 3, NOT_READ),
+        (format!("note:\n  a\tb\n{}", block("trunk")), 3, NOT_READ),
+        (
+            format!("note:\n  see <b>x</b>\n{}", block("trunk")),
+            3,
+            NOT_READ,
+        ),
+        (under("    mainBranchName:\n      trunk"), 4, PLAIN),
+        ("title:\n  Pets".into(), 2, TITLE),
     ];
     let mut wrong: Vec<String> = accepted
         .into_iter()
