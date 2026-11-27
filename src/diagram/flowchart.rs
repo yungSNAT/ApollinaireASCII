@@ -33,13 +33,16 @@ use std::collections::HashMap;
 ///
 /// - Node metadata straight after a node's name or shape, `A@{ shape: cyl, label: Text }`, as
 ///   Mermaid 12.3.0 reads it: keys `shape` (any shape name or alias Mermaid documents that it
-///   draws with its text, drawn as the same box) and `label` (the node's text), each at most
-///   once, with values plain (starting with an ASCII letter, with no `: `, `:` at the end, ` #`
-///   other than an entity code, or any of `[]{}^'"`) or quoted with no quote of either kind or
-///   `\` inside, and no `^` in single quotes. A label holding any of ``*_`~\<>&[]@``, `://`,
-///   `www.`, `:fa-` or `$$`, which Mermaid draws as Markdown, an icon or maths, or `#x` in any
-///   case, which may start a hexadecimal entity code, is refused, as are other keys, a value YAML reads as a number, null or boolean, metadata after a
-///   `:::class` and metadata not closed on its line.
+///   draws with its text, or `doublecircle`, drawn as the same box) and `label` (the node's
+///   text), each at most once, with values plain (starting with an ASCII letter, with no `: `,
+///   `:` at the end, ` #` other than an entity code, or any of `[]{}^'"`) or quoted with no
+///   quote of either kind or `\` inside, and no `^` in single quotes. A label holding any of
+///   ``*_`~\<>&[]@``, `://`, `www.`, `:fa-` or `$$`, which Mermaid draws as Markdown, an icon or
+///   maths, `#x` in any case, which may start a hexadecimal entity code, or a decimal code
+///   naming no character, which Mermaid draws as U+FFFD, is refused, as are other keys, a value
+///   YAML reads as a number, null or boolean, metadata after a `:::class`, metadata not closed
+///   on its line and metadata on a line holding `style` or `classDef` before a `#`, where
+///   Mermaid leaves an entity code as written.
 /// - A node named twice in one `&` group, and a node name of the form `L_<from>_<to>_<n>`,
 ///   which Mermaid reads as a link's name, are refused.
 ///
@@ -547,6 +550,15 @@ fn metadata(c: &mut Cursor) -> Result<Option<String>> {
         }
     }
     c.at = start + end + 1;
+    if ["style", "classDef"]
+        .into_iter()
+        .any(|word| line.find(word).is_some_and(|at| line[at..].contains('#')))
+    {
+        return Err(fault(
+            c,
+            "is on a line holding style or classDef before a #",
+        ));
+    }
     let Some(label) = label else {
         return Ok(None);
     };
@@ -560,7 +572,25 @@ fn metadata(c: &mut Cursor) -> Result<Option<String>> {
         return Err(fault(c, "has a label Mermaid draws as other than text"));
     }
     if lower.contains("#x") {
-        return Err(fault(c, "has a hexadecimal entity code"));
+        return Err(fault(
+            c,
+            "has a label holding #x, which may start a hexadecimal entity code",
+        ));
+    }
+    let nameless = label
+        .split('#')
+        .skip(1)
+        .filter_map(|after| after.split_once(';'))
+        .any(|(code, _)| {
+            !code.is_empty()
+                && code.bytes().all(|b| b.is_ascii_digit())
+                && code.parse::<u32>().ok().and_then(char::from_u32).is_none()
+        });
+    if nameless {
+        return Err(fault(
+            c,
+            "has a label holding a decimal code that names no character",
+        ));
     }
     super::decode(c.number, label).map(Some)
 }
