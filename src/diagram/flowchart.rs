@@ -575,8 +575,9 @@ fn entries(body: &str) -> Vec<&str> {
 }
 
 /// A metadata value as YAML reads it, when it is text: quoted with no quote of either kind or
-/// `\` inside (and no `^` in single quotes, which Mermaid's lexer refuses), or plain, starting with an ASCII letter, with no
-/// `: `, `:` at its end, ` #` other than an entity code such as ` #59;`, or any of `[]{}^'"`.
+/// `\` inside (and no `^` in single quotes, which Mermaid's lexer refuses), or plain, starting
+/// with an ASCII letter, with no `: `, `:` at its end, ` #` other than an entity code such as
+/// ` #59;`, or any of `[]{}^'"`.
 fn scalar(value: &str) -> std::result::Result<&str, String> {
     let outside = || "has a value outside plain or quoted text".to_string();
     if value.is_empty() {
