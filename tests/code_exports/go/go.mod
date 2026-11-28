@@ -2,7 +2,7 @@ module apollinaireart
 
 go 1.27.4
 
-require charm.land/bubbletea/v2 v2.1.1
+require charm.land/bubbletea/v2 v2.1.2
 
 require (
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
