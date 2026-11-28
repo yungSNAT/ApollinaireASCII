@@ -26,11 +26,28 @@ use std::collections::HashMap;
 ///   `-->|text|` or `-- text -->`, takes a rank of its own between its ends.
 /// - Entity codes in text: `#59;` for `;`, `#quot;` for `"`, and any decimal code or HTML name
 ///   for a printable ASCII character; a hexadecimal code such as `#x3B;` stays as written.
-/// - Chains (`A --> B --> C`) and groups (`A & B --> C`, linking every pair).
+/// - Chains (`A --> B --> C`) and groups (`A & B --> C`, linking every pair), with a space on
+///   each side of each `&`, as Mermaid requires.
 /// - `classDef`, `class`, `style` and `linkStyle` statements and `:::class` suffixes are
 ///   skipped: the output has no colour.
 ///
-/// Subgraphs, `click`, `direction`, shapes written `A@{ shape: .. }`, a link with an
+/// - Node metadata straight after a node's name or shape, `A@{ shape: cyl, label: Text }`, as
+///   Mermaid 12.3.0 reads it: keys `shape` (any shape name or alias Mermaid documents that it
+///   draws with its text, or `doublecircle`, drawn as the same box) and `label` (the node's
+///   text), each at most once, with values plain (starting with an ASCII letter, with no `: `,
+///   `:` at the end, ` #` other than an entity code, or any of `[]{}^'"`) or quoted with no
+///   quote of either kind or `\` inside, and no `^` in single quotes. A label holding any of
+///   ``*_`~\<>&[]@``, `://`, `www.`, `:fa-` or `$$`, which Mermaid draws as Markdown, an icon or
+///   maths, `#x` in any case, which may start a hexadecimal entity code, or a decimal code
+///   naming no character, which Mermaid draws as U+FFFD, is refused, as are other keys, a value
+///   YAML reads as a number, null or boolean, metadata after a `:::class`, metadata not closed
+///   on its line and metadata on a line holding `style` or `classDef`, then a `:` with no
+///   space before a `#` that has a `;` after it, where Mermaid may leave an entity code as
+///   written.
+/// - A node named twice in one `&` group, and a node name of the form `L_<from>_<to>_<n>`,
+///   which Mermaid reads as a link's name, are refused.
+///
+/// Subgraphs, `click`, `direction`, a link with an
 /// arrowhead at its start only (`A <-- B`), circle and cross link ends, Markdown strings, a link
 /// from a node to itself and any other syntax are refused with their line number, as is a byte
 /// outside printable ASCII. Where links cross, the vertical line is kept, so `+` marks only a
@@ -251,18 +268,38 @@ impl Parser {
     fn group(&mut self, c: &mut Cursor) -> Result<Vec<usize>> {
         let mut nodes = vec![self.node(c)?];
         loop {
+            let before = c.at;
             c.skip_spaces();
             if !c.eat("&") {
                 return Ok(nodes);
             }
+            let spaced = c.at - 1 > before;
             c.skip_spaces();
-            nodes.push(self.node(c)?);
+            if !spaced || c.line.as_bytes()[c.at - 1] == b'&' {
+                return Err(c.error("an & is read only with a space on each side"));
+            }
+            let node = self.node(c)?;
+            if nodes.contains(&node) {
+                return Err(c.error("a node named twice in one group is not read"));
+            }
+            nodes.push(node);
         }
     }
     fn node(&mut self, c: &mut Cursor) -> Result<usize> {
         let name = c.name().to_string();
         if name.is_empty() {
             return Err(c.error(&format!("expected a node name at column {}", c.at + 1)));
+        }
+        // Mermaid names an unnamed link `L_<from>_<to>_<n>` and reads a node of that name as
+        // the link's settings, not as a node.
+        let link_name = name
+            .strip_prefix("L_")
+            .and_then(|rest| rest.rsplit_once('_'))
+            .is_some_and(|(ends, n)| {
+                ends.contains('_') && !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())
+            });
+        if link_name {
+            return Err(c.error(&format!("the node name {name} can be a link's name")));
         }
         c.at += name.len();
         let index = match self.ids.get(&name) {
@@ -281,15 +318,352 @@ impl Parser {
             c.at += open.len();
             self.labels[index] = text(c, closes, column)?;
         }
-        if c.eat(":::") {
+        if c.rest().starts_with("@{") {
+            if let Some(label) = metadata(c)? {
+                self.labels[index] = label;
+            }
+        } else if c.eat(":::") {
             c.at += c
                 .rest()
                 .bytes()
                 .take_while(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
                 .count();
+            if c.rest().starts_with("@{") {
+                return Err(c.error("node metadata after a class is not read"));
+            }
         }
         Ok(index)
     }
+}
+
+/// Mermaid 12.3.0's shape names and aliases for a shape drawn with its text, each drawn here
+/// as the same box.
+const DRAWN_SHAPES: &[&str] = &[
+    "rect",
+    "proc",
+    "process",
+    "rectangle",
+    "rounded",
+    "event",
+    "stadium",
+    "terminal",
+    "pill",
+    "fr-rect",
+    "subprocess",
+    "subproc",
+    "framed-rectangle",
+    "subroutine",
+    "cyl",
+    "db",
+    "database",
+    "cylinder",
+    "datastore",
+    "data-store",
+    "folder",
+    "directory",
+    "bucket",
+    "console",
+    "browser",
+    "person",
+    "circle",
+    "circ",
+    "bang",
+    "cloud",
+    "diam",
+    "decision",
+    "diamond",
+    "question",
+    "hex",
+    "hexagon",
+    "prepare",
+    "lean-r",
+    "lean-right",
+    "in-out",
+    "lean-l",
+    "lean-left",
+    "out-in",
+    "trap-b",
+    "priority",
+    "trapezoid-bottom",
+    "trapezoid",
+    "trap-t",
+    "manual",
+    "trapezoid-top",
+    "inv-trapezoid",
+    "dbl-circ",
+    "double-circle",
+    "doublecircle",
+    "text",
+    "notch-rect",
+    "card",
+    "notched-rectangle",
+    "lin-rect",
+    "lined-rectangle",
+    "lined-process",
+    "lin-proc",
+    "shaded-process",
+    "brace",
+    "comment",
+    "brace-l",
+    "brace-r",
+    "braces",
+    "doc",
+    "document",
+    "delay",
+    "half-rounded-rectangle",
+    "h-cyl",
+    "das",
+    "horizontal-cylinder",
+    "lin-cyl",
+    "disk",
+    "lined-cylinder",
+    "curv-trap",
+    "curved-trapezoid",
+    "display",
+    "div-rect",
+    "div-proc",
+    "divided-rectangle",
+    "divided-process",
+    "tri",
+    "extract",
+    "triangle",
+    "win-pane",
+    "internal-storage",
+    "window-pane",
+    "notch-pent",
+    "loop-limit",
+    "notched-pentagon",
+    "flip-tri",
+    "manual-file",
+    "flipped-triangle",
+    "sl-rect",
+    "manual-input",
+    "sloped-rectangle",
+    "docs",
+    "documents",
+    "st-doc",
+    "stacked-document",
+    "st-rect",
+    "procs",
+    "processes",
+    "stacked-rectangle",
+    "bow-rect",
+    "stored-data",
+    "bow-tie-rectangle",
+    "tag-doc",
+    "tagged-document",
+    "tag-rect",
+    "tagged-rectangle",
+    "tag-proc",
+    "tagged-process",
+    "flag",
+    "paper-tape",
+    "odd",
+    "lin-doc",
+    "lined-document",
+];
+
+/// Mermaid 12.3.0's shapes drawn without their text, so not drawn here.
+const TEXTLESS_SHAPES: &[&str] = &[
+    "f-circ",
+    "junction",
+    "filled-circle",
+    "fork",
+    "join",
+    "bolt",
+    "com-link",
+    "lightning-bolt",
+    "cross-circ",
+    "summary",
+    "crossed-circle",
+    "sm-circ",
+    "start",
+    "small-circle",
+    "fr-circ",
+    "stop",
+    "framed-circle",
+    "hourglass",
+    "collate",
+];
+
+/// Node metadata such as `@{ shape: rect, label: Text }` at the cursor, consumed: the label, if
+/// any. Mermaid reads it as a YAML flow mapping, closed at the first `}` outside double quotes,
+/// and draws its label as Markdown; only the forms below are proven to read the same here.
+fn metadata(c: &mut Cursor) -> Result<Option<String>> {
+    let column = c.at + 1;
+    let fault =
+        |c: &Cursor, what: &str| c.error(&format!("node metadata at column {column} {what}"));
+    let line = c.line;
+    let start = c.at + 2;
+    let mut quoted = false;
+    let end = line[start..]
+        .bytes()
+        .position(|b| {
+            quoted ^= b == b'"';
+            b == b'}' && !quoted
+        })
+        .ok_or_else(|| {
+            c.error(&format!(
+                "the node metadata at column {column} is not closed"
+            ))
+        })?;
+    let body = &line[start..start + end];
+    if body.contains('\t') {
+        return Err(c.error("text holds a tab"));
+    }
+    let mut seen: Vec<&str> = Vec::new();
+    let mut label = None;
+    for entry in entries(body) {
+        let entry = entry.trim_matches(' ');
+        if entry.is_empty() {
+            if body.trim_matches(' ').is_empty() {
+                break;
+            }
+            return Err(fault(c, "holds an empty entry"));
+        }
+        let (key, value) = entry
+            .split_once(':')
+            .filter(|(key, value)| {
+                let key = key.trim_end_matches(' ');
+                !key.is_empty()
+                    && key.bytes().all(|b| b.is_ascii_alphabetic())
+                    && (value.is_empty() || value.starts_with(' '))
+            })
+            .ok_or_else(|| fault(c, "is not key: value"))?;
+        let key = key.trim_end_matches(' ');
+        if !matches!(key, "shape" | "label") {
+            return Err(c.error(&format!("node metadata {key} is not drawn")));
+        }
+        if seen.contains(&key) {
+            return Err(c.error(&format!("node metadata names {key} twice")));
+        }
+        seen.push(key);
+        let value = scalar(value.trim_matches(' ')).map_err(|what| fault(c, &what))?;
+        if value.trim_matches(' ').is_empty() {
+            return Err(fault(c, &format!("has an empty {key}")));
+        }
+        if key == "label" {
+            label = Some(value.trim_matches(' '));
+        } else if TEXTLESS_SHAPES.contains(&value) {
+            return Err(c.error(&format!("the shape {value} is drawn with no text")));
+        } else if !DRAWN_SHAPES.contains(&value) {
+            return Err(c.error(&format!("no such shape: {value}")));
+        }
+    }
+    c.at = start + end + 1;
+    // Mermaid's `/style.*:\S*#.*;/g` and `/classDef.*:\S*#.*;/g` drop the line's last `;`.
+    let rewritten = |word: &str| {
+        line.find(word).is_some_and(|at| {
+            let rest = &line[at + word.len()..];
+            rest.match_indices('#').any(|(hash, _)| {
+                let run = rest[..hash].rsplit(char::is_whitespace).next();
+                run.unwrap_or_default().contains(':') && rest[hash..].contains(';')
+            })
+        })
+    };
+    if rewritten("style") || rewritten("classDef") {
+        return Err(fault(
+            c,
+            "is on a line holding style or classDef before a #",
+        ));
+    }
+    let Some(label) = label else {
+        return Ok(None);
+    };
+    let lower = label.to_ascii_lowercase();
+    if label.contains(['*', '_', '`', '~', '\\', '<', '>', '&', '[', ']', '@'])
+        || lower.contains("://")
+        || lower.contains("www.")
+        || label.contains(":fa-")
+        || label.contains("$$")
+    {
+        return Err(fault(c, "has a label Mermaid draws as other than text"));
+    }
+    if lower.contains("#x") {
+        return Err(fault(
+            c,
+            "has a label holding #x, which may start a hexadecimal entity code",
+        ));
+    }
+    let nameless = label
+        .split('#')
+        .skip(1)
+        .filter_map(|after| after.split_once(';'))
+        .any(|(code, _)| {
+            !code.is_empty()
+                && code.bytes().all(|b| b.is_ascii_digit())
+                && code.parse::<u32>().ok().and_then(char::from_u32).is_none()
+        });
+    if nameless {
+        return Err(fault(
+            c,
+            "has a label holding a decimal code that names no character",
+        ));
+    }
+    super::decode(c.number, label).map(Some)
+}
+
+/// The entries of a flow mapping's text, split at each `,` outside quotes.
+fn entries(body: &str) -> Vec<&str> {
+    let (mut parts, mut from, mut quote) = (Vec::new(), 0, None);
+    for (at, b) in body.bytes().enumerate() {
+        match (quote, b) {
+            (None, b'"' | b'\'') => quote = Some(b),
+            (Some(q), _) if q == b => quote = None,
+            (None, b',') => {
+                parts.push(&body[from..at]);
+                from = at + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&body[from..]);
+    parts
+}
+
+/// A metadata value as YAML reads it, when it is text: quoted with no quote of either kind or
+/// `\` inside (and no `^` in single quotes, which Mermaid's lexer refuses), or plain, starting
+/// with an ASCII letter, with no `: `, `:` at its end, ` #` other than an entity code such as
+/// ` #59;`, or any of `[]{}^'"`.
+fn scalar(value: &str) -> std::result::Result<&str, String> {
+    let outside = || "has a value outside plain or quoted text".to_string();
+    if value.is_empty() {
+        return Ok(value);
+    }
+    if let Some(quote) = value.chars().next().filter(|q| matches!(q, '"' | '\'')) {
+        return value[1..]
+            .strip_suffix(quote)
+            .filter(|inner| {
+                !inner.contains(['"', '\'', '\\']) && (quote == '"' || !inner.contains('^'))
+            })
+            .ok_or_else(outside);
+    }
+    let lower = value.to_ascii_lowercase();
+    let unsigned = value.trim_start_matches(['+', '-']).trim_start_matches('.');
+    if matches!(lower.as_str(), "null" | "true" | "false" | "~")
+        || unsigned.starts_with(|c: char| c.is_ascii_digit())
+    {
+        return Err(format!(
+            "has a value YAML reads as other than text: {value}"
+        ));
+    }
+    let comment = value.match_indices(" #").any(|(at, _)| {
+        let code = &value[at + 2..];
+        let word = code
+            .bytes()
+            .take_while(|b| b.is_ascii_alphanumeric() || *b == b'_')
+            .count();
+        word == 0 || code.as_bytes().get(word) != Some(&b';')
+    });
+    if !value.starts_with(|c: char| c.is_ascii_alphabetic())
+        || value.contains(": ")
+        || value.ends_with(':')
+        || comment
+        || value.contains(['[', ']', '{', '}', '^', '\'', '"'])
+    {
+        return Err(outside());
+    }
+    Ok(value)
 }
 
 /// Text up to the first of `closes`, which is consumed; quotes around it are dropped.

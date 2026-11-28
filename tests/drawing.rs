@@ -809,10 +809,6 @@ fn flowcharts_refuse_what_they_cannot_draw_with_its_line() {
             "Line 2: the link at column 3 has an arrowhead at its start only",
         ),
         (
-            "graph TD\nA@{ shape: rect }",
-            "Line 2: expected a link such as --> at column 2",
-        ),
-        (
             "graph TD\nA -> B",
             "Line 2: expected a link such as --> at column 3",
         ),
