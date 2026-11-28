@@ -2,7 +2,7 @@
   "private": true,
   "type": "module",
   "devDependencies": {
-    "@opentui/core": "0.9.1",
+    "@opentui/core": "0.9.7",
     "ink": "8.0.0",
     "ink-testing-library": "4.0.0",
     "jsdom": "31.0.1",
